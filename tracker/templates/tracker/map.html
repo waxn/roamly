@@ -2671,6 +2671,7 @@ const addplaceSaveBtn = document.getElementById('addplace-save');
 
 let ctxLngLat = null;
 let ctxPointId = null;
+let ctxPoint = null;
 let addplaceMarker = null;
 let addplaceRadius = 150;
 
@@ -2689,6 +2690,7 @@ function deletableDotLayers() {
 
 map.on('contextmenu', (e) => {
     ctxLngLat = e.lngLat;
+    ctxPoint = e.point;
     ctxCoordsEl.textContent = `${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}`;
     ctxCopyCoordsBtn.textContent = 'copy coordinates';
 
@@ -2775,6 +2777,14 @@ function openAddPlace(lngLat) {
             paint: { 'line-color': '#e8763d', 'line-width': 2, 'line-opacity': 0.9 } });
     }
 
+    // Open beside the cursor (clamped inside the map) rather than a fixed corner.
+    const host = addplacePanel.offsetParent || document.getElementById('map-container');
+    const pw = 208, ph = 190;
+    const pt = ctxPoint || { x: host.clientWidth - pw - 12, y: host.clientHeight - ph - 52 };
+    addplacePanel.style.right = 'auto';
+    addplacePanel.style.bottom = 'auto';
+    addplacePanel.style.left = Math.max(8, Math.min(pt.x + 12, host.clientWidth - pw - 8)) + 'px';
+    addplacePanel.style.top = Math.max(8, Math.min(pt.y + 12, host.clientHeight - ph - 8)) + 'px';
     addplacePanel.classList.add('open');
     setTimeout(() => addplaceNameEl.focus(), 50);
 }
@@ -2819,9 +2829,15 @@ addplaceSaveBtn.addEventListener('click', async () => {
             body: JSON.stringify({ name, lat: ll.lat, lng: ll.lng, radius_m: addplaceRadius })
         });
         if (!res.ok) { const err = await res.json().catch(() => ({})); await roamlyAlert(err.error || 'save failed'); return; }
+        const created = await res.json().catch(() => null);
         closeAddPlace();
-        // Refresh the places layer if it's currently shown
-        myPlaces = null;
+        // Show it immediately: append the server's copy, then redraw if the layer is on
+        if (created && created.id != null) {
+            if (!myPlaces) await loadMyPlaces();
+            if (myPlaces && !myPlaces.some(p => p.id === created.id)) myPlaces.push(created);
+        } else {
+            myPlaces = null;
+        }
         if (placesOn) {
             removePlacesLayers();
             await applyPlacesToggle();
