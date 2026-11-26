@@ -119,14 +119,8 @@ import com.roamly.ui.kit.Foldout
 import com.roamly.ui.kit.IconAction
 import com.roamly.ui.kit.IconTile
 import com.roamly.ui.kit.InfoPair
-import com.roamly.ui.kit.ListRow
 import com.roamly.ui.kit.LocalDockPadding
-import com.roamly.ui.kit.MapSheet
-import com.roamly.ui.kit.MapSheetPeek
-import com.roamly.ui.kit.RowDivider
-import com.roamly.ui.kit.RowGroup
 import com.roamly.ui.Routes
-import com.roamly.ui.Tab
 import com.roamly.ui.kit.Panel
 import com.roamly.ui.kit.PanelTone
 import com.roamly.ui.kit.SectionTitle
@@ -166,9 +160,10 @@ fun MapScreen(
     recording: Boolean = false,
     /** Simple Mode: no Record, no Search, and a sheet with only the way to You. */
     simpleMode: Boolean = false,
-    username: String = "",
-    /** Pushes a route (see `Routes` / `Tab`). */
+    /** Pushes a route (see `Routes`). */
     onOpen: (String) -> Unit = {},
+    /** Switches to the Activity page, where recording starts. */
+    onRecord: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -176,7 +171,7 @@ fun MapScreen(
     val dark = Atlas.colors.isDark
     var showOptions by remember { mutableStateOf(false) }
     var showNotes by remember { mutableStateOf(false) }
-    var sheetOpen by rememberSaveable { mutableStateOf(false) }
+    var showRange by remember { mutableStateOf(false) }
     var focusNoteComposer by remember { mutableStateOf(false) }
     val notesState = notesViewModel?.uiState?.collectAsState()?.value
 
@@ -340,8 +335,7 @@ fun MapScreen(
     }
 
     val c = Atlas.colors
-    // The sheet's peek sits over the bottom: controls and toasts clear it.
-    val sheetBottom = LocalDockPadding.current + MapSheetPeek
+    val dock = LocalDockPadding.current
 
     Box(Modifier.fillMaxSize()) {
         AndroidView(
@@ -355,15 +349,16 @@ fun MapScreen(
             )
         )
 
-        // ── Top ─────────────────────────────────────────────────────────
+        // ── Top: search, refresh, preferences; then the range and the day note ──
         Column(
             Modifier.align(Alignment.TopStart).fillMaxWidth().statusBarsPadding().padding(start = 14.dp, top = 10.dp, end = 14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (simpleMode) Spacer(Modifier.weight(1f))
-                else SearchPill(Modifier.weight(1f)) { haptics.click(); onOpen(Tab.Ask.route) }
-                AvatarButton(username) { haptics.click(); onOpen(Tab.You.route) }
+                else SearchPill(Modifier.weight(1f)) { haptics.click(); onOpen(Routes.ASK) }
+                GlassButton(Icons.Rounded.Refresh, "Refresh map", busy = state.isRefreshing, enabled = !state.isRefreshing) { viewModel.refresh() }
+                GlassButton(Icons.Rounded.Tune, "Map preferences") { showOptions = true }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 RangePill(
@@ -372,18 +367,15 @@ fun MapScreen(
                     canBack = state.canStepBack,
                     canForward = state.canStepForward,
                     onStep = { dir -> haptics.tick(); viewModel.stepRange(dir) },
-                    onOpen = { showOptions = true },
+                    onOpen = { showRange = true },
                 )
-                Spacer(Modifier.weight(1f))
-                GlassButton(Icons.Rounded.Refresh, "Refresh map", busy = state.isRefreshing, enabled = !state.isRefreshing) { viewModel.refresh() }
-                GlassButton(Icons.Rounded.Tune, "Map options") { showOptions = true }
-            }
-            if (notesState != null && !notesState.hidden) {
-                QuickNotePill(state = notesState, onClick = {
-                    notesViewModel?.refreshToday()
-                    focusNoteComposer = false
-                    showNotes = true
-                })
+                if (notesState != null && !notesState.hidden) {
+                    QuickNotePill(state = notesState, modifier = Modifier.weight(1f, fill = false), onClick = {
+                        notesViewModel?.refreshToday()
+                        focusNoteComposer = false
+                        showNotes = true
+                    })
+                }
             }
         }
 
@@ -420,37 +412,21 @@ fun MapScreen(
 
         // ── Bottom: record + been-here, above the sheet's peek ──────────
         Column(
-            Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = sheetBottom + 12.dp),
+            Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = dock + 12.dp),
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (!simpleMode) RecordFab(recording) { haptics.thud(); onOpen(Routes.RECORD) }
+            if (!simpleMode) RecordFab(recording) { haptics.thud(); onRecord() }
             BeenHereButton(checking = checkingHere, onClick = askBeenHere)
         }
 
         nearHereError?.let { msg ->
             LaunchedEffect(msg) { kotlinx.coroutines.delay(3500); nearHereError = null }
-            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = sheetBottom + 130.dp, start = 16.dp, end = 16.dp)) {
+            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = dock + 130.dp, start = 16.dp, end = 16.dp)) {
                 GlassChip { Dot(c.danger); Spacer(Modifier.width(8.dp)); Text(msg, style = MaterialTheme.typography.bodySmall, color = c.text) }
             }
         }
 
-        MapSheet(
-            expanded = sheetOpen,
-            onExpandedChange = { sheetOpen = it },
-            peekHeight = sheetBottom,
-            modifier = Modifier.align(Alignment.BottomCenter),
-            peek = { SheetPeek(state, recording) },
-            body = {
-                SheetBody(
-                    state = state,
-                    simpleMode = simpleMode,
-                    onLens = { lens -> haptics.select(); viewModel.applyLens(lens) },
-                    onOptions = { sheetOpen = false; showOptions = true },
-                    onOpen = { route -> sheetOpen = false; onOpen(route) },
-                )
-            },
-        )
     }
 
     if (state.showDateRangePicker) {
@@ -472,11 +448,13 @@ fun MapScreen(
         )
     }
 
+    if (showRange) {
+        RangeSheet(state = state, onDismiss = { showRange = false }, onPeriod = viewModel::setTimePeriod)
+    }
     if (showOptions) {
         MapOptionsSheet(
             state = state,
             onDismiss = { showOptions = false },
-            onPeriod = viewModel::setTimePeriod,
             onBasemap = viewModel::setBasemap,
             onLayers = viewModel::updateLayers,
         )
@@ -622,20 +600,6 @@ private fun SearchPill(modifier: Modifier, onClick: () -> Unit) {
     }
 }
 
-@Composable
-private fun AvatarButton(username: String, onClick: () -> Unit) {
-    val c = Atlas.colors
-    Box(
-        glassModifier(SquircleShape(50)).size(46.dp).tappable(pressedScale = 0.9f, onClick = onClick)
-            .semantics { contentDescription = "You and settings" },
-        contentAlignment = Alignment.Center,
-    ) {
-        val initial = username.trim().firstOrNull()?.uppercase()
-        if (initial != null) Text(initial, style = MaterialTheme.typography.titleSmall, color = c.accent)
-        else Icon(Icons.Rounded.Person, null, tint = c.text, modifier = Modifier.size(21.dp))
-    }
-}
-
 /** The one coral thing on the map: Record, red with a pulse while a session is live. */
 @Composable
 private fun RecordFab(recording: Boolean, onClick: () -> Unit) {
@@ -666,74 +630,6 @@ private fun RecordFab(recording: Boolean, onClick: () -> Unit) {
                 null, tint = if (recording) Color.White else c.onRecord, modifier = Modifier.size(24.dp),
             )
         }
-    }
-}
-
-/** What stays visible when the sheet is collapsed: the range and its three figures. */
-@Composable
-private fun SheetPeek(state: MapUiState, recording: Boolean) {
-    val c = Atlas.colors
-    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(state.periodLabel, style = MaterialTheme.typography.titleSmall, color = c.text, modifier = Modifier.weight(1f))
-            if (recording) {
-                Dot(c.record, pulse = true)
-                Spacer(Modifier.width(6.dp))
-                Text("Recording", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        val stats = state.stats
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            CountUp(stats?.totalPoints ?: 0, "points", c.text)
-            CountUp(stats?.cities ?: 0, "cities", c.text)
-            CountUp(stats?.countries ?: 0, "countries", c.accent)
-        }
-    }
-}
-
-/** What the sheet holds when pulled up: range lenses, then one tap to anything else. */
-@Composable
-private fun SheetBody(
-    state: MapUiState,
-    simpleMode: Boolean,
-    onLens: (Lens) -> Unit,
-    onOptions: () -> Unit,
-    onOpen: (String) -> Unit,
-) {
-    val c = Atlas.colors
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        if (!simpleMode) {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Lens.entries.forEach { lens -> AtlasChip(lens.label, lens.isSelected(state), { onLens(lens) }) }
-            }
-        }
-        RowGroup {
-            ListRow("Map options", subtitle = "Layers, basemap and filters", icon = Icons.Rounded.Layers, iconTint = c.accent) { onOptions() }
-            if (!simpleMode) {
-                RowDivider()
-                ListRow("Trips and journal", icon = Icons.Rounded.Explore, iconTint = c.violet) { onOpen(Tab.Trips.route) }
-                RowDivider()
-                ListRow("Stats", icon = Icons.Rounded.Insights, iconTint = c.cyan) { onOpen(Routes.STATS) }
-                RowDivider()
-                ListRow("Flights", icon = Icons.Rounded.Flight, iconTint = c.sky) { onOpen(Routes.FLIGHTS) }
-                RowDivider()
-                ListRow("Health", icon = Icons.Rounded.FavoriteBorder, iconTint = c.rose) { onOpen(Routes.HEALTH) }
-                RowDivider()
-                ListRow("Location data", icon = Icons.Rounded.TableRows, iconTint = c.lime) { onOpen(Routes.LOCATIONS) }
-            }
-            RowDivider()
-            ListRow("You", subtitle = "Tracking, Family Circle and settings", icon = Icons.Rounded.Person, iconTint = c.textMuted) { onOpen(Tab.You.route) }
-        }
-    }
-}
-
-@Composable
-private fun CountUp(target: Int, label: String, color: Color) {
-    val v by animateIntAsState(target, tween(700), label = "count")
-    Column {
-        Text("%,d".format(v), style = AtlasType.figureSmall, color = color)
-        Text(label, style = MaterialTheme.typography.labelMedium, color = Atlas.colors.textMuted)
     }
 }
 
@@ -788,32 +684,21 @@ private val TRANSPORT_LABELS = mapOf(
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun MapOptionsSheet(
-    state: MapUiState,
-    onDismiss: () -> Unit,
-    onPeriod: (TimePeriod) -> Unit,
-    onBasemap: (String) -> Unit,
-    onLayers: ((MapLayers) -> MapLayers) -> Unit,
-) {
+private fun RangeSheet(state: MapUiState, onDismiss: () -> Unit, onPeriod: (TimePeriod) -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    val layers = state.layers
     val closeThen: (() -> Unit) -> Unit = { action ->
         scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss(); action() }
     }
-    AtlasSheet(onDismiss = onDismiss, sheetState = sheetState, title = "Map") {
-        Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            SectionTitle("Time range")
+    AtlasSheet(onDismiss = onDismiss, sheetState = sheetState, title = "Time range") {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 12.dp)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 TimePeriod.entries.forEach { period ->
                     val isCustom = period == TimePeriod.CUSTOM
                     val label = when {
                         !isCustom -> period.label
                         state.timePeriod == TimePeriod.CUSTOM && state.customDateRange != null -> state.customDateRange.label
-                        else -> "Custom…"
+                        else -> "Pick dates…"
                     }
                     AtlasChip(
                         label = label,
@@ -823,12 +708,31 @@ private fun MapOptionsSheet(
                     )
                 }
             }
-            Spacer(Modifier.height(10.dp))
+        }
+    }
+}
+
+/** Everything about how the map looks lives here, and only here. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun MapOptionsSheet(
+    state: MapUiState,
+    onDismiss: () -> Unit,
+    onBasemap: (String) -> Unit,
+    onLayers: ((MapLayers) -> MapLayers) -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val layers = state.layers
+    AtlasSheet(onDismiss = onDismiss, sheetState = sheetState, title = "Map preferences") {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             Foldout("Map display", layers.openDisplay, { onLayers { it.copy(openDisplay = !it.openDisplay) } },
                 icon = Icons.Rounded.Layers, badge = layers.displayOn.takeIf { it > 0 }?.let { "$it on" }) {
                 Text("Basemap", style = MaterialTheme.typography.labelMedium, color = Atlas.colors.textMuted)
                 val basemaps = buildList {
-                    add("Auto"); add("Streets"); add("Satellite"); add("Dark")
+                    add("Dark"); add("Streets"); add("Satellite")
                     if (state.mapboxToken.isNotBlank()) { add("Mapbox Streets"); add("Mapbox Outdoors"); add("Mapbox Satellite") }
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

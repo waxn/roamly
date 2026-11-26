@@ -30,20 +30,6 @@ enum class TimePeriod(val label: String) {
     H6("6h"), H24("24h"), D7("7d"), D30("30d"), D90("90d"), ALL("All"), CUSTOM("Custom")
 }
 
-/** The sheet's quick ranges. Today is a one-day custom range; the rest are the stock periods. */
-enum class Lens(val label: String) {
-    Today("Today"), Week("7 days"), Month("30 days"), Quarter("90 days"), All("All time");
-
-    fun isSelected(s: MapUiState): Boolean = when (this) {
-        Today -> s.timePeriod == TimePeriod.CUSTOM &&
-            s.customDateRange?.let { it.start == it.end && it.start == LocalDate.now() } == true
-        Week -> s.timePeriod == TimePeriod.D7
-        Month -> s.timePeriod == TimePeriod.D30
-        Quarter -> s.timePeriod == TimePeriod.D90
-        All -> s.timePeriod == TimePeriod.ALL
-    }
-}
-
 data class DateRange(val start: LocalDate, val end: LocalDate) {
     val label: String get() {
         val thisYear = LocalDate.now().year
@@ -112,8 +98,8 @@ data class MapUiState(
     // Optional Mapbox token (from the web account). Blank = use the built-in basemap.
     val mapboxToken: String = "",
     // Selected basemap label (e.g. "Streets", "Satellite", "Mapbox Streets").
-    // "Auto" follows the theme: a dark basemap in dark mode, a light one in light.
-    val basemap: String = "Auto",
+    // "Dark" (the default) is a night map in either theme; "Streets" is the light one.
+    val basemap: String = "Dark",
     // device_id → display name, so a tapped point can name the phone that recorded it.
     val deviceNames: Map<String, String> = emptyMap(),
     /** Map options toggles (fog, filled gaps, outliers, transport, places). */
@@ -237,7 +223,7 @@ class MapViewModel @Inject constructor(
         // Selected basemap (persisted per device).
         viewModelScope.launch {
             userPreferences.mapBasemap.collect { name ->
-                _uiState.update { it.copy(basemap = name) }
+                _uiState.update { it.copy(basemap = if (name == "Auto") "Dark" else name) }
             }
         }
         // Map options toggles: read once (updateLayers keeps state and prefs in
@@ -364,16 +350,6 @@ class MapViewModel @Inject constructor(
             return
         }
         applyCustomRange(DateRange(newStart, newEnd))
-    }
-
-    fun applyLens(lens: Lens) {
-        when (lens) {
-            Lens.Today -> navigateToDate(LocalDate.now().toString())
-            Lens.Week -> setTimePeriod(TimePeriod.D7)
-            Lens.Month -> setTimePeriod(TimePeriod.D30)
-            Lens.Quarter -> setTimePeriod(TimePeriod.D90)
-            Lens.All -> setTimePeriod(TimePeriod.ALL)
-        }
     }
 
     fun setTimePeriod(period: TimePeriod) {

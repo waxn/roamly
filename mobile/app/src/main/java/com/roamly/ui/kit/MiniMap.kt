@@ -52,7 +52,7 @@ fun rememberAtlasMapView(interactive: Boolean = false): MapView {
             controller.setZoom(12.0)
         }
     }
-    LaunchedEffect(dark) { mapView.applyBasemap("Auto", "", dark, loading) }
+    LaunchedEffect(dark) { mapView.applyBasemap("Dark", "", dark, loading) }
     DisposableEffect(mapView) {
         mapView.onResume()
         onDispose { mapView.onPause() }

@@ -76,6 +76,7 @@ private val NIGHT_MATRIX = android.graphics.ColorMatrix(floatArrayOf(
 
 /** The tile filter for [name] in this theme, or null for none. */
 internal fun basemapNightFilter(name: String, dark: Boolean): android.graphics.ColorFilter? =
+    // "Dark" is the main map's default; "Auto" (mini maps) follows the theme.
     if (name == "Dark" || (name == "Auto" && dark)) android.graphics.ColorMatrixColorFilter(NIGHT_MATRIX) else null
 
 /** Put [name]'s tiles on this map, tinted for the theme, with loading tiles in the page colour. */
@@ -181,7 +182,7 @@ internal class HeatmapOverlay : Overlay() {
         val cx = size / 2f
         val grad = android.graphics.RadialGradient(
             cx, cx, cx,
-            intArrayOf(Color.argb(200, 255, 80, 60), Color.argb(120, 255, 170, 0), Color.argb(0, 255, 255, 0)),
+            intArrayOf(Color.argb(190, 226, 150, 110), Color.argb(110, 212, 180, 140), Color.argb(0, 212, 180, 140)),
             floatArrayOf(0f, 0.5f, 1f),
             android.graphics.Shader.TileMode.CLAMP,
         )
@@ -227,16 +228,37 @@ internal class HeatmapOverlay : Overlay() {
 
 internal class PointsOverlay : Overlay() {
     private var points: List<LocationPoint> = emptyList()
-    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        color = Color.argb(200, 255, 255, 255)
-    }
+    private val spritePaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val out = android.graphics.Point()
     private val scratch = GeoPoint(0.0, 0.0)
+    private val dst = android.graphics.RectF()
+    private val src = android.graphics.Rect()
+    private val sprites = arrayOfNulls<android.graphics.Bitmap>(SPEED_COLORS.size)
     var onPointTapped: ((LocationPoint) -> Unit)? = null
 
     fun setPoints(p: List<LocationPoint>) { points = p }
+
+    /** A soft dot: a solid core inside a faint halo, pre-rendered once per speed band so a frame is just blits. */
+    private fun sprite(band: Int): android.graphics.Bitmap {
+        sprites[band]?.let { return it }
+        val size = 48
+        val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val cv = Canvas(bmp)
+        val c = SPEED_COLORS[band]
+        val mid = size / 2f
+        val halo = android.graphics.RadialGradient(
+            mid, mid, mid,
+            intArrayOf(Color.argb(110, Color.red(c), Color.green(c), Color.blue(c)), Color.argb(0, Color.red(c), Color.green(c), Color.blue(c))),
+            floatArrayOf(0.35f, 1f), android.graphics.Shader.TileMode.CLAMP,
+        )
+        cv.drawCircle(mid, mid, mid, Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = halo })
+        cv.drawCircle(mid, mid, size * 0.2f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = c })
+        cv.drawCircle(mid, mid, size * 0.2f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 1.5f; color = Color.argb(150, 255, 255, 255)
+        })
+        sprites[band] = bmp
+        return bmp
+    }
 
     override fun onSingleTapConfirmed(e: android.view.MotionEvent, mapView: MapView): Boolean {
         if (mapView.zoomLevelDouble < 11.0 || points.isEmpty()) return false
@@ -267,42 +289,49 @@ internal class PointsOverlay : Overlay() {
         if (shadow || points.isEmpty()) return
         val zoom = mapView.zoomLevelDouble
         if (zoom < 11.0) return
-        val alphaFrac = when {
-            zoom >= 13 -> 1.0f
-            zoom >= 12 -> 0.75f
-            else -> 0.4f
-        }
+        // Fades in between zoom 11 and 13 so the heat glow hands over to dots smoothly.
+        spritePaint.alpha = (255 * ((zoom - 11.0) / 2.0).coerceIn(0.35, 1.0)).toInt()
+        val density = mapView.resources.displayMetrics.density
+        val half = when {
+            zoom < 12 -> 7f
+            zoom < 13 -> 9f
+            zoom < 15 -> 12f
+            else -> 15f
+        } * density
         val projection: Projection = mapView.projection
-        val radius = when {
-            zoom < 12 -> 3.5f
-            zoom < 13 -> 5.0f
-            zoom < 15 -> 7.0f
-            else -> 9.0f
-        }
-        strokePaint.strokeWidth = (radius * 0.35f).coerceAtLeast(1.5f)
-        val cull = ViewportCull(mapView, pixelsToDegrees(radius + 20f, zoom))
+        val cull = ViewportCull(mapView, pixelsToDegrees(half + 20f, zoom))
         for (i in points.indices) {
             val p = points[i]
             if (!cull.contains(p.lat, p.lng)) continue
             scratch.setCoords(p.lat, p.lng)
             projection.toPixels(scratch, out)
-            val c = speedColor(p.speed)
-            fillPaint.color = Color.argb((Color.alpha(c) * alphaFrac).toInt(), Color.red(c), Color.green(c), Color.blue(c))
-            val x = out.x.toFloat(); val y = out.y.toFloat()
-            canvas.drawCircle(x, y, radius, fillPaint)
-            canvas.drawCircle(x, y, radius, strokePaint)
+            val sp = sprite(speedBand(p.speed))
+            src.set(0, 0, sp.width, sp.height)
+            dst.set(out.x - half, out.y - half, out.x + half, out.y + half)
+            canvas.drawBitmap(sp, src, dst, spritePaint)
         }
     }
 }
 
-/** speed in m/s — matches the website's green→amber→red gradient */
-internal fun speedColor(speed: Double?): Int {
+/** Calm, muted speed bands: still, on foot, cycling, driving, fast. */
+private val SPEED_COLORS = intArrayOf(
+    Color.rgb(141, 169, 196),
+    Color.rgb(157, 191, 158),
+    Color.rgb(212, 180, 140),
+    Color.rgb(217, 143, 111),
+    Color.rgb(207, 127, 134),
+)
+
+private fun speedBand(speed: Double?): Int {
     val s = speed ?: 0.0
     return when {
-        s < 1.0 -> Color.rgb(59, 130, 246)
-        s < 5.0 -> Color.rgb(34, 197, 94)
-        s < 14.0 -> Color.rgb(234, 179, 8)
-        s < 30.0 -> Color.rgb(249, 115, 22)
-        else -> Color.rgb(239, 68, 68)
+        s < 1.0 -> 0
+        s < 5.0 -> 1
+        s < 14.0 -> 2
+        s < 30.0 -> 3
+        else -> 4
     }
 }
+
+/** speed in m/s: the colour of its band (kept for callers outside the overlay). */
+internal fun speedColor(speed: Double?): Int = SPEED_COLORS[speedBand(speed)]

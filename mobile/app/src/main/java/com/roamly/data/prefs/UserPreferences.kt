@@ -137,7 +137,7 @@ class UserPreferences @Inject constructor(
     val darkMode:   Flow<Boolean?> = context.dataStore.data.map { it[KEY_DARK_MODE] }
     val hapticsEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_HAPTICS] ?: true }
     val mapboxToken: Flow<String>  = context.dataStore.data.map { it[KEY_MAPBOX_TOKEN] ?: "" }
-    val mapBasemap:  Flow<String>  = context.dataStore.data.map { it[KEY_MAP_BASEMAP] ?: "Auto" }
+    val mapBasemap:  Flow<String>  = context.dataStore.data.map { it[KEY_MAP_BASEMAP] ?: "Dark" }
     val mapLayers:   Flow<MapLayers> = context.dataStore.data.map { MapLayers.decode(it[KEY_MAP_LAYERS]) }
     val askEnabled:  Flow<Boolean> = context.dataStore.data.map { it[KEY_ASK_ENABLED] ?: false }
 

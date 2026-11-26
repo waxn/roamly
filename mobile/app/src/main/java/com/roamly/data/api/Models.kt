@@ -849,11 +849,15 @@ data class ActivityDto(
     @SerializedName("distance_km") val distanceKm: Double? = null,
     @SerializedName("avg_speed_kmh") val avgSpeedKmh: Double? = null,
     @SerializedName("max_speed_kmh") val maxSpeedKmh: Double? = null,
+    @SerializedName("elevation_gain_m") val elevationGainM: Double? = null,
+    @SerializedName("elevation_loss_m") val elevationLossM: Double? = null,
     @SerializedName("point_count") val pointCount: Int = 0,
     /** Null until the server has computed stats — an activity can be saved before
      *  its points have finished uploading. */
     @SerializedName("computed_at") val computedAt: String? = null,
     @SerializedName("created_at") val createdAt: String = "",
+    /** Encoded polylines (precision 5), one per gap-split segment, for the list's mini map. Null while pending. */
+    val thumb: List<String>? = null,
 )
 
 data class ActivityCreateResponse(

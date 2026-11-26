@@ -232,13 +232,16 @@ class RecordViewModel @Inject constructor(
     }
 
     fun loadRecent() {
+        // Paint the last list at once (process-wide, so a page revisit is instant), then refresh.
+        if (_state.value.recent.isEmpty() && lastRecent.isNotEmpty()) _state.update { it.copy(recent = lastRecent) }
         viewModelScope.launch {
-            _state.update { it.copy(loadingRecent = true) }
+            _state.update { it.copy(loadingRecent = it.recent.isEmpty()) }
             val rows = runCatching {
-                val resp = api.getActivities(limit = 20)
-                if (resp.isSuccessful) resp.body()?.activities.orEmpty() else emptyList()
-            }.getOrDefault(emptyList())
-            _state.update { it.copy(recent = rows, loadingRecent = false) }
+                val resp = api.getActivities(limit = 40)
+                if (resp.isSuccessful) resp.body()?.activities else null
+            }.getOrNull()
+            if (rows != null) lastRecent = rows
+            _state.update { it.copy(recent = rows ?: it.recent, loadingRecent = false) }
         }
     }
 
@@ -254,7 +257,9 @@ class RecordViewModel @Inject constructor(
         super.onCleared()
     }
 
-    private companion object {
+    companion object {
+        @Volatile private var lastRecent: List<ActivityDto> = emptyList()
+        fun clearRecentCache() { lastRecent = emptyList() }
         const val MAX_MOVING_GAP_MS = 60_000L
         const val DRAW_MIN_SPACING_M = 3f
     }

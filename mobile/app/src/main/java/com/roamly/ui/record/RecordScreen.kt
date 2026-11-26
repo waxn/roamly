@@ -78,6 +78,19 @@ import com.roamly.ui.kit.PanelTone
 import com.roamly.ui.kit.SectionTitle
 import com.roamly.ui.kit.StatBlock
 import com.roamly.ui.kit.TopBar
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.animation.core.tween
+import com.roamly.ui.kit.EmptyState
+import com.roamly.ui.kit.LocalDockPadding
+import com.roamly.ui.kit.ScreenHeader
+import com.roamly.ui.kit.TrackSketch
 import com.roamly.ui.kit.rememberAtlasMapView
 import com.roamly.ui.kit.rememberHaptics
 import com.roamly.ui.kit.tappable
@@ -89,9 +102,9 @@ import org.osmdroid.views.overlay.Polyline
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private data class Kind(val slug: String, val label: String, val icon: ImageVector)
+internal data class Kind(val slug: String, val label: String, val icon: ImageVector)
 
-private val KINDS = listOf(
+internal val KINDS = listOf(
     Kind("ride", "Ride", Icons.Rounded.DirectionsBike),
     Kind("run", "Run", Icons.Rounded.DirectionsRun),
     Kind("walk", "Walk", Icons.Rounded.DirectionsWalk),
@@ -100,17 +113,33 @@ private val KINDS = listOf(
     Kind("other", "Other", Icons.Rounded.Explore),
 )
 
-/** Record a ride, run or walk: pick, start, and watch it draw itself live. */
+/**
+ * The Activity page. Idle: kind tiles on top, your recent activities as a
+ * two-column grid of mini-map cards, and a slim Start bar above the nav. While
+ * recording it becomes the live map with the figures and Stop.
+ */
 @Composable
-fun RecordScreen(onBack: () -> Unit, viewModel: RecordViewModel = hiltViewModel()) {
+fun RecordScreen(
+    onBack: () -> Unit,
+    onOpenActivity: (Int) -> Unit,
+    viewModel: RecordViewModel = hiltViewModel(),
+) {
     val state by viewModel.state.collectAsState()
     var kind by rememberSaveable { mutableStateOf("ride") }
     var confirmDiscard by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<ActivityDto?>(null) }
     val haptics = rememberHaptics()
-    LaunchedEffect(Unit) { viewModel.loadRecent() }
+    // Refresh whenever this page comes back into view (e.g. after deleting from the detail page).
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) viewModel.loadRecent()
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
 
-    AnimatedContent(state.recording, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "rec") { recording ->
+    AnimatedContent(state.recording, transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(120)) }, label = "rec") { recording ->
         if (recording) {
             Recording(
                 state = state,
@@ -119,29 +148,37 @@ fun RecordScreen(onBack: () -> Unit, viewModel: RecordViewModel = hiltViewModel(
                 onDiscard = { confirmDiscard = true },
             )
         } else {
-            Column(Modifier.fillMaxSize().background(Atlas.colors.bg)) {
-                TopBar("Record", onBack)
-                LazyColumn(
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 40.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    state.error?.let { item { ErrorNote(it) } }
-                    item { SectionTitle("What are you doing?") }
-                    item { KindGrid(kind) { kind = it } }
-                    item {
-                        Box(Modifier.fillMaxWidth().padding(vertical = 18.dp), contentAlignment = Alignment.Center) {
-                            StartButton { haptics.thud(); viewModel.start(kind) }
+            val dock = LocalDockPadding.current
+            Box(Modifier.fillMaxSize().background(Atlas.colors.bg)) {
+                Column(Modifier.fillMaxSize()) {
+                    ScreenHeader(title = "Activity")
+                    KindRow(kind) { haptics.select(); kind = it }
+                    state.error?.let { ErrorNote(it, Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
+                    when {
+                        state.recent.isEmpty() && state.loadingRecent -> Box(Modifier.fillMaxWidth().padding(20.dp)) {
+                            Text("Loading…", style = MaterialTheme.typography.bodyMedium, color = Atlas.colors.textMuted)
+                        }
+                        state.recent.isEmpty() -> EmptyState(
+                            Icons.Rounded.DirectionsRun, "Nothing recorded yet",
+                            body = "Pick what you're doing and press Start. Your rides, runs and walks will gather here.",
+                        )
+                        else -> LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = dock + 84.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            items(state.recent, key = { it.id }) { act ->
+                                ActivityCard(act, onClick = { onOpenActivity(act.id) }, onLongClick = { pendingDelete = act })
+                            }
                         }
                     }
-                    item { SectionTitle("Recent activities") }
-                    if (state.recent.isEmpty()) {
-                        item {
-                            Text(if (state.loadingRecent) "Loading…" else "Nothing recorded yet.",
-                                style = MaterialTheme.typography.bodyMedium, color = Atlas.colors.textMuted)
-                        }
-                    }
-                    items(state.recent, key = { it.id }) { act -> ActivityRow(act) { pendingDelete = act } }
                 }
+                StartBar(
+                    label = "Start ${(KINDS.firstOrNull { it.slug == kind }?.label ?: "activity").lowercase()}",
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(start = 20.dp, end = 20.dp, bottom = dock + 10.dp),
+                ) { haptics.thud(); viewModel.start(kind) }
             }
         }
     }
@@ -172,53 +209,85 @@ fun RecordScreen(onBack: () -> Unit, viewModel: RecordViewModel = hiltViewModel(
     }
 }
 
+/** What you're about to do: one row of tiles that scrolls sideways. */
 @Composable
-private fun KindGrid(selected: String, onSelect: (String) -> Unit) {
+private fun KindRow(selected: String, onSelect: (String) -> Unit) {
     val c = Atlas.colors
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        KINDS.chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                row.forEach { k ->
-                    val on = k.slug == selected
-                    Panel(
-                        Modifier.weight(1f),
-                        tone = if (on) PanelTone.Accent else PanelTone.Raised,
-                        padding = PaddingValues(vertical = 16.dp),
-                        onClick = { onSelect(k.slug) },
-                    ) {
-                        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(k.icon, null, tint = if (on) c.accent else c.textMuted, modifier = Modifier.size(28.dp))
-                            Spacer(Modifier.height(8.dp))
-                            Text(k.label, style = MaterialTheme.typography.labelLarge, color = if (on) c.accent else c.text)
-                        }
-                    }
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        KINDS.forEach { k ->
+            val on = k.slug == selected
+            Panel(
+                Modifier.width(78.dp),
+                tone = if (on) PanelTone.Accent else PanelTone.Raised,
+                padding = PaddingValues(vertical = 12.dp),
+                onClick = { onSelect(k.slug) },
+            ) {
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(k.icon, null, tint = if (on) c.accent else c.textMuted, modifier = Modifier.size(26.dp))
+                    Spacer(Modifier.height(6.dp))
+                    Text(k.label, style = MaterialTheme.typography.labelLarge, color = if (on) c.accent else c.text)
                 }
             }
         }
     }
 }
 
+/** The slim Start bar that floats above the nav. */
 @Composable
-private fun StartButton(onClick: () -> Unit) {
+private fun StartBar(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val c = Atlas.colors
-    val t = rememberInfiniteTransition(label = "start")
-    val ring by t.animateFloat(0f, 1f, infiniteRepeatable(tween(2000)), label = "ring")
-    Box(Modifier.size(170.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.size(150.dp).graphicsLayer { scaleX = 0.8f + 0.3f * ring; scaleY = 0.8f + 0.3f * ring; alpha = 1f - ring }
-            .clip(SquircleShape(50)).background(c.accent.copy(alpha = 0.3f)))
-        Box(
-            Modifier.size(132.dp).shadow(24.dp, SquircleShape(50), ambientColor = c.accent, spotColor = c.accent)
-                .clip(SquircleShape(50)).background(Brush.linearGradient(listOf(c.accent, c.amber)))
-                .tappable(feel = Feel.None, pressedScale = 0.9f, onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Rounded.FiberManualRecord, null, tint = c.onAccent, modifier = Modifier.size(30.dp))
-                Text("START", style = MaterialTheme.typography.labelSmall, color = c.onAccent)
+    val shape = SquircleShape(50)
+    Row(
+        modifier.fillMaxWidth().height(52.dp)
+            .shadow(8.dp, shape, ambientColor = c.shadow, spotColor = c.shadow)
+            .clip(shape).background(c.record)
+            .tappable(feel = Feel.None, pressedScale = 0.97f, onClick = onClick)
+            .semantics { contentDescription = label },
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.FiberManualRecord, null, tint = c.onRecord, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(label, style = MaterialTheme.typography.titleSmall, color = c.onRecord)
+    }
+}
+
+/** A recent activity, like the web's cards: a mini track on top, then what and how far. */
+@Composable
+private fun ActivityCard(act: ActivityDto, onClick: () -> Unit, onLongClick: () -> Unit) {
+    val c = Atlas.colors
+    val k = KINDS.firstOrNull { it.slug == act.kind } ?: KINDS.last()
+    val lines = remember(act.thumb) {
+        act.thumb.orEmpty().map { decodePolyline(it) to c.accent }.filter { it.first.size >= 2 }
+    }
+    Panel(Modifier.fillMaxWidth(), padding = PaddingValues(0.dp), onClick = onClick, onLongClick = onLongClick) {
+        Box(Modifier.fillMaxWidth().height(96.dp).clip(SquircleShape(topStart = SquircleRadius.panel, topEnd = SquircleRadius.panel))) {
+            if (lines.isNotEmpty()) TrackSketch(lines, Modifier.fillMaxSize(), background = c.surfaceHigh)
+            else Box(Modifier.fillMaxSize().background(c.surfaceHigh), contentAlignment = Alignment.Center) {
+                Icon(k.icon, null, tint = c.textFaint, modifier = Modifier.size(28.dp))
             }
+        }
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text(act.title.ifBlank { k.label }, style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(shortDate(act.start), style = MaterialTheme.typography.labelMedium, color = c.textMuted, maxLines = 1)
+            Spacer(Modifier.height(6.dp))
+            // Null until the server computes stats: say so, not a confident zero.
+            Text(
+                if (act.computedAt == null) "Waiting for points"
+                else String.format(Locale.US, "%.1f km · %s", act.distanceKm ?: 0.0, formatDuration((act.movingSeconds ?: 0) * 1000L)),
+                style = MaterialTheme.typography.labelLarge, color = c.text, maxLines = 1,
+            )
         }
     }
 }
+
+internal fun shortDate(iso: String): String = runCatching {
+    java.time.OffsetDateTime.parse(iso).atZoneSameInstant(java.time.ZoneId.systemDefault())
+        .format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))
+}.getOrDefault(iso.take(10))
 
 @Composable
 private fun Recording(state: RecordUiState, onBack: () -> Unit, onStop: () -> Unit, onDiscard: () -> Unit) {
@@ -346,33 +415,7 @@ private fun LiveTrackMap(track: List<TrackPoint>, modifier: Modifier = Modifier)
     }
 }
 
-@Composable
-private fun ActivityRow(act: ActivityDto, onDelete: () -> Unit) {
-    val c = Atlas.colors
-    val k = KINDS.firstOrNull { it.slug == act.kind } ?: KINDS.last()
-    Panel(Modifier.fillMaxWidth(), padding = PaddingValues(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconTile(k.icon, tint = c.accent)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(act.title.ifBlank { k.label }, style = MaterialTheme.typography.titleSmall, color = c.text)
-                Text(
-                    buildString {
-                        append(act.start.take(10))
-                        // Null until the server computes stats: an activity can be saved
-                        // before its points finish uploading — say so, not a confident zero.
-                        if (act.computedAt == null) append(" · waiting for points")
-                        else append(" · ${String.format(Locale.US, "%.2f km", act.distanceKm ?: 0.0)} · ${formatDuration((act.movingSeconds ?: 0) * 1000L)}")
-                    },
-                    style = MaterialTheme.typography.bodySmall, color = c.textMuted,
-                )
-            }
-            IconAction(Icons.Rounded.DeleteOutline, "Delete", onDelete, container = null, tint = c.textMuted, size = 38.dp, iconSize = 18.dp)
-        }
-    }
-}
-
-private fun formatDuration(ms: Long): String {
+internal fun formatDuration(ms: Long): String {
     val total = (ms / 1000L).coerceAtLeast(0)
     val h = total / 3600; val m = (total % 3600) / 60; val s = total % 60
     return if (h > 0) String.format(Locale.US, "%d:%02d:%02d", h, m, s) else String.format(Locale.US, "%d:%02d", m, s)
