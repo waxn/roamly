@@ -466,7 +466,7 @@ def test_show_data_map_returns_ranking_and_card(client, user, device, llm):
 # ── Model and effort picker ─────────────────────────────────────────────
 
 def test_send_uses_a_listed_model_and_effort(client, user, llm, monkeypatch):
-    UserProfile.objects.filter(user=user).update(ai_extra_models='big-model\n  \nbig-model')
+    UserProfile.objects.filter(user=user).update(ai_extra_models='big-model')
     seen = []
 
     def stream(profile, messages, tools=None):
@@ -507,3 +507,20 @@ def test_effort_is_dropped_for_a_model_that_refuses_it(monkeypatch):
         pass
     assert posted[:2] == ['high', '']
     assert ('https://x.example/v1', 'plain') in ai_tasks._NO_EFFORT
+
+
+def test_models_api_adds_and_removes_only_ask_models(client, user, monkeypatch):
+    monkeypatch.setattr(ai_tasks, 'list_provider_models', lambda p: ['m', 'gpt-x', 'o-y'])
+    got = client.get('/api/ask/models/').json()
+    assert got == {'models': ['m'], 'default': 'm', 'available': ['m', 'gpt-x', 'o-y']}
+
+    def post(**b):
+        return client.post('/api/ask/models/', json.dumps(b), content_type='application/json')
+    assert post(action='add', model='gpt-x').json()['models'] == ['m', 'gpt-x']
+    assert post(action='add', model='gpt-x').json()['models'] == ['m', 'gpt-x']   # no duplicate
+    assert post(action='add', model='m').json()['models'] == ['m', 'gpt-x']       # the default isn't duplicated
+    assert post(action='remove', model='m').json()['models'][0] == 'm'            # the default stays
+    assert post(action='remove', model='gpt-x').json()['models'] == ['m']
+    assert post(action='drop', model='x').status_code == 400
+    user.userprofile.refresh_from_db()
+    assert user.userprofile.ai_model == 'm'

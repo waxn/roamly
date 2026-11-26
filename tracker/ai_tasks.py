@@ -867,6 +867,23 @@ _NO_EFFORT = set()
 EFFORTS = ('low', 'medium', 'high')
 
 
+def list_provider_models(profile):
+    """Model ids the provider's ``GET {base}/models`` offers, best effort: [] when
+    the provider has no such endpoint or can't be reached."""
+    base = (profile.ai_base_url or "").rstrip("/")
+    try:
+        validate_outbound_url(base, label="AI base URL")
+        resp = _session.get(f"{base}/models", headers={"Authorization": f"Bearer {profile.ai_api_key}"},
+                            timeout=_REQUEST_TIMEOUT, allow_redirects=False)
+        if resp.status_code != 200 or len(resp.content) > 2_000_000:
+            return []
+        items = resp.json().get("data") or []
+        return sorted({str(m.get("id")).strip()[:200] for m in items
+                       if isinstance(m, dict) and m.get("id")})[:500]
+    except (OutboundURLError, requests.exceptions.RequestException, ValueError, AttributeError):
+        return []
+
+
 def _stream_post(profile, base, messages, tools, usage, effort=''):
     body = {"model": profile.ai_model, "messages": messages, "stream": True}
     if effort:

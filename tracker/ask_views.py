@@ -321,6 +321,37 @@ def send_api(request):
 
 
 @login_required
+def models_api(request):
+    """The Ask-only model list. GET: the default, the user's added models and what
+    the provider offers. POST ``{"action": "add"|"remove", "model"}`` edits the
+    added ones; the default (Settings) is never touched here."""
+    profile, err = _gate(request)
+    if err:
+        return err
+    if request.method == 'POST':
+        data = _body(request)
+        model = str((data or {}).get('model') or '').strip()[:200]
+        action = (data or {}).get('action')
+        if not model or action not in ('add', 'remove') or '\n' in model:
+            return JsonResponse({'error': 'Give a model id.'}, status=400)
+        extra = [m for m in profile.ai_extra_models.splitlines() if m.strip()]
+        if action == 'add' and model != profile.ai_model and model not in extra:
+            if len(extra) >= 30:
+                return JsonResponse({'error': 'That is plenty of models — remove one first.'}, status=400)
+            extra.append(model)
+        elif action == 'remove':
+            extra = [m for m in extra if m != model]
+        profile.ai_extra_models = '\n'.join(extra)
+        profile.save(update_fields=['ai_extra_models'])
+    resp = {'models': profile.ai_model_choices(), 'default': profile.ai_model}
+    if request.method == 'GET':
+        resp['available'] = ai_tasks.list_provider_models(profile)
+    resp = JsonResponse(resp)
+    resp['Cache-Control'] = 'no-store'
+    return resp
+
+
+@login_required
 @require_GET
 def map_api(request):
     """The points behind a map card, read from the signed-in user's own history."""

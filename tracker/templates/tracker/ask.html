@@ -276,9 +276,22 @@ body:has(.ask-app) { overflow: hidden; }
 .ask-modes { max-width: 760px; margin: 0 auto 0.45rem; display: flex; gap: 0.35rem; overflow-x: auto; scrollbar-width: none; }
 .ask-modes::-webkit-scrollbar { display: none; }
 .ask-pickers { max-width: 760px; margin: 0.4rem auto 0; display: flex; gap: 0.4rem; justify-content: flex-end; align-items: center; font-size: 0.72rem; color: var(--text-muted); }
-.ask-pickers select { max-width: 55%; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); border-radius: 999px;
-    font: inherit; font-family: var(--font-mono); padding: 0.2rem 0.6rem; cursor: pointer; text-overflow: ellipsis; }
-.ask-pickers select:hover, .ask-pickers select:focus { border-color: var(--border-bright); outline: none; }
+.ask-pickers { position: relative; }
+.ask-pickers select, .ask-pickers .ask-pick-btn { max-width: 55%; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); border-radius: 999px;
+    font: inherit; font-family: var(--font-mono); padding: 0.2rem 0.6rem; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-pickers select:hover, .ask-pickers select:focus, .ask-pick-btn:hover { border-color: var(--border-bright); outline: none; }
+.ask-model-pop { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 20; width: min(340px, 92vw); max-height: 60vh; overflow: auto;
+    background: var(--bg-card); border: 1px solid var(--border-strong, var(--border)); border-radius: 12px; padding: 0.5rem; box-shadow: 0 8px 28px rgba(0,0,0,0.35); color: var(--text); text-align: left; }
+.ask-model-pop[hidden] { display: none; }
+.ask-model-pop h4 { margin: 0.4rem 0.25rem 0.2rem; font: 600 0.68rem var(--font-body); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.ask-model-row { display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; }
+.ask-model-row button.pick { flex: 1; text-align: left; background: none; border: 0; color: inherit; font: 0.76rem var(--font-mono); padding: 0.35rem 0.5rem; cursor: pointer; border-radius: 8px; overflow: hidden; text-overflow: ellipsis; }
+.ask-model-row:hover { background: var(--primary-soft); }
+.ask-model-row.sel button.pick { color: var(--primary); font-weight: 700; }
+.ask-model-row .rm { background: none; border: 0; color: var(--text-muted); cursor: pointer; padding: 0.2rem 0.45rem; }
+.ask-model-add { display: flex; gap: 0.3rem; margin-top: 0.4rem; }
+.ask-model-add input { flex: 1; min-width: 0; border: 1px solid var(--border); background: var(--bg-input); color: var(--text); border-radius: 8px; padding: 0.3rem 0.5rem; font: 0.76rem var(--font-mono); }
+.ask-model-note { font-size: 0.7rem; color: var(--text-muted); margin: 0.2rem 0.3rem; }
 .ask-mode {
     flex-shrink: 0; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted);
     border-radius: calc(999px * var(--rk, 1)); padding: 0.25rem 0.75rem; font: inherit; font-size: 0.8rem; cursor: pointer;
@@ -382,7 +395,8 @@ body:has(.ask-app) #main-content + div { display: none; }
                 <button class="ask-send" id="ask-send" type="button" onclick="onSendClick()" aria-label="Send" disabled></button>
             </div>
             <div class="ask-pickers">
-                <select id="ask-model" class="rly-native" aria-label="Model" title="Model for the next message"></select>
+                <button type="button" class="ask-pick-btn" id="ask-model-btn" aria-haspopup="true" aria-expanded="false" title="Model for the next message"></button>
+                <div class="ask-model-pop" id="ask-model-pop" hidden></div>
                 <select id="ask-effort" class="rly-native" aria-label="Reasoning effort" title="How hard the model should think (models that don't support it ignore it)">
                     <option value="">Effort: default</option><option value="low">Effort: low</option>
                     <option value="medium">Effort: medium</option><option value="high">Effort: high</option>
@@ -434,16 +448,81 @@ let chatId = null;
 let chatMode = '';
 // Model + effort for the next message; remembered in this browser. A saved model
 // the user has since removed from Settings falls back to the default.
-const MODELS = JSON.parse(document.getElementById('ask-models').textContent || '[]');
+let MODELS = JSON.parse(document.getElementById('ask-models').textContent || '[]');
 const lsGet = k => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
-const pickModelEl = document.getElementById('ask-model'), pickEffortEl = document.getElementById('ask-effort');
-MODELS.forEach((m, i) => { const o = document.createElement('option'); o.value = m; o.textContent = m + (i === 0 && MODELS.length > 1 ? ' (default)' : ''); pickModelEl.appendChild(o); });
-pickModelEl.value = MODELS.includes(lsGet('roamly_ask_model')) ? lsGet('roamly_ask_model') : (MODELS[0] || '');
+const pickEffortEl = document.getElementById('ask-effort');
+const modelBtn = document.getElementById('ask-model-btn'), modelPop = document.getElementById('ask-model-pop');
+let pickedModel = '', providerModels = null;
+function syncModel() {
+    pickedModel = MODELS.includes(lsGet('roamly_ask_model')) ? lsGet('roamly_ask_model') : (MODELS[0] || '');
+    modelBtn.textContent = (pickedModel || 'model') + ' ▾';
+}
+syncModel();
 pickEffortEl.value = ['low', 'medium', 'high'].includes(lsGet('roamly_ask_effort')) ? lsGet('roamly_ask_effort') : '';
-pickModelEl.hidden = MODELS.length < 2;
-pickModelEl.onchange = () => lsSet('roamly_ask_model', pickModelEl.value);
 pickEffortEl.onchange = () => lsSet('roamly_ask_effort', pickEffortEl.value);
+async function modelsCall(body) {
+    const r = await fetch('/api/ask/models/', body ? { method: 'POST', headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Failed');
+    MODELS = d.models;
+    if (d.available) providerModels = d.available;
+    syncModel();
+    return d;
+}
+function paintModelPop(filter) {
+    const f = (filter || '').toLowerCase();
+    const row = (m, rm) => {
+        const d = document.createElement('div');
+        d.className = 'ask-model-row' + (m === pickedModel ? ' sel' : '');
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'pick'; b.textContent = m; b.title = m;
+        b.onclick = async () => {
+            try { if (!MODELS.includes(m)) await modelsCall({ action: 'add', model: m }); } catch (e) { return roamlyToast(e.message, { type: 'error' }); }
+            lsSet('roamly_ask_model', m); syncModel(); paintModelPop(f);
+        };
+        d.appendChild(b);
+        if (rm) {
+            const x = document.createElement('button'); x.type = 'button'; x.className = 'rm'; x.textContent = '✕'; x.title = 'Remove from this list';
+            x.onclick = async () => { try { await modelsCall({ action: 'remove', model: m }); paintModelPop(f); } catch (e) { roamlyToast(e.message, { type: 'error' }); } };
+            d.appendChild(x);
+        }
+        return d;
+    };
+    modelPop.innerHTML = '';
+    const h1 = document.createElement('h4'); h1.textContent = 'Your models'; modelPop.appendChild(h1);
+    MODELS.forEach((m, i) => modelPop.appendChild(row(m, i > 0)));
+    const avail = (providerModels || []).filter(m => !MODELS.includes(m) && m.toLowerCase().includes(f));
+    const h2 = document.createElement('h4');
+    h2.textContent = providerModels === null ? 'Available from your provider…' : 'Available from your provider';
+    modelPop.appendChild(h2);
+    if (providerModels && !providerModels.length) {
+        const n = document.createElement('div'); n.className = 'ask-model-note'; n.textContent = "Your provider didn't list models — add one by name below."; modelPop.appendChild(n);
+    }
+    avail.slice(0, 60).forEach(m => modelPop.appendChild(row(m, false)));
+    const add = document.createElement('form'); add.className = 'ask-model-add';
+    add.innerHTML = '<input type="text" placeholder="Model id, e.g. gpt-4o" aria-label="Model id" maxlength="200" autocomplete="off" spellcheck="false"><button class="btn btn-sm btn-primary" type="submit">Add</button>';
+    const inp = add.querySelector('input'); inp.value = filter || '';
+    inp.oninput = () => paintModelPop(inp.value, true);
+    add.onsubmit = async e => {
+        e.preventDefault();
+        const v = inp.value.trim(); if (!v) return;
+        try { await modelsCall({ action: 'add', model: v }); lsSet('roamly_ask_model', v); syncModel(); paintModelPop(''); }
+        catch (err) { roamlyToast(err.message, { type: 'error' }); }
+    };
+    const note = document.createElement('div'); note.className = 'ask-model-note'; note.textContent = 'Used for Ask only. Your default model is set in Settings.';
+    modelPop.append(add, note);
+    if (arguments[1]) inp.focus({ preventScroll: true }), inp.setSelectionRange(inp.value.length, inp.value.length);
+}
+function closeModelPop() { modelPop.hidden = true; modelBtn.setAttribute('aria-expanded', 'false'); }
+modelBtn.onclick = e => {
+    e.stopPropagation();
+    if (!modelPop.hidden) return closeModelPop();
+    modelPop.hidden = false; modelBtn.setAttribute('aria-expanded', 'true');
+    paintModelPop('');
+    if (providerModels === null) modelsCall().then(() => { if (!modelPop.hidden) paintModelPop(''); }).catch(() => { providerModels = []; if (!modelPop.hidden) paintModelPop(''); });
+};
+document.addEventListener('click', e => { if (!modelPop.hidden && !e.composedPath().includes(modelPop)) closeModelPop(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModelPop(); });
 let streaming = null;       // controller of the reply still being written
 let lastCtl = null;         // the newest request, still open while follow-ups load
 let mapCards = [];
@@ -1035,7 +1114,7 @@ async function run(body, ctx) {
         const resp = await fetch('/api/ask/send/', {
             method: 'POST', signal: ctl.signal,
             headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...body, tz_offset: TZ, model: pickModelEl.value, effort: pickEffortEl.value }),
+            body: JSON.stringify({ ...body, tz_offset: TZ, model: pickedModel, effort: pickEffortEl.value }),
         });
         if (!resp.ok || !resp.body) {
             let msg = 'Something went wrong.';

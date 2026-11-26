@@ -1129,11 +1129,6 @@
             </div>
 
             <div>
-                <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Additional models <span style="opacity:0.7;">(one per line — offered in the Ask chat's model picker)</span></label>
-                <textarea id="ai-extra-models" class="form-control" rows="3" placeholder="gpt-4o&#10;o4-mini" style="resize:vertical;font-family:var(--font-mono);">{{ ai_extra_models|default:'' }}</textarea>
-            </div>
-
-            <div>
                 <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">System prompt <span style="opacity:0.7;">(optional override)</span></label>
                 <textarea id="ai-system-prompt" class="form-control" rows="3" placeholder="Leave blank to use the built-in prompt." style="resize:vertical;">{{ ai_system_prompt|default:'' }}</textarea>
             </div>
@@ -2647,7 +2642,6 @@ function _aiConfigPayload() {
         ai_api_key: document.getElementById('ai-api-key').value.trim(),
         ai_model: document.getElementById('ai-model').value.trim(),
         ai_system_prompt: document.getElementById('ai-system-prompt').value,
-        ai_extra_models: document.getElementById('ai-extra-models').value,
     };
 }
 function saveAiConfig() {
