@@ -165,22 +165,59 @@ def _top_places(visits, limit=5):
     return [(g['label'], _human_duration(g['seconds'])) for g in ranked]
 
 
+_MIN_STAY_SECONDS = 600       # an unmatched stay shorter than this is a pass-through
+_MIN_POI_STAY_SECONDS = 240   # a matched business counts as a real stop sooner
+
+
+def _part_of_day(dt):
+    h = dt.hour
+    if h < 5:
+        return 'late night'
+    if h < 12:
+        return 'morning'
+    if h < 17:
+        return 'afternoon'
+    if h < 21:
+        return 'evening'
+    return 'night'
+
+
+def _stay_label(v):
+    """Most specific name first: the business or place, then the town."""
+    town = f"{v.city}, {v.state}" if v.state else v.city
+    place = v.poi.name if v.poi_id else v.place_name
+    if place and place != town:
+        return f"{place} in {town}" if town else place
+    return town or place or 'Unknown location'
+
+
 def _stay_timeline(visits):
-    """Ordered ``"HH:MM–HH:MM place"`` lines for the daily narrative prompt —
-    the chronological story an AI can actually narrate ("you went to X, then
-    spent the afternoon near Y"), rather than flat aggregate stats."""
-    lines = []
+    """Ordered ``"HH:MM–HH:MM (part of day, duration) place"`` lines for the
+    narrative prompts — the chronological story an AI can narrate.
+
+    Pass-through stops (a few minutes in a town the user only drove through)
+    are dropped, since mentioning them is what made recaps read like "a quick
+    stop in Lincoln"; consecutive stays at the same place are merged.
+    """
+    merged = []
     for v in visits:
-        start_local = timezone.localtime(v.start_time)
-        end_local = timezone.localtime(v.end_time)
-        where = f"{v.city}, {v.state}" if v.state else v.city
-        place = v.poi.name if v.poi_id else v.place_name
-        if place and place != where:
-            label = f"{where} ({place})" if where else place
-        else:
-            label = where or place or 'Unknown location'
-        lines.append(f"{start_local:%H:%M}–{end_local:%H:%M} {label}")
+        seconds = (v.end_time - v.start_time).total_seconds()
+        floor = _MIN_POI_STAY_SECONDS if (v.poi_id or v.place_name) else _MIN_STAY_SECONDS
+        if seconds < floor:
+            continue
+        label = _stay_label(v)
+        if merged and merged[-1]['label'] == label:
+            merged[-1]['end'] = v.end_time
+            continue
+        merged.append({'label': label, 'start': v.start_time, 'end': v.end_time})
+    lines = []
+    for m in merged:
+        start_local = timezone.localtime(m['start'])
+        end_local = timezone.localtime(m['end'])
+        dur = _human_duration((m['end'] - m['start']).total_seconds())
+        lines.append(f"{start_local:%H:%M}–{end_local:%H:%M} ({_part_of_day(start_local)}, {dur}) {m['label']}")
     return lines
+
 
 # Dedicated summarisation prompts — intentionally NOT the user's Ask system
 # prompt (that one is tuned for interactive Q&A over tools, not for writing a
@@ -190,30 +227,38 @@ def _stay_timeline(visits):
 # they're grounded in the top-cities/top-places breakdown instead and write
 # thematically. Both demand something short and concrete over the previous
 # generic multi-paragraph recap.
+_STYLE_RULES = (
+    " Write like a warm friend recounting the day, not a report: flowing, "
+    "natural prose in the second person (\"you\"), with parts of the day "
+    "(\"in the morning\", \"after lunch\", \"that evening\"). Name the specific "
+    "places and businesses you were given (a store or restaurant beats the "
+    "town it is in) and say where they are. Lead with where most of the time "
+    "was spent. Never mention towns you merely passed through or travelled "
+    "between, never say \"a quick stop\", and never list coordinates, raw "
+    "times or stats mechanically. Only use places, times and figures that "
+    "were given; never invent any. Plain text only: no headings, bullet "
+    "points or markdown."
+)
 SUMMARY_SYSTEM_PROMPT_DAILY = (
-    "You are a concise travel journal writer for Roamly, a personal "
-    "location-history app. You are given the user's chronological stay "
-    "timeline for one day (place + time range, in order) plus headline "
-    "stats. Write a short recap addressed to them in the second person "
-    "(\"you\") that narrates the actual sequence of the day — e.g. \"you "
-    "went to X in the morning, then spent the afternoon near Y\". ONE short "
-    "paragraph, 2-3 sentences. No headings, bullet points, or markdown. "
-    "Reference only the places and times you were given — never invent a "
-    "place name, time, or fact not present in the data. If the day was "
-    "quiet or the timeline is empty, say so briefly and gently rather than "
-    "padding it out."
+    "You are the voice of Roamly, a personal location-history app, writing "
+    "the user's daily recap. You are given their chronological stays for one "
+    "day (time, part of day, duration, place) plus headline stats. Write one "
+    "paragraph of 3-5 sentences that tells the day's story in order, e.g. "
+    "\"You spent the morning in Waldo, then headed to Hannaford in Bangor "
+    "before ending up back home that evening.\" Mention distance travelled "
+    "only if it adds something. If the day was quiet or empty, say so "
+    "gently in a sentence." + _STYLE_RULES
 )
 SUMMARY_SYSTEM_PROMPT_PERIOD = (
-    "You are a concise travel journal writer for Roamly, a personal "
-    "location-history app. You are given headline stats for a completed "
-    "week/month/year plus a ranked breakdown of the cities and places the "
-    "user spent the most time in. Write a short recap addressed to them in "
-    "the second person (\"you\") that names the actual top places — e.g. "
-    "\"you mostly stayed around X, with a trip to Y\". ONE short paragraph, "
-    "2-3 sentences. No headings, bullet points, or markdown, and no vague "
-    "summary that could apply to anyone — ground every claim in the given "
-    "data. Never invent a place name or fact not present in the data. If "
-    "activity was low, keep it light and gentle rather than exaggerating."
+    "You are the voice of Roamly, a personal location-history app, writing "
+    "the user's weekly, monthly or yearly recap. You are given headline "
+    "stats plus a ranked breakdown of the cities and places they spent the "
+    "most time in. Write one paragraph of 3-5 sentences that captures what "
+    "the period was like: where home base was, the places that kept coming "
+    "back, any standout trip, and one fitting highlight from the stats. "
+    "Ground every claim in the data and never write something that could "
+    "apply to anyone. If activity was low, keep it light and gentle."
+    + _STYLE_RULES
 )
 
 
