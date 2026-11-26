@@ -1234,6 +1234,8 @@ class UserProfile(models.Model):
     ai_api_key = models.CharField(max_length=500, blank=True, default='')
     ai_model = models.CharField(max_length=200, blank=True, default='')      # e.g. gpt-4o-mini
     ai_system_prompt = models.TextField(blank=True, default='')              # optional override
+    # More model ids the Ask chat's picker offers beside ai_model, one per line.
+    ai_extra_models = models.TextField(blank=True, default='')
     # Opt-in: let the Ask assistant read journal entries (they can be sensitive,
     # so this is off by default and gated separately from ai_ask_enabled).
     ai_allow_journals = models.BooleanField(default=False)
@@ -1381,6 +1383,15 @@ class UserProfile(models.Model):
     @property
     def ai_configured(self):
         return bool(self.ai_ask_enabled and self.ai_base_url and self.ai_api_key and self.ai_model)
+
+    def ai_model_choices(self):
+        """The default model first, then the extra ones the user pasted in."""
+        out = [self.ai_model] if self.ai_model else []
+        for line in (self.ai_extra_models or '').splitlines():
+            m = line.strip()
+            if m and m not in out:
+                out.append(m)
+        return out
 
     @property
     def road_provider_resolved(self):

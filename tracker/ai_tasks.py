@@ -862,10 +862,17 @@ _CUT_OFF_NOTE = "\n\n_(The reply was cut off: it ran too long.)_"
 # Base URLs that rejected ``stream_options``, so later turns don't pay a failed
 # request to find out again. Per process; a restart just asks once more.
 _NO_STREAM_OPTIONS = set()
+# (base URL, model) pairs that answered 400/422 to ``reasoning_effort`` (per process).
+_NO_EFFORT = set()
+EFFORTS = ('low', 'medium', 'high')
 
 
-def _stream_post(profile, base, messages, tools, usage):
+def _stream_post(profile, base, messages, tools, usage, effort=''):
     body = {"model": profile.ai_model, "messages": messages, "stream": True}
+    if effort:
+        # The OpenAI-style knob; reasoning models honour it, others may refuse it
+        # (see _NO_EFFORT).
+        body["reasoning_effort"] = effort
     if usage:
         # OpenAI's way to get token counts on a streamed reply: one extra final
         # chunk carrying ``usage``. Ollama, LM Studio, vLLM and llama.cpp honour it.
@@ -903,13 +910,22 @@ def _provider_stream(profile, messages, tools=None):
     except OutboundURLError as exc:
         raise AIProviderError(str(exc))
     want_usage = base not in _NO_STREAM_OPTIONS
-    resp = _stream_post(profile, base, messages, tools, want_usage)
+    effort = getattr(profile, 'ai_effort', '') or ''
+    if (base, profile.ai_model) in _NO_EFFORT:
+        effort = ''
+    resp = _stream_post(profile, base, messages, tools, want_usage, effort)
+    if effort and resp.status_code in (400, 422):
+        # A model with no reasoning control: answer without it, and remember.
+        resp.close()
+        _NO_EFFORT.add((base, profile.ai_model))
+        effort = ''
+        resp = _stream_post(profile, base, messages, tools, want_usage)
     if want_usage and resp.status_code in (400, 422):
         # Strict OpenAI-compatible servers refuse fields they don't know. Ask
         # again without it rather than failing the turn over a statistic.
         resp.close()
         _NO_STREAM_OPTIONS.add(base)
-        resp = _stream_post(profile, base, messages, tools, False)
+        resp = _stream_post(profile, base, messages, tools, False, effort)
     try:
         _raise_for_status(resp)
         if "text/event-stream" not in (resp.headers.get("Content-Type") or ""):

@@ -461,3 +461,49 @@ def test_show_data_map_returns_ranking_and_card(client, user, device, llm):
     result = json.loads([m for m in llm.sent[1]['messages'] if m['role'] == 'tool'][0]['content'])
     assert result['regions'][0] == {'name': 'Maine', 'value': 1, 'detail': '1 visit'}
     assert 'lat' not in json.dumps(card)
+
+
+# ── Model and effort picker ─────────────────────────────────────────────
+
+def test_send_uses_a_listed_model_and_effort(client, user, llm, monkeypatch):
+    UserProfile.objects.filter(user=user).update(ai_extra_models='big-model\n  \nbig-model')
+    seen = []
+
+    def stream(profile, messages, tools=None):
+        seen.append((profile.ai_model, getattr(profile, 'ai_effort', None)))
+        yield 'final', {'content': 'ok', 'tool_calls': None}
+    monkeypatch.setattr(ai_tasks, '_provider_stream', stream)
+    send(client, message='a', model='big-model', effort='high')
+    send(client, message='b', model='not-listed', effort='extreme')
+    assert seen == [('big-model', 'high'), ('m', '')]
+    done = AskMessage.objects.filter(role='assistant').order_by('id')
+    assert [d.meta['model'] for d in done] == ['big-model', 'm']
+
+
+def test_effort_is_dropped_for_a_model_that_refuses_it(monkeypatch):
+    posted = []
+
+    class R:
+        def __init__(self, status):
+            self.status_code = status
+            self.headers = {'Content-Type': 'application/json'}
+
+        def close(self):
+            pass
+
+    def post(profile, base, messages, tools, usage, effort=''):
+        posted.append(effort)
+        return R(400 if effort else 200)
+    monkeypatch.setattr(ai_tasks, '_stream_post', post)
+    monkeypatch.setattr(ai_tasks, 'validate_outbound_url', lambda *a, **k: None)
+    monkeypatch.setattr(ai_tasks, '_raise_for_status', lambda r: None)
+
+    class P:
+        ai_base_url, ai_model, ai_effort = 'https://x.example/v1', 'plain', 'high'
+    ai_tasks._NO_EFFORT.discard(('https://x.example/v1', 'plain'))
+    try:
+        next(ai_tasks._provider_stream(P(), []))   # the empty JSON body isn't parsed; only the posts matter
+    except Exception:
+        pass
+    assert posted[:2] == ['high', '']
+    assert ('https://x.example/v1', 'plain') in ai_tasks._NO_EFFORT

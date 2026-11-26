@@ -2043,7 +2043,7 @@ def ask_view(request):
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
     if not profile.ai_configured:
         return redirect('tracker:map')
-    return render(request, 'tracker/ask.html')
+    return render(request, 'tracker/ask.html', {'ai_models': profile.ai_model_choices()})
 
 
 @login_required
@@ -2071,6 +2071,7 @@ def settings_view(request):
         'ai_base_url': profile.ai_base_url,
         'ai_model': profile.ai_model,
         'ai_system_prompt': profile.ai_system_prompt,
+        'ai_extra_models': profile.ai_extra_models,
         'ai_allow_journals': profile.ai_allow_journals,
         'ai_api_key_set': bool(profile.ai_api_key),
         # Summary emails — only usable when SMTP + AI Ask are both configured.
@@ -2563,6 +2564,12 @@ def profile_ai_config_api(request):
     profile.ai_base_url = _ai_url
     profile.ai_model = (data.get('ai_model') or '').strip()[:200]
     profile.ai_system_prompt = (data.get('ai_system_prompt') or '').strip()
+    _extra = []
+    for line in str(data.get('ai_extra_models') or '').splitlines():
+        m = line.strip()[:200]
+        if m and m != profile.ai_model and m not in _extra:
+            _extra.append(m)
+    profile.ai_extra_models = '\n'.join(_extra[:30])
     profile.ai_allow_journals = bool(data.get('ai_allow_journals'))
 
     new_key = (data.get('ai_api_key') or '').strip()
@@ -2570,7 +2577,7 @@ def profile_ai_config_api(request):
         profile.ai_api_key = new_key[:500]
 
     profile.save(update_fields=[
-        'ai_ask_enabled', 'ai_base_url', 'ai_model', 'ai_system_prompt',
+        'ai_ask_enabled', 'ai_base_url', 'ai_model', 'ai_system_prompt', 'ai_extra_models',
         'ai_allow_journals', 'ai_api_key',
     ])
     return JsonResponse({'ok': True, 'configured': profile.ai_configured})

@@ -275,6 +275,10 @@ body:has(.ask-app) { overflow: hidden; }
 .ask-chat-pin { font-size: 0.7rem; color: var(--primary); flex-shrink: 0; }
 .ask-modes { max-width: 760px; margin: 0 auto 0.45rem; display: flex; gap: 0.35rem; overflow-x: auto; scrollbar-width: none; }
 .ask-modes::-webkit-scrollbar { display: none; }
+.ask-pickers { max-width: 760px; margin: 0.4rem auto 0; display: flex; gap: 0.4rem; justify-content: flex-end; align-items: center; font-size: 0.72rem; color: var(--text-muted); }
+.ask-pickers select { max-width: 55%; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); border-radius: 999px;
+    font: inherit; font-family: var(--font-mono); padding: 0.2rem 0.6rem; cursor: pointer; text-overflow: ellipsis; }
+.ask-pickers select:hover, .ask-pickers select:focus { border-color: var(--border-bright); outline: none; }
 .ask-mode {
     flex-shrink: 0; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted);
     border-radius: calc(999px * var(--rk, 1)); padding: 0.25rem 0.75rem; font: inherit; font-size: 0.8rem; cursor: pointer;
@@ -348,6 +352,7 @@ body:has(.ask-app) #main-content + div { display: none; }
 {% endblock %}
 
 {% block content %}
+{{ ai_models|json_script:"ask-models" }}
 <div class="ask-app" id="ask-app">
     <aside class="ask-side" id="ask-side" aria-label="Chats">
         <div class="ask-side-head">
@@ -375,6 +380,13 @@ body:has(.ask-app) #main-content + div { display: none; }
             <div class="ask-composer-inner">
                 <textarea class="ask-textarea rly-native" id="ask-input" rows="1" placeholder="Ask about where you've been…" autocomplete="off"></textarea>
                 <button class="ask-send" id="ask-send" type="button" onclick="onSendClick()" aria-label="Send" disabled></button>
+            </div>
+            <div class="ask-pickers">
+                <select id="ask-model" class="rly-native" aria-label="Model" title="Model for the next message"></select>
+                <select id="ask-effort" class="rly-native" aria-label="Reasoning effort" title="How hard the model should think (models that don't support it ignore it)">
+                    <option value="">Effort: default</option><option value="low">Effort: low</option>
+                    <option value="medium">Effort: medium</option><option value="high">Effort: high</option>
+                </select>
             </div>
             <div class="ask-hint">Your history is read, never changed. Suggestions are the AI's, not your data — check details before you travel.</div>
         </div>
@@ -420,6 +432,18 @@ const MODES = [
 let chats = [];
 let chatId = null;
 let chatMode = '';
+// Model + effort for the next message; remembered in this browser. A saved model
+// the user has since removed from Settings falls back to the default.
+const MODELS = JSON.parse(document.getElementById('ask-models').textContent || '[]');
+const lsGet = k => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+const pickModelEl = document.getElementById('ask-model'), pickEffortEl = document.getElementById('ask-effort');
+MODELS.forEach((m, i) => { const o = document.createElement('option'); o.value = m; o.textContent = m + (i === 0 && MODELS.length > 1 ? ' (default)' : ''); pickModelEl.appendChild(o); });
+pickModelEl.value = MODELS.includes(lsGet('roamly_ask_model')) ? lsGet('roamly_ask_model') : (MODELS[0] || '');
+pickEffortEl.value = ['low', 'medium', 'high'].includes(lsGet('roamly_ask_effort')) ? lsGet('roamly_ask_effort') : '';
+pickModelEl.hidden = MODELS.length < 2;
+pickModelEl.onchange = () => lsSet('roamly_ask_model', pickModelEl.value);
+pickEffortEl.onchange = () => lsSet('roamly_ask_effort', pickEffortEl.value);
 let streaming = null;       // controller of the reply still being written
 let lastCtl = null;         // the newest request, still open while follow-ups load
 let mapCards = [];
@@ -741,11 +765,12 @@ function setSources(turn, sources) {
 function fmtTokens(n) {
     return n >= 10000 ? (n / 1000).toFixed(0) + 'k' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
 }
-function setStats(turn, st) {
+function setStats(turn, st, model) {
     const slot = turn.el.querySelector('.ask-stats-slot');
     slot.innerHTML = '';
     if (!st) return;
     const parts = [];
+    if (model && MODELS.length > 1) parts.push(model);
     if (st.seconds != null) parts.push(st.seconds < 60 ? `${st.seconds.toFixed(1)}s` : `${Math.floor(st.seconds / 60)}m ${Math.round(st.seconds % 60)}s`);
     if (st.out_tokens) parts.push(`${st.estimated ? '~' : ''}${fmtTokens(st.out_tokens)} tokens`);
     if (st.tok_s) parts.push(`${st.estimated ? '~' : ''}${st.tok_s.toFixed(st.tok_s < 10 ? 1 : 0)} tok/s`);
@@ -923,7 +948,7 @@ function openChat(id) {
                 (m.cards || []).forEach(c => addCard(turn, c, false));
                 (m.proposals || []).forEach(p => addProposal(turn, p));
                 setSources(turn, (m.meta || {}).sources);
-                setStats(turn, (m.meta || {}).stats);
+                setStats(turn, (m.meta || {}).stats, (m.meta || {}).model);
                 lastTurn = turn; lastMeta = m.meta || {};
             }
             if (lastTurn && lastMeta.followups && d.messages[d.messages.length - 1].role === 'assistant')
@@ -1010,7 +1035,7 @@ async function run(body, ctx) {
         const resp = await fetch('/api/ask/send/', {
             method: 'POST', signal: ctl.signal,
             headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...body, tz_offset: TZ }),
+            body: JSON.stringify({ ...body, tz_offset: TZ, model: pickModelEl.value, effort: pickEffortEl.value }),
         });
         if (!resp.ok || !resp.body) {
             let msg = 'Something went wrong.';
@@ -1043,7 +1068,7 @@ async function run(body, ctx) {
                     setStatus(turn, '');
                     renderText(turn, false);
                     setSources(turn, ev.sources);
-                    setStats(turn, ev.stats);
+                    setStats(turn, ev.stats, ev.model);
                     // The answer is in: unlock the composer while follow-ups load.
                     streaming = null;
                     setStreaming(false);

@@ -5,6 +5,7 @@ here touches location data. A turn writes only the chat's own rows
 (``AskChat`` / ``AskMessage`` / ``AskProposal``); a flight, journal entry or
 place changes only through ``proposal_approve_api``, i.e. the user's click.
 """
+import copy
 import json
 import logging
 
@@ -168,6 +169,15 @@ def send_api(request):
     if mode is not None and str(mode) not in ai_tasks.ASK_MODES:
         mode = ''
 
+    # Per-turn model and reasoning effort. The model must be one the user listed
+    # in Settings (never an arbitrary id); anything else falls back to the default.
+    run_profile = copy.copy(profile)
+    picked = str(data.get('model') or '').strip()
+    if picked and picked in profile.ai_model_choices():
+        run_profile.ai_model = picked
+    effort = str(data.get('effort') or '').strip().lower()
+    run_profile.ai_effort = effort if effort in ai_tasks.EFFORTS else ''
+
     created = False
     chat_id = data.get('chat_id')
     if chat_id not in (None, '') and not str(chat_id).isdigit():
@@ -242,7 +252,7 @@ def send_api(request):
             # The zone the middleware activated belongs to the request thread's
             # lifetime, which can end before a streamed body does.
             with timezone.override(tz):
-                for ev in ai_tasks.ask_events(user, history, profile, tz_offset, mode=mode):
+                for ev in ai_tasks.ask_events(user, history, run_profile, tz_offset, mode=mode):
                     if ev['type'] == 'delta':
                         parts.append(ev['text'])
                     elif ev['type'] == 'map':
@@ -259,6 +269,7 @@ def send_api(request):
                     elif ev['type'] == 'done':
                         parts[:] = [ev['text']]
                         meta['sources'] = ev.get('sources') or []
+                        meta['model'] = ev['model'] = run_profile.ai_model
                         if ev.get('stats'):
                             meta['stats'] = ev['stats']
                     yield _line(ev)
