@@ -190,10 +190,14 @@ fun ListRow(
     icon: ImageVector? = null,
     iconTint: Color = Atlas.colors.accent,
     titleColor: Color = Atlas.colors.text,
-    onClick: (() -> Unit)? = null,
-    showChevron: Boolean = onClick != null,
+    /** Null = a chevron exactly when the row is tappable. */
+    showChevron: Boolean? = null,
     trailing: (@Composable () -> Unit)? = null,
+    // Last, so `ListRow(...) { open() }` is the click — never the trailing slot,
+    // which would run during composition.
+    onClick: (() -> Unit)? = null,
 ) {
+    val chevron = showChevron ?: (onClick != null)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -216,7 +220,7 @@ fun ListRow(
         if (trailing != null) {
             Spacer(Modifier.width(12.dp))
             trailing()
-        } else if (showChevron) {
+        } else if (chevron) {
             Icon(Icons.Rounded.ChevronRight, null, tint = Atlas.colors.textFaint, modifier = Modifier.size(20.dp))
         }
     }
