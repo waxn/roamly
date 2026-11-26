@@ -134,6 +134,8 @@
     border: 1px solid var(--border); background: var(--bg-elevated);
     font-size: 0.8125rem; white-space: pre-wrap; overflow-wrap: anywhere;
 }
+/* A year-ago line is a few sentences of prose, not an email body. */
+.recap-text.is-prose { height: auto; max-height: 50vh; font-family: inherit; font-size: 0.95rem; line-height: 1.55; }
 </style>
 {% endblock %}
 
@@ -535,9 +537,11 @@ const SOURCE_LEADS = {
     cells: 'Cell tower readings your phone logged alongside its GPS fixes.',
     health: 'Raw records from Health Connect, Zepp and file imports.',
     recaps: 'The AI recap emails Roamly sent you. Click one to read it.',
+    yearago: 'Every \u201ca year ago\u201d line the header has shown you. Click one to read it.',
 };
 const EMPTY_TEXT = {
     recaps: 'No recap emails yet. Recaps sent before this history was added are not listed.',
+    yearago: 'No year ago recaps yet. They are written each night around 2am for days you have history on.',
 };
 const sourceSel = document.getElementById('data-source');
 let activeSource = 'locations';
@@ -556,13 +560,15 @@ function fmtRaw(v, type) {
 }
 
 function rawRender() {
+    // `hidden` columns are carried for the row reader, not shown in the table.
+    const cols = raw.columns.filter(c => c.type !== 'hidden');
     document.getElementById('raw-head').innerHTML =
-        raw.columns.map(c => `<th>${escHtml(c.label)}</th>`).join('');
-    const n = raw.columns.length || 1;
+        cols.map(c => `<th>${escHtml(c.label)}</th>`).join('');
+    const n = cols.length || 1;
     const openAttrs = raw.open ? ' class="raw-open" tabindex="0"' : '';
     const empty = EMPTY_TEXT[activeSource] || 'Nothing in this range. Try a wider time range or another device.';
     document.getElementById('raw-body').innerHTML = raw.rows.length
-        ? raw.rows.map(r => `<tr data-id="${Number(r.id)}"${openAttrs}>` + raw.columns.map(c =>
+        ? raw.rows.map(r => `<tr data-id="${Number(r.id)}"${openAttrs}>` + cols.map(c =>
             `<td${c.type === 'time' ? ' style="color:var(--text-muted)"' : ''}>${fmtRaw(r[c.key], c.type)}</td>`).join('') + '</tr>').join('')
         : `<tr><td colspan="${n}" style="text-align:center;padding:2.5rem 1rem;color:var(--text-muted);">${escHtml(empty)}</td></tr>`;
     document.getElementById('raw-info').textContent = `Showing ${raw.rows.length} rows`;
@@ -681,6 +687,7 @@ async function openRecap(id, fromEl) {
     recapEl.subject.textContent = 'Loading\u2026';
     recapEl.meta.textContent = '';
     recapEl.text.textContent = '';
+    recapEl.text.classList.remove('is-prose');
     recapEl.frame.srcdoc = '';
     recapEl.tabs.hidden = true;
     recapView('text');
@@ -716,14 +723,40 @@ async function openRecap(id, fromEl) {
     }
 }
 
+// A year-ago line is plain text already in the row, so it opens without a fetch
+// and only ever reaches the page through textContent.
+function openYearAgo(id, fromEl) {
+    const r = raw.rows.find(x => String(x.id) === String(id));
+    if (!r) return;
+    recapToken++;
+    recapReturnFocus = fromEl || null;
+    recapEl.subject.textContent = r.headline || 'A year ago';
+    const when = r.day ? new Date(r.day + 'T12:00:00').toLocaleDateString(undefined,
+        {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'}) : '';
+    recapEl.meta.textContent = [when, r.distance, r.places, r.journal_used ? 'Used your journal' : '']
+        .filter(Boolean).join(' \u00b7 ');
+    recapEl.text.textContent = r.summary || '(no text)';
+    recapEl.text.classList.add('is-prose');
+    recapEl.frame.srcdoc = '';
+    recapEl.tabs.hidden = true;
+    recapView('text');
+    recapEl.overlay.hidden = false;
+    document.getElementById('recap-close').focus();
+}
+
+function openRow(tr) {
+    if (raw.open === 'recap') openRecap(tr.dataset.id, tr);
+    else if (raw.open === 'yearago') openYearAgo(tr.dataset.id, tr);
+}
+
 document.getElementById('raw-body').addEventListener('click', ev => {
     const tr = ev.target.closest('tr.raw-open');
-    if (tr && raw.open === 'recap') openRecap(tr.dataset.id, tr);
+    if (tr) openRow(tr);
 });
 document.getElementById('raw-body').addEventListener('keydown', ev => {
     if (ev.key !== 'Enter' && ev.key !== ' ') return;
     const tr = ev.target.closest('tr.raw-open');
-    if (tr && raw.open === 'recap') { ev.preventDefault(); openRecap(tr.dataset.id, tr); }
+    if (tr) { ev.preventDefault(); openRow(tr); }
 });
 document.getElementById('recap-close').addEventListener('click', closeRecap);
 recapEl.overlay.addEventListener('click', ev => { if (ev.target === recapEl.overlay) closeRecap(); });

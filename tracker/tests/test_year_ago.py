@@ -248,3 +248,26 @@ def test_sweep_skips_accounts_that_never_look_at_the_chip(user, device, provider
     year_ago_tasks._sweep()
     assert YearAgoRecap.objects.filter(day__in=[date(2025, 6, 19), date(2025, 6, 20)]).count() == 2
 
+
+# ── Raw data history ───────────────────────────────────────────────────────
+
+def test_raw_data_lists_only_my_year_ago_lines(client, user, device, provider):
+    track(device)
+    client.post(URL)
+    other = User.objects.create_user('mallory', password='pw-yago-2')
+    YearAgoRecap.objects.create(user=other, day=date(2025, 6, 19), headline='Not yours', summary='nope')
+
+    keys = [s['key'] for s in client.get('/api/data/sources/').json()['sources']]
+    assert 'yearago' in keys
+    data = client.get('/api/data/source/yearago/').json()
+    assert data['open'] == 'yearago'
+    assert [r['headline'] for r in data['rows']] == ['Brunch in Bangor, then home']
+    assert data['rows'][0]['summary'] == 'You had brunch in Bangor.'
+    assert data['rows'][0]['day'] == '2025-06-19'
+    assert {'key': 'summary', 'label': 'Recap', 'type': 'hidden'} in data['columns']
+
+
+def test_raw_data_source_hidden_without_ai(client, user):
+    UserProfile.objects.filter(user=user).update(ai_ask_enabled=False)
+    keys = [s['key'] for s in client.get('/api/data/sources/').json()['sources']]
+    assert 'yearago' not in keys

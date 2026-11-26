@@ -1846,6 +1846,11 @@ def _recap_email_qs(u):
     return SummaryEmailLog.objects.filter(user=u)
 
 
+def _year_ago_qs(u):
+    from .models import YearAgoRecap
+    return YearAgoRecap.objects.filter(user=u)
+
+
 _RAW_SOURCES = {
     'locations': {
         'label': 'Recorded points',
@@ -1913,6 +1918,22 @@ _RAW_SOURCES = {
                    ('period_start', 'From', 'date'), ('period_end', 'To', 'date'),
                    ('subject', 'Subject', 'text'), ('status', 'Status', 'text'),
                    ('is_test', 'Test send', 'bool')],
+    },
+    'yearago': {
+        'label': 'Year ago recaps',
+        'qs': _year_ago_qs,
+        'time': 'generated_at',
+        'device_fk': None,
+        'windowed': False,
+        'open': 'yearago',
+        'show_empty': lambda u: bool(getattr(UserProfile.objects.filter(user=u).first(),
+                                             'ai_configured', False)),
+        # `hidden` columns ride along in each row for the reader but get no
+        # table column.
+        'fields': [('day', 'Day', 'date'), ('headline', 'Headline', 'text'),
+                   ('distance', 'Distance', 'text'), ('places', 'Places', 'text'),
+                   ('journal_used', 'Used journal', 'bool'), ('generated_at', 'Written', 'time'),
+                   ('summary', 'Recap', 'hidden')],
     },
 }
 
