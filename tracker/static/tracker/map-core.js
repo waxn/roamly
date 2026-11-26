@@ -866,7 +866,11 @@ function updateDetailControls() {
     // user still wants a one-tap way to force every point in view to load.
     const showPanel = zoom >= DETAIL_MIN_ZOOM && lastTrackData.length > 0;
     panel.style.display = showPanel ? 'flex' : 'none';
+    // One tile while zoomed in: total vs loaded plus the load-all button, so
+    // the separate point-count tile steps aside.
+    document.getElementById('map-info').style.display = showPanel ? 'none' : '';
     if (!showPanel) return;
+    const total = lastTrackData.reduce((s, d) => s + d.total, 0);
 
     if (detailLoading) {
         hint.textContent = 'loading points...';
@@ -875,9 +879,8 @@ function updateDetailControls() {
     }
 
     btn.disabled = false;
-    hint.textContent = lastViewportHitLimit
-        ? `${accMap.size.toLocaleString()} pts loaded · dense area`
-        : `${accMap.size.toLocaleString()} pts loaded`;
+    hint.textContent = `${total.toLocaleString()} pts · ${accMap.size.toLocaleString()} loaded in detail`
+        + (lastViewportHitLimit ? ' · dense area' : '');
 }
 
 function isViewportCovered(b) {
@@ -952,10 +955,7 @@ function loadViewport(limit) {
                 updateSnapBadge();
                 clearTimeout(timeoutId);
                 hideMapLoading();
-
-                const total = lastTrackData.reduce((s, d) => s + d.total, 0);
-                document.getElementById('map-info').textContent =
-                    `${total.toLocaleString()} pts · ${accMap.size.toLocaleString()} loaded in detail`;
+                updateDetailControls();
             });
         })
         .catch(err => {
