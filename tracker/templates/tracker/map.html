@@ -970,15 +970,16 @@
     gap: 8px;
     margin-bottom: 6px;
 }
-.map-addplace-radius-row input[type="range"] { flex: 1; accent-color: var(--primary); }
+.map-addplace-radius-row input[type="range"] { flex: 1 1 0; min-width: 0; width: 0; accent-color: var(--primary); }
 .map-addplace-rval {
     font-size: 0.7rem;
     font-family: var(--font-body);
     font-weight: 700;
     color: var(--text-muted);
-    min-width: 42px;
+    min-width: 48px;
+    flex: 0 0 auto;
+    white-space: nowrap;
     text-align: right;
-    
 }
 .map-addplace-hint {
     font-size: 0.67rem;
