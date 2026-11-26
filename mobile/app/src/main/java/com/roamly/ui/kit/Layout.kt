@@ -72,10 +72,10 @@ fun dockAwareBottom(extra: Dp = 24.dp): Dp = LocalDockPadding.current + extra
 fun ProvideDockPadding(padding: Dp, content: @Composable () -> Unit) =
     CompositionLocalProvider(LocalDockPadding provides padding, content = content)
 
-/** Mono, uppercase, tracked-out label that sits above a title. */
+/** A small plain label above a title. */
 @Composable
-fun Eyebrow(text: String, modifier: Modifier = Modifier, color: Color = Atlas.colors.accent) {
-    Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = color, modifier = modifier, maxLines = 1)
+fun Eyebrow(text: String, modifier: Modifier = Modifier, color: Color = Atlas.colors.textMuted) {
+    Text(text, style = MaterialTheme.typography.labelSmall, color = color, modifier = modifier, maxLines = 1)
 }
 
 /** A tab's large title block. */
@@ -169,7 +169,7 @@ fun SectionTitle(
         modifier = modifier.fillMaxWidth().padding(top = 8.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = Atlas.colors.textMuted, modifier = Modifier.weight(1f))
+        Text(text, style = MaterialTheme.typography.labelSmall, color = Atlas.colors.textMuted, modifier = Modifier.weight(1f))
         if (action != null && onAction != null) {
             Text(
                 action,

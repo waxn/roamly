@@ -95,7 +95,7 @@ internal fun Dock(
             Modifier
                 .navigationBarsPadding()
                 .padding(bottom = DOCK_MARGIN)
-                .shadow(24.dp, shape, ambientColor = c.shadow, spotColor = c.shadow)
+                .shadow(6.dp, shape, ambientColor = c.shadow.copy(alpha = 0.3f), spotColor = c.shadow.copy(alpha = 0.3f))
                 .clip(shape)
                 .background(c.glass)
                 .border(1.dp, c.lineStrong, shape)
@@ -173,11 +173,11 @@ private fun RecordButton(recording: Boolean, onClick: () -> Unit) {
         Box(
             Modifier
                 .size(52.dp)
-                .shadow(12.dp, SquircleShape(50), ambientColor = c.accent, spotColor = c.accent)
+                .shadow(2.dp, SquircleShape(50))
                 .clip(SquircleShape(50))
                 .background(
-                    if (recording) Brush.linearGradient(listOf(c.danger, c.rose))
-                    else Brush.linearGradient(listOf(c.accent, c.amber))
+                    if (recording) Brush.linearGradient(listOf(c.danger, c.danger))
+                    else Brush.linearGradient(listOf(c.accent, c.accent))
                 )
                 .tappable(feel = Feel.None, pressedScale = 0.85f, onClick = onClick)
                 .semantics { contentDescription = if (recording) "Recording — open" else "Record an activity" },

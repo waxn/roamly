@@ -70,17 +70,16 @@ fun AtlasButton(
 ) {
     val c = Atlas.colors
     val (fill, content) = when (kind) {
-        ButtonKind.Primary -> c.accent to c.onAccent
+        ButtonKind.Primary -> c.text to c.bg
         ButtonKind.Secondary -> c.surfaceHighest to c.text
-        ButtonKind.Ghost -> Color.Transparent to c.accent
+        ButtonKind.Ghost -> Color.Transparent to c.text
         ButtonKind.Danger -> c.dangerSoft to c.danger
         ButtonKind.Glass -> c.glass to c.text
     }
     val active = enabled && !loading
-    val shape = SquircleShape(50)
+    val shape = SquircleShape(SquircleRadius.control)
     Row(
         modifier = modifier
-            .then(if (kind == ButtonKind.Glass) Modifier.shadow(10.dp, shape, ambientColor = c.shadow, spotColor = c.shadow) else Modifier)
             .clip(shape)
             .background(if (enabled) fill else fill.copy(alpha = if (fill == Color.Transparent) 0f else 0.4f))
             .then(if (kind == ButtonKind.Glass) Modifier.border(1.dp, c.lineStrong, shape) else Modifier)
@@ -350,7 +349,7 @@ fun ChipRow(
 @Composable
 fun InfoPair(label: String, value: String, modifier: Modifier = Modifier, mono: Boolean = false) {
     Column(modifier) {
-        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = Atlas.colors.textFaint)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Atlas.colors.textFaint)
         Spacer(Modifier.height(3.dp))
         Text(
             value,

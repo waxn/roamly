@@ -59,11 +59,11 @@ fun Panel(
         PanelTone.Raised -> c.surface to c.line
         PanelTone.Sunken -> c.surfaceHigh to Color.Transparent
         PanelTone.Glass -> c.glass to c.lineStrong
-        PanelTone.Accent -> c.accentSoft to c.accent.copy(alpha = 0.28f)
+        PanelTone.Accent -> c.surfaceHigh to c.lineStrong
         PanelTone.Outline -> Color.Transparent to c.lineStrong
     }
     var m = modifier
-    if (tone == PanelTone.Glass) m = m.shadow(18.dp, shape, ambientColor = c.shadow, spotColor = c.shadow)
+    if (tone == PanelTone.Glass) m = m.shadow(3.dp, shape, ambientColor = c.shadow.copy(alpha = 0.25f), spotColor = c.shadow.copy(alpha = 0.25f))
     m = m.clip(shape).background(fill)
     if (border != Color.Transparent) m = m.border(1.dp, border, shape)
     if (onClick != null) m = m.tappable(pressedScale = 0.985f, onLongClick = onLongClick, onClick = onClick)
