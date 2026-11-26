@@ -133,16 +133,23 @@ fun JournalsScreen(
                 }
             } else if (!state.isLoading) {
                 item {
-                    EmptyState(Icons.Rounded.AutoStories, "Your journal is empty", body = "Tap a day, or “Write today”, to start. Your route for the day shows up alongside.")
+                    EmptyState(
+                        Icons.Rounded.AutoStories, "Your journal is empty",
+                        body = "Tap a day to write about it. Your route for that day shows up alongside.",
+                        action = "Write today", onAction = viewModel::openToday,
+                    )
                 }
             }
         }
-        AtlasButton(
-            "Write today",
-            viewModel::openToday,
-            Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = dockAwareBottom(16.dp)),
-            icon = Icons.Rounded.EditNote,
-        )
+        // With no entries the empty state carries this action instead.
+        if (state.recent.isNotEmpty()) {
+            AtlasButton(
+                "Write today",
+                viewModel::openToday,
+                Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = dockAwareBottom(16.dp)),
+                icon = Icons.Rounded.EditNote,
+            )
+        }
     }
 
     state.editor?.let { EntryEditor(it, viewModel, onOpenMap) }
