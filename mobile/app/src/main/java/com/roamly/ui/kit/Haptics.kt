@@ -32,7 +32,9 @@ class Haptics internal constructor(private val view: View) {
 
     private fun perform(constant: Int) {
         if (!HapticSettings.enabled) return
-        view.performHapticFeedback(constant)
+        // Feedback is garnish: an unsupported constant or a detached view must
+        // never take a tap (and the app) down with it.
+        runCatching { view.performHapticFeedback(constant) }
     }
 
     /** A detent: a slider step, a picker wheel, a segment change. The lightest. */

@@ -28,7 +28,9 @@ object AtlasMotion {
 
 enum class Feel { None, Tick, Select, Click, Confirm, Heavy }
 
-internal fun Haptics.play(feel: Feel) = when (feel) {
+internal fun Haptics.play(feel: Feel) = runCatching { playUnsafe(feel) }.let { }
+
+private fun Haptics.playUnsafe(feel: Feel) = when (feel) {
     Feel.None -> Unit
     Feel.Tick -> tick()
     Feel.Select -> select()
