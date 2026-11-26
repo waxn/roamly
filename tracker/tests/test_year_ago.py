@@ -1,4 +1,4 @@
-"""Header "a year ago today" chip: cached, consent-gated, and silent when empty."""
+"""Header "a year ago today" chip: saved, written ahead at night, consent-gated, and silent when empty."""
 import json
 from datetime import date, datetime, timedelta, timezone as dt_timezone
 
@@ -8,8 +8,8 @@ from django.core.cache import cache
 from django.test import Client
 from django.utils import timezone
 
-from tracker import ai_tasks
-from tracker.models import Device, JournalEntry, Location, UserProfile
+from tracker import ai_tasks, year_ago_tasks
+from tracker.models import Device, JournalEntry, Location, UserProfile, YearAgoRecap
 from tracker.year_ago import year_ago
 
 pytestmark = pytest.mark.django_db
@@ -113,12 +113,33 @@ def test_writes_headline_and_summary(client, device, provider):
     assert len(provider.calls) == 1
 
 
-def test_second_request_is_served_from_cache(client, device, provider):
+def test_line_is_saved_and_served_from_the_row(client, device, provider):
     track(device)
-    client.post(URL)
+    first = client.post(URL).json()
+    cache.clear()                                  # the row, not the cache, is the store
     again = client.post(URL).json()
-    assert again['status'] == 'ok'
+    assert again == first
     assert len(provider.calls) == 1
+    row = YearAgoRecap.objects.get(user=device.user)
+    assert row.day == date(2025, 6, 19)
+    assert row.headline == 'Brunch in Bangor, then home'
+    assert row.summary == 'You had brunch in Bangor.'
+    assert row.viewed_at is not None
+
+
+def test_saved_lines_do_not_count_toward_the_rate_limit(client, device, provider):
+    track(device)
+    for _ in range(25):                            # the limit is 20 provider-bound requests
+        assert client.post(URL).status_code == 200
+    assert len(provider.calls) == 1
+
+
+def test_stepped_day_is_saved_but_not_marked_viewed(client, device, provider):
+    track(device, THEN - timedelta(days=1))
+    client.post(URL, {'offset': '-1'})
+    row = YearAgoRecap.objects.get(user=device.user)
+    assert row.day == date(2025, 6, 18)
+    assert row.viewed_at is None
 
 
 def test_journal_text_needs_consent(client, user, device, provider):
@@ -129,6 +150,14 @@ def test_journal_text_needs_consent(client, user, device, provider):
     UserProfile.objects.filter(user=user).update(ai_allow_journals=True)
     client.post(URL)
     assert 'SECRET-DIARY' in json.dumps(provider.calls[-1])
+    # Rewritten in place, so turning consent off again rewrites it once more.
+    row = YearAgoRecap.objects.get(user=user)
+    assert row.journal_used and row.journal_consent
+    UserProfile.objects.filter(user=user).update(ai_allow_journals=False)
+    client.post(URL)
+    assert 'SECRET-DIARY' not in json.dumps(provider.calls[-1])
+    assert len(provider.calls) == 3
+    assert YearAgoRecap.objects.get(user=user).journal_used is False
 
 
 def test_single_paragraph_reply_still_splits(client, device, provider):
@@ -147,7 +176,7 @@ def test_provider_error_is_502_and_not_cached(client, device, monkeypatch):
 
     monkeypatch.setattr(ai_tasks, '_provider_chat', boom)
     assert client.post(URL).status_code == 502
-    assert cache.get(f'year_ago:{device.user_id}:2025-06-19:0') is None
+    assert not YearAgoRecap.objects.exists()
 
 
 def test_offset_steps_to_neighbouring_days(client, device, provider):
@@ -162,3 +191,60 @@ def test_offset_steps_to_neighbouring_days(client, device, provider):
 def test_offset_is_clamped_and_validated(client, device, provider):
     assert client.post(URL, {'offset': '999'}).json()['date'] == '2025-07-19'
     assert client.post(URL, {'offset': 'soon'}).status_code == 400
+
+
+# ── The 2am sweep ──────────────────────────────────────────────────────────
+
+def test_pregenerate_writes_today_and_tomorrow(user, device, provider):
+    track(device)
+    track(device, THEN + timedelta(days=1))
+    profile = UserProfile.objects.get(user=user)
+    assert year_ago_tasks.pregenerate_for(profile, force=True) == 2
+    assert sorted(YearAgoRecap.objects.values_list('day', flat=True)) == [date(2025, 6, 19), date(2025, 6, 20)]
+    # Already saved: a second pass asks the provider nothing.
+    assert year_ago_tasks.pregenerate_for(profile, force=True) == 0
+    assert len(provider.calls) == 2
+
+
+def test_pregenerated_line_is_what_the_chip_gets(client, user, device, provider):
+    track(device)
+    year_ago_tasks.pregenerate_for(UserProfile.objects.get(user=user), force=True)
+    calls = len(provider.calls)
+    assert client.post(URL).json()['headline'] == 'Brunch in Bangor, then home'
+    assert len(provider.calls) == calls
+
+
+def test_pregenerate_waits_for_the_night_window(user, device, provider, monkeypatch):
+    track(device)
+    monkeypatch.setattr(year_ago_tasks, 'PREGEN_HOUR', 25)     # never reached
+    assert year_ago_tasks.pregenerate_for(UserProfile.objects.get(user=user)) == 0
+    assert not provider.calls
+
+
+def test_pregenerate_gives_up_after_repeated_failures(user, device, monkeypatch):
+    track(device)
+    calls = []
+
+    def boom(profile, messages, tools=None):
+        calls.append(1)
+        raise ai_tasks.AIProviderError('down')
+
+    monkeypatch.setattr(ai_tasks, '_provider_chat', boom)
+    profile = UserProfile.objects.get(user=user)
+    for _ in range(year_ago_tasks.MAX_ATTEMPTS + 2):
+        assert year_ago_tasks.pregenerate_for(profile, force=True) == 0
+    assert len(calls) == year_ago_tasks.MAX_ATTEMPTS
+
+
+def test_sweep_skips_accounts_that_never_look_at_the_chip(user, device, provider, monkeypatch):
+    track(device)
+    track(device, THEN + timedelta(days=1))
+    monkeypatch.setattr(year_ago_tasks, 'PREGEN_HOUR', 0)
+    monkeypatch.setattr(year_ago_tasks, 'PREGEN_UNTIL_HOUR', 24)
+    year_ago_tasks._sweep()
+    assert not provider.calls
+    # A stepped day isn't "looking at the chip"; the chip's own day is.
+    YearAgoRecap.objects.create(user=user, day=date(2025, 6, 1), headline='Old', viewed_at=NOW)
+    year_ago_tasks._sweep()
+    assert YearAgoRecap.objects.filter(day__in=[date(2025, 6, 19), date(2025, 6, 20)]).count() == 2
+

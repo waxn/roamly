@@ -3008,3 +3008,37 @@ class SummaryEmailLog(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=['user', '-sent_at', '-id'], name='tracker_sumlog_user_idx')]
+
+
+class YearAgoRecap(models.Model):
+    """One "a year ago" line the header chip showed, saved for good.
+
+    Written by ``year_ago.build_year_ago`` (on demand or by the 2am
+    pre-generation sweep in ``year_ago_tasks``), one row per account and day.
+    It is also the chip's cache: a saved row is served instead of asking the
+    provider again, unless the journal consent it was written under no longer
+    matches (then it is rewritten in place). Read by the Raw data page's "Year
+    ago recaps" source. AI-written from data the backup already carries, so it
+    is excluded from backups like ``SummaryEmailLog``.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='year_ago_recaps')
+    # The date last year the line is about.
+    day = models.DateField()
+    headline = models.CharField(max_length=80)
+    summary = models.TextField(blank=True)
+    distance = models.CharField(max_length=40, blank=True)
+    # Top places, joined with " · ".
+    places = models.CharField(max_length=500, blank=True)
+    journal_used = models.BooleanField(default=False)
+    # ``ai_allow_journals`` when this was written: a row from the other setting
+    # is rewritten rather than served.
+    journal_consent = models.BooleanField(default=False)
+    generated_at = models.DateTimeField(default=timezone.now)
+    # Last time the chip showed it; the 2am sweep only writes ahead for
+    # accounts that looked at the chip in the last two weeks.
+    viewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user', 'day'], name='tracker_yearago_user_day_uniq')]
+        indexes = [models.Index(fields=['user', '-generated_at', '-id'], name='tracker_yearago_user_idx'),
+                   models.Index(fields=['viewed_at'], name='tracker_yearago_viewed_idx')]

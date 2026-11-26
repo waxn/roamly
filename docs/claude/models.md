@@ -95,6 +95,7 @@ Streaks (`_journal_compute_streaks`) and lifetime totals computed from entry dat
 
 **Recap email log** (migration `0119`; see Summary emails; **excluded** from backups, a log):
 - `SummaryEmailLog` — one AI recap email sent (or attempted) to the user: `period`, `period_start`/`period_end` (local dates, inclusive), `subject`, `body_text`, `body_html`, `status` (`sent`/`failed`), `is_test`, `sent_at`. Pruned on write to 400 days / 500 rows per user. Read by Raw data's `recaps` source.
+- `YearAgoRecap` — one header "a year ago" line (migration `0120`): `day` (the date last year it is about; unique per user), `headline`, `summary`, `distance`, `places` (joined with " · "), `journal_used`, `journal_consent` (`ai_allow_journals` when written — a row from the other setting is rewritten, never served), `generated_at`, `viewed_at` (stamped when the chip's own day is shown, at most every 12h; the 2am sweep only writes ahead for accounts viewed in the last 14 days). It is also the chip's store: a saved row is served instead of a provider call. Excluded from backups (AI-derived). Read by Raw data's `yearago` source.
 
 **Ask chats** (migration `0112`; see Ask chat page above; **excluded** from backups):
 - `AskChat` — one saved conversation (title, `titled`, `pinned`, `mode`).

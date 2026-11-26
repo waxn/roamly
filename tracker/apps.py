@@ -84,3 +84,8 @@ class TrackerConfig(AppConfig):
                 start_trip_digest_scheduler()
             except Exception:
                 pass
+            try:
+                from .year_ago_tasks import start_year_ago_scheduler
+                start_year_ago_scheduler()
+            except Exception:
+                pass

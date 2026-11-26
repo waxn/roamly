@@ -12875,24 +12875,29 @@ def journal_recap_api(request):
 def year_ago_api(request):
     """The header's "a year ago today" line.
 
-    POST because a cache miss spends the user's provider credits, so a prefetch
-    or link preview must not trigger one. The answer is cached per account and
-    day (``year_ago.build_year_ago``), so this costs at most one provider call a
-    day. AI not set up, or nothing recorded that day, is a quiet ``status`` (no
-    error), because the header just shows nothing in both cases."""
+    POST because a miss spends the user's provider credits, so a prefetch or
+    link preview must not trigger one. Lines are normally written ahead of time
+    by the 2am sweep (``year_ago_tasks``) and every line is saved
+    (``YearAgoRecap``), so this usually just reads a row; only a miss counts
+    toward the rate limit. AI not set up, or nothing recorded that day, is a
+    quiet ``status`` (no error), because the header just shows nothing in both
+    cases."""
     from . import ai_tasks, year_ago
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
     if not profile.ai_configured:
         return _no_store(JsonResponse({'status': 'unavailable'}))
-    if _rate_limited(request, 'year_ago', _YEAR_AGO_LIMIT, 3600,
-                     identifier=str(request.user.id), include_ip=False):
-        return JsonResponse({'error': 'Too many requests.'}, status=429)
     try:
         offset = int(request.POST.get('offset') or 0)
     except (TypeError, ValueError):
         return JsonResponse({'error': 'Invalid offset.'}, status=400)
+    day, offset = year_ago.target_day(timezone.localtime().date(), offset)
+    known = year_ago.saved_line(profile, day) is not None or year_ago.is_known_empty(profile, day)
+    if not known and _rate_limited(request, 'year_ago', _YEAR_AGO_LIMIT, 3600,
+                                   identifier=str(request.user.id), include_ip=False):
+        return JsonResponse({'error': 'Too many requests.'}, status=429)
     try:
-        result = year_ago.build_year_ago(profile, offset)
+        # Only the chip's own day marks the account as one that uses it.
+        result = year_ago.build_year_ago(profile, offset, viewed=offset == 0)
     except (ai_tasks.AIProviderError, year_ago.YearAgoError) as e:
         return JsonResponse({'error': str(e)}, status=502)
     except Exception:
