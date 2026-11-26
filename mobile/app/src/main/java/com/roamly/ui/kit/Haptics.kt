@@ -90,7 +90,8 @@ class Haptics internal constructor(private val view: View) {
     /** A weighty, deliberate event: recording started or stopped, tracking switched. */
     fun thud() {
         if (!HapticSettings.enabled) return
-        if (!compose(VibrationEffect.Composition.PRIMITIVE_THUD, 1f, VibrationEffect.Composition.PRIMITIVE_TICK, 0.5f, 120)) longPress()
+        // PRIMITIVE_THUD only exists from API 31; touching it on 30 throws NoSuchFieldError.
+        if (Build.VERSION.SDK_INT < 31 || !compose(VibrationEffect.Composition.PRIMITIVE_THUD, 1f, VibrationEffect.Composition.PRIMITIVE_TICK, 0.5f, 120)) longPress()
     }
 
     private fun compose(first: Int, firstScale: Float, second: Int, secondScale: Float, gapMs: Int): Boolean {
