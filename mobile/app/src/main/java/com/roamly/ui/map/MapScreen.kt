@@ -79,6 +79,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -178,7 +179,6 @@ fun MapScreen(
             val places = PlacesOverlay(density).apply { isEnabled = false }
             val mv = MapView(appContext).apply {
                 setDestroyMode(false)
-                setTileSource(basemapTileSource("Auto", "", dark))
                 setMultiTouchControls(true)
                 isTilesScaledToDpi = true
                 // We draw our own zoom controls.
@@ -209,12 +209,9 @@ fun MapScreen(
         mapView.invalidate()
     }
     // Basemap: re-applied when the pick, the Mapbox token or the theme changes.
+    val tileLoading = Atlas.colors.surface.toArgb()
     LaunchedEffect(mapView, state.basemap, state.mapboxToken, dark) {
-        val desired = basemapTileSource(state.basemap, state.mapboxToken, dark)
-        if (mapView.tileProvider.tileSource.name() != desired.name()) {
-            mapView.setTileSource(desired)
-            mapView.invalidate()
-        }
+        mapView.applyBasemap(state.basemap, state.mapboxToken, dark, tileLoading)
     }
 
     DisposableEffect(mapView) {

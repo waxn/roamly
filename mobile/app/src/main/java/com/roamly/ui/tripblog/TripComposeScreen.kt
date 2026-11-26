@@ -71,7 +71,8 @@ import com.roamly.ui.kit.PushedScreen
 import com.roamly.ui.kit.SectionTitle
 import com.roamly.ui.kit.configureOsmdroid
 import com.roamly.ui.kit.tappable
-import com.roamly.ui.map.basemapTileSource
+import com.roamly.ui.map.applyBasemap
+import androidx.compose.ui.graphics.toArgb
 import com.roamly.ui.theme.Atlas
 import com.roamly.ui.theme.SquircleRadius
 import com.roamly.ui.theme.SquircleShape
@@ -216,7 +217,7 @@ private fun PickLocationDialog(
     val mapView = remember {
         configureOsmdroid(context)
         MapView(context).apply {
-            setTileSource(basemapTileSource("Auto", "", a.isDark))
+            applyBasemap("Auto", "", a.isDark, a.surface.toArgb())
             setMultiTouchControls(true)
             isTilesScaledToDpi = true
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)

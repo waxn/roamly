@@ -44,7 +44,7 @@ It is **instance-wide config, not per-user** — unlike `UserProfile.mapbox_toke
 
 The app's URLs use the `basemaps.cartocdn.com/light_all/…` form while CARTO's docs show `…/rastertiles/light_all/…`; **both are the same endpoint** (verified byte-identical) and both honour `?key=`, so no path rewrite was needed.
 
-**The mobile app is not covered by this.** `MapScreen.kt`'s Dark basemap hardcodes its own `basemaps.cartocdn.com/dark_all/` URL and will keep showing the watermark until it is taught to fetch the key from the server — a change that needs an APK rebuild + `mobile-v*` tag, so it is deliberately left out of the web-side fix. **New `SiteConfig` field ⇒ build + migrate.**
+**The mobile app does not use CARTO.** It has no way to get the site key, so its "Auto" and "Dark" basemaps are OpenStreetMap tiles, colour-filtered into a night map in dark mode (`ui/map/MapEngine.kt` `basemapNightFilter`/`applyBasemap`; see `mobile-app.md`).
 
 
 The basemap buttons live in a **3-column grid** (`.sidebar-btn-group`) so the extra Mapbox buttons wrap onto their own rows instead of squishing. A `map.on('error')` handler surfaces Mapbox tile auth failures (a correct token returns tiles; a 401/403 means an invalid token or URL restrictions) to `map-info` + the console, so a blank Mapbox basemap is never a silent mystery.

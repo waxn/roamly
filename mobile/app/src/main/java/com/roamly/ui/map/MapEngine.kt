@@ -45,35 +45,47 @@ private fun esriTileSource(): org.osmdroid.tileprovider.tilesource.OnlineTileSou
         }
     }
 
-/** CARTO dark-matter basemap — standard XYZ, so a plain XYTileSource works. */
-private fun cartoDarkTileSource(): org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase =
-    org.osmdroid.tileprovider.tilesource.XYTileSource(
-        "CartoDark", 0, 20, 256, ".png",
-        arrayOf("https://basemaps.cartocdn.com/dark_all/"),
-        "© CARTO © OpenStreetMap",
-    )
-
-/** CARTO Voyager — the light basemap "Auto" uses in light mode. */
-private fun cartoVoyagerTileSource(): org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase =
-    org.osmdroid.tileprovider.tilesource.XYTileSource(
-        "CartoVoyager", 0, 20, 256, ".png",
-        arrayOf("https://basemaps.cartocdn.com/rastertiles/voyager/"),
-        "© CARTO © OpenStreetMap",
-    )
-
 /** Resolve a basemap name (shared with the web map's labels) to a tile source.
  *  Mapbox entries need a token; without one they fall back to OSM streets. */
 internal fun basemapTileSource(name: String, mapboxToken: String, dark: Boolean): org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase {
     val token = mapboxToken.trim()
     return when (name) {
-        "Auto" -> if (dark) cartoDarkTileSource() else cartoVoyagerTileSource()
+        // "Auto" and "Dark" are OpenStreetMap; dark mode tints them at night
+        // (see basemapNightFilter). They were CARTO tiles, but CARTO now needs a
+        // per-site API key the app has no way to get, and stamps "API KEY
+        // REQUIRED" over every tile without one.
         "Satellite" -> esriTileSource()
-        "Dark" -> cartoDarkTileSource()
         "Mapbox Streets" -> if (token.isNotEmpty()) mapboxTileSource(token, "streets-v12") else org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK
         "Mapbox Outdoors" -> if (token.isNotEmpty()) mapboxTileSource(token, "outdoors-v12") else org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK
         "Mapbox Satellite" -> if (token.isNotEmpty()) mapboxTileSource(token, "satellite-streets-v12") else org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK
         else -> org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK  // "Streets"
     }
+}
+
+/**
+ * Inverts and cools OpenStreetMap tiles into a night map: dark land, light
+ * labels, roads and water kept apart by brightness. Key-free, labelled, and
+ * good to zoom 19 — the reasons it beat the alternatives.
+ */
+private val NIGHT_MATRIX = android.graphics.ColorMatrix(floatArrayOf(
+    -0.26f, -0.50f, -0.10f, 0f, 236f,
+    -0.27f, -0.53f, -0.10f, 0f, 242f,
+    -0.28f, -0.55f, -0.11f, 0f, 255f,
+     0f,     0f,     0f,    1f, 0f,
+))
+
+/** The tile filter for [name] in this theme, or null for none. */
+internal fun basemapNightFilter(name: String, dark: Boolean): android.graphics.ColorFilter? =
+    if (name == "Dark" || (name == "Auto" && dark)) android.graphics.ColorMatrixColorFilter(NIGHT_MATRIX) else null
+
+/** Put [name]'s tiles on this map, tinted for the theme, with loading tiles in the page colour. */
+internal fun MapView.applyBasemap(name: String, mapboxToken: String, dark: Boolean, loadingColor: Int) {
+    val desired = basemapTileSource(name, mapboxToken, dark)
+    if (tileProvider.tileSource.name() != desired.name()) setTileSource(desired)
+    overlayManager.tilesOverlay.setColorFilter(basemapNightFilter(name, dark))
+    overlayManager.tilesOverlay.loadingBackgroundColor = loadingColor
+    overlayManager.tilesOverlay.loadingLineColor = loadingColor
+    invalidate()
 }
 
 // ---- Heatmap overlay ----

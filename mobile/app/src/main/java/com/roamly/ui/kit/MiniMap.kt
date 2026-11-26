@@ -10,7 +10,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import com.roamly.ui.map.basemapTileSource
+import com.roamly.ui.map.applyBasemap
 import com.roamly.ui.theme.Atlas
 import org.osmdroid.config.Configuration
 import org.osmdroid.util.BoundingBox
@@ -39,6 +39,7 @@ fun configureOsmdroid(context: Context) {
 fun rememberAtlasMapView(interactive: Boolean = false): MapView {
     val context = LocalContext.current
     val dark = Atlas.colors.isDark
+    val loading = Atlas.colors.surface.toArgb()
     val mapView = remember {
         configureOsmdroid(context)
         MapView(context).apply {
@@ -51,7 +52,7 @@ fun rememberAtlasMapView(interactive: Boolean = false): MapView {
             controller.setZoom(12.0)
         }
     }
-    LaunchedEffect(dark) { mapView.setTileSource(basemapTileSource("Auto", "", dark)) }
+    LaunchedEffect(dark) { mapView.applyBasemap("Auto", "", dark, loading) }
     DisposableEffect(mapView) {
         mapView.onResume()
         onDispose { mapView.onPause() }
