@@ -72,6 +72,18 @@ class AuthViewModel @Inject constructor(
     val featuredTripId: StateFlow<Int?> = prefs.featuredTripId
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    val featuredTripName: StateFlow<String> = prefs.featuredTripName
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
+    /** An activity is being recorded: the dock's record button pulses. */
+    val recordingActive: StateFlow<Boolean> = prefs.activitySession
+        .map { it != null }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    val username: StateFlow<String> = prefs.username
+        .map { it.orEmpty() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
     fun refreshFeaturedTrip() {
         viewModelScope.launch { tripBlogs.refreshFeatured() }
     }

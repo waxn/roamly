@@ -1,31 +1,26 @@
 package com.roamly.ui
 
-import com.roamly.notes.QuickNoteLaunch
-import com.roamly.ui.notes.QuickNotesViewModel
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.layout.Column
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Insights
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Map
-import androidx.compose.material.icons.rounded.Public
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Watch
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -33,13 +28,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
-import androidx.navigation.NavDestination.Companion.hierarchy
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -47,92 +43,82 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.roamly.flights.IncomingShare
+import com.roamly.notes.QuickNoteLaunch
 import com.roamly.ui.ask.AskViewModel
 import com.roamly.ui.auth.AuthViewModel
 import com.roamly.ui.auth.LoginScreen
-import com.roamly.ui.groups.GroupsScreen
-import com.roamly.ui.journals.JournalsScreen
-import com.roamly.ui.journals.JournalsViewModel
-import com.roamly.ui.map.MapScreen
-import com.roamly.ui.map.MapViewModel
-import com.roamly.ui.settings.SettingsScreen
-import com.roamly.ui.search.SearchTabScreen
-import com.roamly.ui.stats.StatsScreen
-import com.roamly.ui.data.DataHubScreen
-import com.roamly.ui.data.DataPage
+import com.roamly.ui.family.FamilyScreen
 import com.roamly.ui.flights.FlightEditScreen
 import com.roamly.ui.flights.FlightsScreen
 import com.roamly.ui.flights.FlightsViewModel
 import com.roamly.ui.flights.ScanPassScreen
+import com.roamly.ui.groups.GroupsScreen
 import com.roamly.ui.health.HealthScreen
-import com.roamly.ui.settings.LocationTableScreen
-import com.roamly.ui.trips.TripsTabScreen
-import com.roamly.flights.IncomingShare
-import com.roamly.ui.stats.StatsViewModel
+import com.roamly.ui.journals.JournalsScreen
+import com.roamly.ui.journals.JournalsViewModel
+import com.roamly.ui.kit.ProvideDockPadding
+import com.roamly.ui.map.MapScreen
+import com.roamly.ui.map.MapViewModel
+import com.roamly.ui.notes.QuickNotesViewModel
 import com.roamly.ui.record.RecordScreen
+import com.roamly.ui.search.SearchTabScreen
+import com.roamly.ui.settings.DiagnosticsScreen
+import com.roamly.ui.settings.LocationTableScreen
+import com.roamly.ui.settings.SettingsScreen
+import com.roamly.ui.settings.SettingsViewModel
+import com.roamly.ui.stats.StatsScreen
+import com.roamly.ui.stats.StatsViewModel
+import com.roamly.ui.theme.Atlas
 import com.roamly.ui.tracker.TrackerScreen
 import com.roamly.ui.tripblog.TripBlogScreen
 import com.roamly.ui.tripblog.TripBlogViewModel
 import com.roamly.ui.tripblog.TripComposeScreen
 import com.roamly.ui.trips.TripDetailScreen
+import com.roamly.ui.trips.TripsTabScreen
 import com.roamly.ui.trips.TripsViewModel
 import com.roamly.ui.update.UpdateBanner
 import com.roamly.ui.update.UpdateViewModel
+import com.roamly.ui.you.YouScreen
 
-sealed class Screen(val route: String, val label: String) {
-    object Map        : Screen("map",         "Map")
-    object Adventures : Screen("adventures",  "Trips")   // shorter label to avoid truncation
-    object Search     : Screen("search",      "Search")
-    // Stats, Flights, Health and Location data, behind chips (DataHubScreen).
-    // Journal is no longer a tab of its own: it sits under Trips.
-    object Data       : Screen("data",        "Data")
-    object Settings   : Screen("settings",    "Settings")
-    object Login      : Screen("login",       "Login")
-    object TripDetail : Screen("trips/{tripId}", "Trip")
-    // A real route with no tab, like TripDetail: the bar is full at six, and
-    // Record is reached from the map where you already are before heading out.
-    // Being a route rather than a swap-in-place boolean also means system back
-    // just works, with no BackHandler — recording continues in the foreground
-    // service either way, which the ongoing notification says.
-    object Record     : Screen("record",      "Record")
-    // The Roamly Tracker (BLE). Only in the bar once a tracker is paired —
-    // before that it is reached from Settings → Roamly Tracker to pair one.
-    object Tracker    : Screen("tracker",     "Tracker")
-    // Boarding-pass scanning and the flight editor: routes with no tab, like
-    // Record. `uri` is a file shared into Roamly (IncomingShare).
-    object FlightScan : Screen("flights/scan?uri={uri}", "Scan")
-    object FlightEdit : Screen("flights/edit", "Flight")
-    // The featured trip blog. Only in the bar while a trip is featured (set
-    // on the web, or by joining one); the composer is a route with no tab.
-    // "Blog", not "Trip": the Adventures tab is already labelled "Trips".
-    object TripBlog   : Screen("tripblog", "Blog")
-    object TripCompose : Screen("tripblog/compose", "New post")
+/** The four dock tabs. Everything else is a pushed route over them. */
+enum class Tab(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    Map("map", "Map", Icons.Rounded.Map),
+    Trips("trips", "Trips", Icons.Rounded.Explore),
+    Ask("ask", "Ask", Icons.Rounded.AutoAwesome),
+    You("you", "You", Icons.Rounded.Person),
 }
 
-// Search sits in the middle slot always — it hosts history search, plus the AI
-// Ask chat when the user has a provider configured (see SearchTabScreen).
-// Five tabs: Trips hosts Journal (TripsTabScreen) and Data hosts Stats,
-// Flights, Health and Location data (DataHubScreen), so nothing is buried in
-// Settings any more and the bar fits a phone even with the Tracker tab added.
-private val advancedNavItems: List<Screen> =
-    listOf(Screen.Map, Screen.Adventures, Screen.Search, Screen.Data, Screen.Settings)
+/** Pushed routes (no dock). */
+object Routes {
+    const val LOGIN = "login"
+    const val TRIP_DETAIL = "trips/{tripId}"
+    // A route rather than a tab: system back just works, and recording carries
+    // on in the foreground service either way (the notification says so).
+    const val RECORD = "record"
+    const val TRACKER = "tracker"
+    const val FLIGHT_SCAN = "flights/scan?uri={uri}"
+    const val FLIGHT_EDIT = "flights/edit"
+    const val TRIP_BLOG = "tripblog"
+    const val TRIP_COMPOSE = "tripblog/compose"
+    const val STATS = "stats"
+    const val FLIGHTS = "flights"
+    const val HEALTH = "health"
+    const val LOCATIONS = "locations"
+    const val SETTINGS = "settings"
+    const val DIAGNOSTICS = "diagnostics"
+    const val FAMILY = "family"
+}
 
-// Simple Mode: a non-technical family member gets just enough to see the
-// family map and reach Settings (where Family Circle itself lives, alongside
-// the toggle back to Advanced Mode) — none of Trips/Search/Journal/Stats.
-// Family Circle has no bottom-nav slot of its own even here, the same
-// reasoning Screen.Record already uses: it's reached from Settings instead.
-private val simpleNavItems: List<Screen> =
-    listOf(Screen.Map, Screen.Settings)
+private val tabRoutes = Tab.entries.map { it.route }.toSet()
 
-private fun iconFor(screen: Screen): ImageVector = when (screen) {
-    Screen.Map        -> Icons.Rounded.Map
-    Screen.Adventures -> Icons.Rounded.Explore
-    Screen.Search     -> Icons.Rounded.Search
-    Screen.Data       -> Icons.Rounded.Insights
-    Screen.Tracker    -> Icons.Rounded.Watch
-    Screen.TripBlog   -> Icons.Rounded.Public
-    else              -> Icons.Rounded.Settings
+private fun NavBackStackEntry.isTab() = destination.route in tabRoutes
+
+/** Switch tabs the standard way: one copy of each, state saved and restored. */
+private fun NavController.toTab(route: String) = navigate(route) {
+    popUpTo(graph.findStartDestination().id) { saveState = true }
+    launchSingleTop = true
+    restoreState = true
 }
 
 @Composable
@@ -140,51 +126,37 @@ fun RoamlyNavHost() {
     val navController = rememberNavController()
     val context = LocalContext.current
     val authViewModel: AuthViewModel = hiltViewModel()
-    val mapViewModel: MapViewModel   = hiltViewModel()
+    val mapViewModel: MapViewModel = hiltViewModel()
     val updateViewModel: UpdateViewModel = hiltViewModel()
     val askViewModel: AskViewModel = hiltViewModel()
-    // Activity-scoped like MapViewModel: the scanner hands its draft to the
-    // editor through it, across two routes. Only one-shot loads in its init
-    // (none, in fact), so the rule about continuous collectors holds.
+    // Activity-scoped: the scanner hands its draft to the editor through it,
+    // across two routes. No collectors in its init.
     val flightsViewModel: FlightsViewModel = hiltViewModel()
 
     // The Activity's ViewModelStoreOwner, captured out here where
     // LocalViewModelStoreOwner still resolves to the Activity rather than to a
-    // NavBackStackEntry. Each bottom-nav tab below passes this to
-    // hiltViewModel() instead of taking the default.
-    //
-    // Why: a destination's default owner is its NavBackStackEntry, and the tab
-    // navigation pops with saveState=true, which clears that entry's
-    // ViewModelStore. So every tab switch destroyed the tab's ViewModel and the
-    // next visit re-ran its init from scratch — a synchronous Gson read off disk
-    // on the main thread plus a fresh round of network calls, with a spinner in
-    // between. Against the Activity's store they survive the switch and a
-    // revisit paints what it already had.
-    //
-    // Resolving them here rather than constructing them here is deliberate:
-    // hiltViewModel() builds the ViewModel on the spot, and these inits fire
-    // network calls immediately — during the splash that means hitting the
-    // placeholder base URL before login resolves, the same trap MapViewModel's
-    // init comments describe. Passing the owner down keeps construction lazy
-    // (first visit to that tab) while keeping the scope wide.
+    // NavBackStackEntry. Tabs pass it to hiltViewModel() so their ViewModels
+    // survive a tab switch (saveState=true clears a back-stack entry's store).
+    // Resolved lazily per destination, never here: these inits fire network
+    // calls at once, and during the splash that would hit the placeholder base
+    // URL before login resolves. See docs/claude/mobile-app.md.
     val activityOwner = checkNotNull(LocalViewModelStoreOwner.current) {
         "No ViewModelStoreOwner — RoamlyNavHost must be hosted by the Activity"
     }
-    // Safe to build eagerly, unlike the tab VMs above: its init loads nothing,
-    // it waits for the map to hand it a range.
+    // Safe to build eagerly: its init loads nothing.
     val quickNotesViewModel = hiltViewModel<QuickNotesViewModel>(activityOwner)
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
     val simpleMode by authViewModel.simpleModeEnabled.collectAsState()
     val trackerPaired by authViewModel.trackerPaired.collectAsState()
     val featuredTrip by authViewModel.featuredTripId.collectAsState()
-    val bottomNavItems = (if (simpleMode) simpleNavItems else advancedNavItems).let { items ->
-        // The trip goes right after Map: following it is the point of the trip.
-        if (featuredTrip != null) listOf(items.first(), Screen.TripBlog) + items.drop(1) else items
-    }.let { items ->
-        if (trackerPaired) items.dropLast(1) + Screen.Tracker + items.last() else items
-    }
+    val featuredTripName by authViewModel.featuredTripName.collectAsState()
+    val recording by authViewModel.recordingActive.collectAsState()
+    val username by authViewModel.username.collectAsState()
 
-    // Check for a newer sideloaded build once logged in (throttled to ~24h).
+    // Simple Mode: a non-technical family member gets the map and You (where
+    // Family Circle and the switch back live) and nothing else.
+    val tabs = if (simpleMode) listOf(Tab.Map, Tab.You) else Tab.entries.toList()
+
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn == true) {
             // RoamlyApp's start-up arm ran before sign-in on a fresh install.
@@ -200,309 +172,242 @@ fun RoamlyNavHost() {
         return
     }
 
-    val initialRoute = if (isLoggedIn == true) Screen.Map.route else Screen.Login.route
+    val initialRoute = if (isLoggedIn == true) Tab.Map.route else Routes.LOGIN
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
 
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentDestination = navBackStackEntry?.destination
-
-    // If the session goes invalid while the app is open — the SessionGuard
-    // interceptor clears it after the server bounces an API call to the login
-    // page — isLoggedIn flips to false. Route back to login so the user
-    // re-authenticates instead of sitting on a screen that can't load anything.
+    // The session went invalid while open (SessionGuard cleared it): back to login.
     LaunchedEffect(isLoggedIn) {
-        if (isLoggedIn == false && currentDestination != null &&
-            currentDestination?.route != Screen.Login.route
-        ) {
-            navController.navigate(Screen.Login.route) { popUpTo(0) { inclusive = true } }
+        if (isLoggedIn == false && currentRoute != null && currentRoute != Routes.LOGIN) {
+            navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
         }
     }
 
-    val showBottomBar = currentDestination?.route != Screen.Login.route &&
-            currentDestination?.route != Screen.TripDetail.route &&
-            currentDestination?.route != Screen.Record.route &&
-            currentDestination?.route != Screen.FlightScan.route &&
-            currentDestination?.route != Screen.FlightEdit.route &&
-            currentDestination?.route != Screen.TripCompose.route
-
-    // The evening note reminder was tapped: bring the Map tab forward, where
+    // The evening note reminder was tapped: bring the map forward, where
     // MapScreen opens the note sheet and consumes the request.
     val noteLaunch by QuickNoteLaunch.requested.collectAsState()
-    LaunchedEffect(noteLaunch, isLoggedIn, currentDestination) {
-        if (!noteLaunch || isLoggedIn != true || currentDestination == null) return@LaunchedEffect
-        val route = currentDestination?.route
-        if (route == Screen.Login.route || route == Screen.Map.route) return@LaunchedEffect
-        navController.navigate(Screen.Map.route) {
-            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
-        }
+    LaunchedEffect(noteLaunch, isLoggedIn, currentRoute) {
+        if (!noteLaunch || isLoggedIn != true || currentRoute == null) return@LaunchedEffect
+        if (currentRoute == Routes.LOGIN || currentRoute == Tab.Map.route) return@LaunchedEffect
+        navController.toTab(Tab.Map.route)
     }
 
     // A boarding pass shared into Roamly opens the scanner on it, once signed in.
     val sharedUri by IncomingShare.uri.collectAsState()
-    LaunchedEffect(sharedUri, isLoggedIn, currentDestination) {
+    LaunchedEffect(sharedUri, isLoggedIn, currentRoute) {
         val uri = sharedUri ?: return@LaunchedEffect
-        if (isLoggedIn != true || currentDestination == null ||
-            currentDestination?.route == Screen.Login.route) return@LaunchedEffect
+        if (isLoggedIn != true || currentRoute == null || currentRoute == Routes.LOGIN) return@LaunchedEffect
         IncomingShare.consume()
         navController.navigate("flights/scan?uri=" + android.net.Uri.encode(uri.toString()))
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        bottomBar = {
-            if (showBottomBar) {
-                val borderColor = MaterialTheme.colorScheme.outline
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 0.dp,
-                    modifier = Modifier.drawBehind {
-                        drawLine(
-                            color = borderColor,
-                            start = Offset(0f, 0f),
-                            end = Offset(size.width, 0f),
-                            strokeWidth = 1.dp.toPx(),
-                        )
-                    },
-                ) {
-                    bottomNavItems.forEach { screen ->
-                        val selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = {
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            icon = { Icon(iconFor(screen), contentDescription = screen.label) },
-                            label = { Text(screen.label, style = MaterialTheme.typography.labelSmall) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                // Flat color shift on selection instead of the default M3 pill indicator.
-                                indicatorColor = Color.Transparent,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                        )
-                    }
+    val showDock = isLoggedIn == true && currentRoute in tabRoutes
+    val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val dockSpace = DOCK_HEIGHT + DOCK_MARGIN + navBottom
+    val toMap = { navController.toTab(Tab.Map.route) }
+    val toMapDate = { date: String -> mapViewModel.navigateToDate(date); toMap() }
+    val open = { route: String -> navController.navigate(route) }
+    val back: () -> Unit = { navController.popBackStack() }
+    val updateState by updateViewModel.state.collectAsState()
+
+    Box(Modifier.fillMaxSize().background(Atlas.colors.bg)) {
+        ProvideDockPadding(if (showDock) dockSpace else navBottom) {
+            NavHost(
+                navController = navController,
+                startDestination = initialRoute,
+                modifier = Modifier.fillMaxSize(),
+                enterTransition = { enter() },
+                exitTransition = { exit() },
+                popEnterTransition = { popEnter() },
+                popExitTransition = { popExit() },
+            ) {
+                composable(Routes.LOGIN) {
+                    LoginScreen(
+                        viewModel = authViewModel,
+                        onLoggedIn = {
+                            navController.navigate(Tab.Map.route) { popUpTo(Routes.LOGIN) { inclusive = true } }
+                        },
+                    )
+                }
+
+                // ── Tabs ─────────────────────────────────────────────────
+                composable(Tab.Map.route) {
+                    MapScreen(
+                        viewModel = mapViewModel,
+                        notesViewModel = quickNotesViewModel,
+                    )
+                }
+                composable(Tab.Trips.route) {
+                    val vm = hiltViewModel<TripsViewModel>(activityOwner)
+                    // The ViewModel outlives the tab, so refresh per visit (it
+                    // repaints in place, no spinner, when it has data cached).
+                    LaunchedEffect(Unit) { vm.loadTrips() }
+                    TripsTabScreen(
+                        featuredBlogName = featuredTripName.takeIf { featuredTrip != null },
+                        onOpenBlog = { open(Routes.TRIP_BLOG) },
+                        trips = {
+                            GroupsScreen(tripsViewModel = vm, onTripClick = { id -> open("trips/$id") })
+                        },
+                        journal = {
+                            val jvm = hiltViewModel<JournalsViewModel>(activityOwner)
+                            LaunchedEffect(Unit) { jvm.refresh() }
+                            JournalsScreen(viewModel = jvm, onOpenMap = toMapDate)
+                        },
+                    )
+                }
+                composable(Tab.Ask.route) {
+                    SearchTabScreen(
+                        askViewModel = askViewModel,
+                        onOpenMapDate = toMapDate,
+                        onFocusMap = { lat, lng -> mapViewModel.focusOn(lat, lng, zoom = 16.0); toMap() },
+                    )
+                }
+                composable(Tab.You.route) {
+                    // Back-stack scoped on purpose: SettingsViewModel has continuous
+                    // collectors on the tracking database and WorkManager, which must
+                    // not outlive the screen (they starved the capture loop when they
+                    // did — see docs/claude/mobile-app.md).
+                    YouScreen(
+                        viewModel = hiltViewModel<SettingsViewModel>(),
+                        username = username,
+                        simpleMode = simpleMode,
+                        trackerPaired = trackerPaired,
+                        featuredBlogName = featuredTripName.takeIf { featuredTrip != null },
+                        updateState = updateState,
+                        onUpdate = updateViewModel::downloadAndInstall,
+                        onOpen = open,
+                        onLoggedOut = {
+                            // Recreate rather than navigate, so the Activity-scoped tab
+                            // ViewModels holding the old account's data go with it.
+                            val activity = context.findActivity()
+                            if (activity != null) activity.recreate()
+                            else navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
+                        },
+                    )
+                }
+
+                // ── Pushed ───────────────────────────────────────────────
+                composable(Routes.RECORD) { RecordScreen(onBack = back) }
+                composable(
+                    route = Routes.TRIP_DETAIL,
+                    arguments = listOf(navArgument("tripId") { type = NavType.IntType }),
+                ) { entry ->
+                    TripDetailScreen(tripId = entry.arguments!!.getInt("tripId"), onBack = back)
+                }
+                composable(Routes.STATS) {
+                    val vm = hiltViewModel<StatsViewModel>(activityOwner)
+                    LaunchedEffect(Unit) { vm.load() }
+                    StatsScreen(viewModel = vm, onNavigateToMap = toMapDate, onBack = back)
+                }
+                composable(Routes.FLIGHTS) {
+                    // No unit setting of its own: follow the phone's region.
+                    val useMiles = java.util.Locale.getDefault().country in setOf("US", "LR", "MM")
+                    FlightsScreen(
+                        viewModel = flightsViewModel,
+                        useMiles = useMiles,
+                        onBack = back,
+                        onScan = { open("flights/scan") },
+                        onAdd = { flightsViewModel.startNew(); open(Routes.FLIGHT_EDIT) },
+                        onOpen = { id -> flightsViewModel.startEdit(id); open(Routes.FLIGHT_EDIT) },
+                    )
+                }
+                // Back-stack scoped: Health's ViewModel is not a one-shot load.
+                composable(Routes.HEALTH) { HealthScreen(onBack = back) }
+                composable(Routes.LOCATIONS) { LocationTableScreen(onBack = back) }
+                composable(
+                    route = Routes.FLIGHT_SCAN,
+                    arguments = listOf(navArgument("uri") { type = NavType.StringType; nullable = true; defaultValue = null }),
+                ) { entry ->
+                    val uri = entry.arguments?.getString("uri")?.let(android.net.Uri::parse)
+                    ScanPassScreen(
+                        initialUri = uri,
+                        onBack = back,
+                        onFound = { pass, leg, photo ->
+                            flightsViewModel.startFromPass(pass, leg, photo)
+                            navController.navigate(Routes.FLIGHT_EDIT) { popUpTo(Routes.FLIGHT_SCAN) { inclusive = true } }
+                        },
+                    )
+                }
+                composable(Routes.FLIGHT_EDIT) { FlightEditScreen(viewModel = flightsViewModel, onDone = back) }
+                composable(Routes.TRIP_BLOG) {
+                    // One-shot loads only, so safe to share with the composer.
+                    val vm = hiltViewModel<TripBlogViewModel>(activityOwner)
+                    LaunchedEffect(Unit) { vm.load() }
+                    TripBlogScreen(viewModel = vm, onBack = back, onCompose = { open(Routes.TRIP_COMPOSE) })
+                }
+                composable(Routes.TRIP_COMPOSE) {
+                    val vm = hiltViewModel<TripBlogViewModel>(activityOwner)
+                    TripComposeScreen(viewModel = vm, onDone = { navController.popBackStack(); vm.reload() })
+                }
+                // Back-stack scoped: holds a BLE session open while visible.
+                composable(Routes.TRACKER) { TrackerScreen(onBack = back) }
+                composable(Routes.FAMILY) { FamilyScreen(onBack = back) }
+                // Back-stack scoped, like You — see the note there.
+                composable(Routes.SETTINGS) {
+                    SettingsScreen(
+                        viewModel = hiltViewModel(),
+                        updateViewModel = updateViewModel,
+                        onBack = back,
+                        onOpenDiagnostics = { open(Routes.DIAGNOSTICS) },
+                    )
+                }
+                composable(Routes.DIAGNOSTICS) {
+                    DiagnosticsScreen(viewModel = hiltViewModel(), onBack = back)
                 }
             }
         }
-    ) { innerPadding ->
-      Column(modifier = Modifier.padding(innerPadding)) {
-        val updateState by updateViewModel.state.collectAsState()
-        NavHost(
-            navController = navController,
-            startDestination = initialRoute,
-            modifier = Modifier.weight(1f),
-            enterTransition    = { fadeIn(tween(100)) },
-            exitTransition     = { fadeOut(tween(100)) },
-            popEnterTransition = { fadeIn(tween(100)) },
-            popExitTransition  = { fadeOut(tween(100)) },
-        ) {
-            composable(Screen.Login.route) {
-                LoginScreen(
-                    viewModel = authViewModel,
-                    onLoggedIn = {
-                        navController.navigate(Screen.Map.route) {
-                            popUpTo(Screen.Login.route) { inclusive = true }
-                        }
-                    }
-                )
-            }
-            composable(Screen.Map.route) {
-                MapScreen(
-                    viewModel = mapViewModel,
-                    onRecord = { navController.navigate(Screen.Record.route) },
-                    notesViewModel = quickNotesViewModel,
-                )
-            }
-            composable(Screen.Record.route) {
-                RecordScreen(onBack = { navController.popBackStack() })
-            }
-            composable(Screen.Adventures.route) {
-                val vm = hiltViewModel<TripsViewModel>(activityOwner)
-                // The ViewModel now outlives the tab, so its init no longer runs
-                // per visit — refresh explicitly instead. This composable IS
-                // recreated each visit, so LaunchedEffect(Unit) is once per
-                // visit. It repaints in place without a spinner (the loaders
-                // only show one when there is nothing cached to show), so the
-                // switch stays instant and the data still catches up.
-                LaunchedEffect(Unit) { vm.loadTrips() }
-                TripsTabScreen(
-                    trips = {
-                        GroupsScreen(
-                            tripsViewModel = vm,
-                            onTripClick = { id -> navController.navigate("trips/$id") },
-                        )
-                    },
-                    journal = {
-                        val jvm = hiltViewModel<JournalsViewModel>(activityOwner)
-                        LaunchedEffect(Unit) { jvm.refresh() }
-                        JournalsScreen(
-                            viewModel = jvm,
-                            onOpenMap = { dateStr ->
-                                mapViewModel.navigateToDate(dateStr)
-                                navController.navigate(Screen.Map.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                        )
-                    },
-                )
-            }
-            composable(
-                route = Screen.TripDetail.route,
-                arguments = listOf(navArgument("tripId") { type = NavType.IntType })
-            ) { back ->
-                TripDetailScreen(tripId = back.arguments!!.getInt("tripId"), onBack = { navController.popBackStack() })
-            }
-            composable(Screen.Search.route) {
-                val toMap = {
-                    navController.navigate(Screen.Map.route) {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                }
-                SearchTabScreen(
-                    askViewModel = askViewModel,
-                    onOpenMapDate = { dateStr -> mapViewModel.navigateToDate(dateStr); toMap() },
-                    onFocusMap = { lat, lng -> mapViewModel.focusOn(lat, lng, zoom = 16.0); toMap() },
-                )
-            }
-            composable(Screen.Data.route) {
-                val toMapDate = { dateStr: String ->
-                    mapViewModel.navigateToDate(dateStr)
-                    navController.navigate(Screen.Map.route) {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                }
-                // The app has no distance-unit setting of its own, so follow the
-                // phone's region for the flight figures.
-                val useMiles = java.util.Locale.getDefault().country in setOf("US", "LR", "MM")
-                DataHubScreen { page ->
-                    when (page) {
-                        DataPage.STATS -> {
-                            val vm = hiltViewModel<StatsViewModel>(activityOwner)
-                            LaunchedEffect(Unit) { vm.load() }
-                            StatsScreen(viewModel = vm, onNavigateToMap = toMapDate)
-                        }
-                        DataPage.FLIGHTS -> FlightsScreen(
-                            viewModel = flightsViewModel,
-                            useMiles = useMiles,
-                            onScan = { navController.navigate("flights/scan") },
-                            onAdd = { flightsViewModel.startNew(); navController.navigate(Screen.FlightEdit.route) },
-                            onOpen = { id -> flightsViewModel.startEdit(id); navController.navigate(Screen.FlightEdit.route) },
-                        )
-                        // Back-stack scoped on purpose: Health's ViewModel is not a
-                        // one-shot load (see the Settings comment below).
-                        DataPage.HEALTH -> HealthScreen()
-                        DataPage.LOCATIONS -> LocationTableScreen()
-                    }
-                }
-            }
-            composable(
-                route = Screen.FlightScan.route,
-                arguments = listOf(navArgument("uri") { type = NavType.StringType; nullable = true; defaultValue = null }),
-            ) { back ->
-                val uri = back.arguments?.getString("uri")?.let(android.net.Uri::parse)
-                ScanPassScreen(
-                    initialUri = uri,
-                    onBack = { navController.popBackStack() },
-                    onFound = { pass, leg, photo ->
-                        flightsViewModel.startFromPass(pass, leg, photo)
-                        navController.navigate(Screen.FlightEdit.route) {
-                            popUpTo(Screen.FlightScan.route) { inclusive = true }
-                        }
-                    },
-                )
-            }
-            composable(Screen.FlightEdit.route) {
-                FlightEditScreen(
-                    viewModel = flightsViewModel,
-                    onDone = { navController.popBackStack() },
-                )
-            }
-            composable(Screen.TripBlog.route) {
-                // Activity-scoped like the other tabs: one-shot loads only, so it
-                // is safe to outlive the tab (see activityOwner above). The
-                // composer route shares the same instance for its draft.
-                val vm = hiltViewModel<TripBlogViewModel>(activityOwner)
-                LaunchedEffect(Unit) { vm.load() }
-                TripBlogScreen(viewModel = vm, onCompose = { navController.navigate(Screen.TripCompose.route) })
-            }
-            composable(Screen.TripCompose.route) {
-                val vm = hiltViewModel<TripBlogViewModel>(activityOwner)
-                TripComposeScreen(viewModel = vm, onDone = { navController.popBackStack(); vm.reload() })
-            }
-            composable(Screen.Tracker.route) {
-                // Back-stack scoped: the screen opens a BLE session for as long
-                // as it is visible, and nothing about it is worth keeping.
-                TrackerScreen()
-            }
-            composable(Screen.Settings.route) {
-                // DELIBERATELY NOT activity-scoped, unlike the three tabs above.
-                // SettingsViewModel is the only one of them with *continuous*
-                // collectors, and two of those run against exactly the
-                // infrastructure tracking depends on: a Room Flow on the tracking
-                // database (pointDao().unsyncedCountFlow(), re-queried on every
-                // fix the service inserts) and a WorkManager getWorkInfosByTagFlow,
-                // on top of eighteen file-backed DataStore flows.
-                //
-                // Scoped to the Activity those ran for the whole time the app was
-                // alive -- including a whole drive with the screen off, since
-                // backgrounding does not destroy the Activity -- in the same
-                // process as LocationTrackingService (the manifest declares no
-                // android:process), contending on the same SQLite database
-                // savePoint() writes into. That starved the capture loop: fix
-                // gaps stretched from the configured 10s towards the 45s
-                // MIN_ALARM_FLOOR_MS x CATCHUP_MULTIPLIER backstop.
-                //
-                // Tied to the back stack entry these live only while the tab does,
-                // exactly as before. The tab loses nothing by it: its state is
-                // DataStore-backed toggles that repaint instantly anyway, which is
-                // why this was the least valuable of the four hoists.
-                SettingsScreen(
-                    viewModel = hiltViewModel(),
-                    onLoggedOut = {
-                        // Recreate rather than navigate. The tab ViewModels are
-                        // scoped to the Activity (see activityOwner above), so
-                        // merely routing to Login would leave the previous
-                        // account's trips/journals/stats sitting in memory for
-                        // whoever signs in next. Recreation drops that store
-                        // wholesale, and lands on Login by itself since
-                        // logout() has already cleared prefs and isLoggedIn is
-                        // false. splashDone is rememberSaveable, so the splash
-                        // does not replay.
-                        val activity = context.findActivity()
-                        if (activity != null) activity.recreate()
-                        else navController.navigate(Screen.Login.route) { popUpTo(0) { inclusive = true } }
-                    },
-                    updateViewModel = updateViewModel,
-                )
-            }
-        }
-        // Sits just above the bottom navbar so it never hides under the status
-        // bar and shortens content instead of overlapping it.
-        if (isLoggedIn == true && showBottomBar) {
+
+        if (showDock) {
             UpdateBanner(
                 state = updateState,
                 onUpdate = updateViewModel::downloadAndInstall,
                 onDismiss = updateViewModel::dismissBanner,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                bottomOffset = dockSpace,
             )
         }
-      }
+
+        Dock(
+            visible = showDock,
+            tabs = tabs,
+            selected = Tab.entries.firstOrNull { it.route == currentRoute },
+            showRecord = !simpleMode,
+            recording = recording,
+            onSelect = { tab ->
+                if (tab.route == currentRoute) return@Dock
+                navController.toTab(tab.route)
+            },
+            onRecord = { open(Routes.RECORD) },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }
+
+// ── Transitions ─────────────────────────────────────────────────────────────
+// Tab ↔ tab: a quick crossfade with a hint of scale. Into a pushed screen: it
+// slides in from the right over the one beneath, which drifts left and dims.
+
+private const val TAB_MS = 220
+private const val PUSH_MS = 320
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabSwap() =
+    initialState.isTab() && targetState.isTab()
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.enter(): EnterTransition =
+    if (tabSwap()) fadeIn(tween(TAB_MS)) + scaleIn(tween(TAB_MS), initialScale = 0.985f)
+    else slideInHorizontally(tween(PUSH_MS)) { it / 3 } + fadeIn(tween(PUSH_MS / 2))
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.exit(): ExitTransition =
+    if (tabSwap()) fadeOut(tween(TAB_MS / 2))
+    else slideOutHorizontally(tween(PUSH_MS)) { -it / 8 } + fadeOut(tween(PUSH_MS), targetAlpha = 0.4f)
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.popEnter(): EnterTransition =
+    if (tabSwap()) fadeIn(tween(TAB_MS))
+    else slideInHorizontally(tween(PUSH_MS)) { -it / 8 } + fadeIn(tween(PUSH_MS), initialAlpha = 0.4f)
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.popExit(): ExitTransition =
+    if (tabSwap()) fadeOut(tween(TAB_MS / 2)) + scaleOut(tween(TAB_MS), targetScale = 0.985f)
+    else slideOutHorizontally(tween(PUSH_MS)) { it / 3 } + fadeOut(tween(PUSH_MS / 2))
 
 /** Walk the ContextWrapper chain to the hosting Activity, if there is one. */
 private fun android.content.Context.findActivity(): android.app.Activity? {
@@ -513,3 +418,6 @@ private fun android.content.Context.findActivity(): android.app.Activity? {
     }
     return null
 }
+
+internal val DOCK_HEIGHT = 68.dp
+internal val DOCK_MARGIN = 14.dp
