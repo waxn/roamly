@@ -445,8 +445,10 @@ def test_town_coverage_uses_loaded_boundaries(client, device):
     from tracker.models import Boundary
     track(device, city='Waldo', state='Maine')
     track(device, city='Bath', state='Maine', day=T0 + timedelta(days=1))
+    from django.contrib.gis.geos import MultiPolygon, Polygon
+    square = MultiPolygon(Polygon(((-69.1, 44.3), (-69.0, 44.3), (-69.0, 44.4), (-69.1, 44.4), (-69.1, 44.3))), srid=4326)
     for n in ('Waldo', 'Bath', 'Belfast', 'Camden'):
-        Boundary.objects.create(name=n, state='Maine', kind='place')
+        Boundary.objects.create(name=n, state='Maine', kind='place', geom=square)
     geo = client.get('/api/ask/map/?kind=data&metric=town_coverage').json()
     assert geo['regions'][0]['value'] == 50.0
     assert geo['regions'][0]['detail'] == '2 of 4 towns'
@@ -522,5 +524,4 @@ def test_models_api_adds_and_removes_only_ask_models(client, user, monkeypatch):
     assert post(action='remove', model='m').json()['models'][0] == 'm'            # the default stays
     assert post(action='remove', model='gpt-x').json()['models'] == ['m']
     assert post(action='drop', model='x').status_code == 400
-    user.userprofile.refresh_from_db()
-    assert user.userprofile.ai_model == 'm'
+    assert UserProfile.objects.get(user=user).ai_model == 'm'

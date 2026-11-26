@@ -223,7 +223,9 @@ def test_days_follow_the_users_zone(client, device, provider):
     _, payload = sent(provider)
     day = {d['date']: d for d in payload['days']}
     assert payload['today'] == '2026-06-19'
-    assert day['2026-06-18']['stays'] == ['20:30–21:30 Waldo, Maine']
+    # Lines carry "(part of day, duration)" since the recap prompts narrate them.
+    [stay] = day['2026-06-18']['stays']
+    assert stay.startswith('20:30–21:30 (') and stay.endswith(') Waldo, Maine')
     assert day['2026-06-19']['stays'] == []
 
 
