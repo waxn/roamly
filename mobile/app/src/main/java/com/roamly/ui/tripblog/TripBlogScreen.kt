@@ -236,7 +236,7 @@ private fun DayHeader(d: TripDay) {
     Row(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 10.dp), verticalAlignment = Alignment.Bottom) {
         Text("Day ${d.day}", style = MaterialTheme.typography.headlineSmall, color = c.text)
         Spacer(Modifier.width(10.dp))
-        Text((dayLabel(d.date) + if (d.city.isNotBlank()) " · ${d.city}" else "").uppercase(),
+        Text(dayLabel(d.date) + if (d.city.isNotBlank()) " · ${d.city}" else "",
             style = MaterialTheme.typography.labelSmall, color = c.textMuted,
             modifier = Modifier.weight(1f).padding(bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }

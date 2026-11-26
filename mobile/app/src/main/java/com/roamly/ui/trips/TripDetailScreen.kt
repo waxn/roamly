@@ -153,7 +153,7 @@ fun TripDetailScreen(tripId: Int, onBack: () -> Unit, viewModel: TripDetailViewM
                     }
                     trip.dayNotes.groupBy { it.date }.forEach { (date, notes) ->
                         item(key = "daylog-$date") {
-                            Pad { Text(formatDayHeader(date).uppercase(), style = MaterialTheme.typography.labelSmall, color = c.textMuted, modifier = Modifier.padding(top = 4.dp)) }
+                            Pad { Text(formatDayHeader(date), style = MaterialTheme.typography.labelSmall, color = c.textMuted, modifier = Modifier.padding(top = 4.dp)) }
                         }
                         items(notes, key = { "daynote-${it.id}" }) { note ->
                             Pad { DayLogEntryCard(note, state.serverUrl, onEdit = if (note.isMine) ({ viewModel.openDayNote(note) }) else null) }

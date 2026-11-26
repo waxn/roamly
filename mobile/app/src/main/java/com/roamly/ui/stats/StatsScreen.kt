@@ -169,7 +169,7 @@ private fun Period(label: String, current: PeriodStats, previous: PeriodStats, m
         else -> c.textMuted to Icons.Rounded.TrendingFlat
     }
     Panel(modifier, padding = PaddingValues(14.dp)) {
-        Text("THIS ${label.uppercase()}", style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+        Text("This $label", style = MaterialTheme.typography.labelSmall, color = c.textMuted)
         Spacer(Modifier.height(6.dp))
         Text(compact(current.points), style = AtlasType.figureSmall, color = c.text)
         Spacer(Modifier.height(4.dp))

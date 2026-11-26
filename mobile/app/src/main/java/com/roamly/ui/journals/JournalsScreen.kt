@@ -245,7 +245,7 @@ private fun EntryRow(entry: JournalListItem, cover: String?, onClick: () -> Unit
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(prettyDate(entry.date).uppercase(), style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+                Text(prettyDate(entry.date), style = MaterialTheme.typography.labelSmall, color = c.textMuted)
                 Spacer(Modifier.height(2.dp))
                 val snippet = entry.snippet.ifBlank { entry.quickNote.orEmpty().trim().substringBefore('\n') }
                 Text(entry.title.ifBlank { snippet.ifBlank { "Untitled day" } }, style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -378,7 +378,7 @@ private fun EntryEditor(editor: JournalEditorState, viewModel: JournalsViewModel
 private fun EmojiPicker(label: String, options: List<String>, selected: String, onPick: (String) -> Unit) {
     val c = Atlas.colors
     Column {
-        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = c.textMuted)
         Spacer(Modifier.height(8.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(options) { e ->
