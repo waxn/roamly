@@ -31,6 +31,8 @@ Cached under a plain `suggestions:{user_id}` key (30m TTL, **not** gen-keyed —
 
 Clicking a suggestion row expands an **inline mini-map** (accordion — one row at a time). A **single** MapLibre instance (`miniHost`, created detached) is *moved into* whichever `.sg-mini` slot is open rather than one map per row, since a long queue would otherwise hold a dozen live GL contexts; `paintMini()` re-centres it and is called both on expand and on the map's `load` (whichever lands second). `renderSuggestions()` detaches `miniHost` before replacing rows, so a re-render can't destroy the shared map with the DOM it was sitting in.
 
+Creating a place refreshes the snapshot's `places_json` **synchronously** (a background thread lost the race against the client's immediate re-fetch). The map's right-click "add place here" panel opens at the cursor and appends the POST response to `myPlaces` so the place shows at once.
+
 Every mutation calls `_bust_user_cache`. Custom places also appear in:
 - **Data table** — `locations_api` resolves via `_place_membership` (bbox+haversine), sets `custom_place`; template prefers it over `poi_name`, renders in coral.
 - **Search** — `search_api` matches `CustomPlace.name__icontains`, prepends results above OSM POIs.

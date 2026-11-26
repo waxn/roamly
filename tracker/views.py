@@ -11520,7 +11520,12 @@ def _create_custom_place(user, name, lat, lng, radius_m=150.0, notes=''):
     # The new place may cover a suggested cluster — drop it from the queue now
     # rather than leaving a confirmed place sitting there for the TTL.
     cache.delete(f"suggestions:{user.id}")
-    db_thread(_refresh_places_snapshot, args=(user,)).start()
+    # Synchronous on purpose: the client re-fetches the list the instant the
+    # POST returns, and a background refresh loses that race (stale snapshot).
+    try:
+        _refresh_places_snapshot(user)
+    except Exception:
+        logger.exception("places snapshot refresh failed")
     return place
 
 
