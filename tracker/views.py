@@ -12932,6 +12932,26 @@ def journal_autofill_api(request, date_str):
 
 @login_required
 @require_POST
+def journal_title_missing_api(request):
+    """Give untitled days a title (a few per call, newest first). Gated by the
+    same "AI title" toggle as the on-close autofill, since it sends the entry
+    to the user's provider."""
+    from . import ai_tasks, journal_assist
+    profile = request.user.profile
+    if not (profile.ai_configured and profile.journal_auto_title):
+        return JsonResponse({'titled': {}, 'remaining': 0})
+    if _rate_limited(request, 'journal_autofill', _JOURNAL_AUTOFILL_LIMIT, 3600,
+                     identifier=f'u{request.user.id}', include_ip=False):
+        return JsonResponse({'error': 'Too many requests. Try again later.'}, status=429)
+    try:
+        titled, left = journal_assist.title_untitled(profile)
+    except (ai_tasks.AIProviderError, journal_assist.AutofillError) as e:
+        return JsonResponse({'error': str(e)}, status=502)
+    return JsonResponse({'titled': titled, 'remaining': left})
+
+
+@login_required
+@require_POST
 def journal_move_api(request, date_str):
     """Move an entry, with its photos, to another day. There is one entry per
     day, so a taken day is refused rather than merged."""

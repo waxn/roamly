@@ -281,6 +281,7 @@ urlpatterns = [
     path('api/journals/search/', views.journal_search_api, name='journal_search_api'),
     path('api/journals/recap/', views.journal_recap_api, name='journal_recap_api'),
     path('api/journals/settings/', views.journal_settings_api, name='journal_settings_api'),
+    path('api/journals/title-missing/', views.journal_title_missing_api, name='journal_title_missing_api'),
     path('api/journals/photos/<int:photo_id>/delete/', views.journal_photo_delete_api, name='journal_photo_delete_api'),
     path('api/journals/<str:date_str>/', views.journal_detail_api, name='journal_detail_api'),
     path('api/journals/<str:date_str>/save/', views.journal_save_api, name='journal_save_api'),

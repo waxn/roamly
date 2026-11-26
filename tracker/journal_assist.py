@@ -157,7 +157,14 @@ def _parse_reply(text):
     return data
 
 
-def autofill(profile, entry):
+def _entry_text(entry):
+    """What the day says: the diary body, and the "what I did today" jot when
+    there is one. A day with only the jot still gets a title."""
+    parts = [entry.body.strip(), entry.quick_note.strip()]
+    return '\n\n'.join(p for p in parts if p)
+
+
+def autofill(profile, entry, mood=True):
     """Fill this entry's blank title / mood, per the account's two toggles.
 
     Returns the fields it set. The provider call takes seconds, so each write is
@@ -165,8 +172,8 @@ def autofill(profile, entry):
     meantime keeps it.
     """
     want_title = profile.journal_auto_title and not entry.title.strip()
-    want_mood = profile.journal_auto_mood and not entry.mood.strip()
-    body = entry.body.strip()
+    want_mood = mood and profile.journal_auto_mood and not entry.mood.strip()
+    body = _entry_text(entry)
     if not (want_title or want_mood) or not body:
         return {}
     places = list(Location.objects.filter(
@@ -193,3 +200,22 @@ def autofill(profile, entry):
     if mood and JournalEntry.objects.filter(pk=entry.pk, mood='').update(mood=mood):
         out['mood'] = mood
     return out
+
+
+def title_untitled(profile, limit=5):
+    """Title the account's untitled days that have something written, newest
+    first, at most `limit` per call (each is a provider call). Returns
+    ({date: title}, how many are still waiting). Needs the AI title toggle."""
+    if not profile.journal_auto_title:
+        return {}, 0
+    from django.db.models import Q
+    todo = (JournalEntry.objects.filter(user=profile.user, title='')
+            .filter(~Q(body='') | ~Q(quick_note='')).order_by('-date'))
+    entries = [e for e in todo[:limit * 3] if _entry_text(e)]
+    done = {}
+    for entry in entries[:limit]:
+        got = autofill(profile, entry, mood=False)
+        if got.get('title'):
+            done[entry.date.isoformat()] = got['title']
+    left = max(0, sum(1 for e in todo[:200] if _entry_text(e)) - len(done))
+    return done, left
