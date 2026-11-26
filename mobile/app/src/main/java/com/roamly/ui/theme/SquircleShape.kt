@@ -96,10 +96,10 @@ fun SquircleShape(
  * and sheets. Pills stay pills (any radius past half the height).
  */
 object SquircleRadius {
-    val tag = 10.dp
-    val control = 16.dp
-    val panel = 26.dp
-    val dialog = 32.dp
+    val tag = 8.dp
+    val control = 12.dp
+    val panel = 16.dp
+    val dialog = 24.dp
 }
 
 /**
