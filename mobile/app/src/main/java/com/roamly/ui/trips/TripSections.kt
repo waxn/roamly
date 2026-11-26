@@ -1,40 +1,50 @@
 package com.roamly.ui.trips
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import com.roamly.ui.theme.SquircleRadius
-import com.roamly.ui.theme.SquircleShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Hotel
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.NightsStay
+import androidx.compose.material.icons.rounded.PersonRemove
 import androidx.compose.material.icons.rounded.Place
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -42,164 +52,149 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.roamly.data.api.DayNote
 import com.roamly.data.api.PlannedStop
-import com.roamly.ui.theme.Clay
-import com.roamly.ui.theme.ClayButton
-import com.roamly.ui.theme.ClayTextButton
+import com.roamly.ui.kit.AtlasButton
+import com.roamly.ui.kit.AtlasChip
+import com.roamly.ui.kit.AtlasField
+import com.roamly.ui.kit.AtlasSheet
+import com.roamly.ui.kit.ButtonKind
+import com.roamly.ui.kit.ChipRow
+import com.roamly.ui.kit.Dot
+import com.roamly.ui.kit.Feel
+import com.roamly.ui.kit.IconAction
+import com.roamly.ui.kit.MEMBER_TRACK_COLORS
+import com.roamly.ui.kit.Panel
+import com.roamly.ui.kit.SectionTitle
+import com.roamly.ui.kit.Tag
+import com.roamly.ui.kit.rememberHaptics
+import com.roamly.ui.kit.tappable
+import com.roamly.ui.theme.Atlas
+import com.roamly.ui.theme.AtlasType
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 
-/** A left-accented section heading used by the Day Log / Itinerary sections. */
+/** A section heading with an optional action on the right. */
 @Composable
-fun SectionHeader(title: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-        Box(Modifier.width(4.dp).height(20.dp).clip(SquircleShape(2.dp)).background(MaterialTheme.colorScheme.primary))
-        Spacer(Modifier.width(8.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-    }
+fun SectionHeader(title: String, action: String? = null, onAction: (() -> Unit)? = null) {
+    SectionTitle(title, Modifier.padding(top = 12.dp), action = action, onAction = onAction)
 }
 
 @Composable
 fun DayLogEntryCard(note: DayNote, serverUrl: String, onEdit: (() -> Unit)? = null) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(SquircleShape(SquircleRadius.control))
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(14.dp),
-    ) {
+    val c = Atlas.colors
+    Panel(Modifier.fillMaxWidth(), padding = PaddingValues(16.dp), onClick = if (note.isMine) onEdit else null) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            DayAuthorAvatar(note.author, mediaUrl(serverUrl, note.avatar))
+            Avatar(note.author, mediaUrl(serverUrl, note.avatar))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                if (note.title.isNotBlank()) {
-                    Text(note.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                }
-                Text(note.author, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                if (note.title.isNotBlank()) Text(note.title, style = MaterialTheme.typography.titleSmall, color = c.text)
+                Text(note.author, style = MaterialTheme.typography.labelMedium, color = c.accent)
             }
-            if (note.isMine && onEdit != null) {
-                IconButton(onClick = onEdit, modifier = Modifier.size(30.dp)) {
-                    Icon(Icons.Rounded.Edit, "Edit", Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+            if (note.isMine && onEdit != null) IconAction(Icons.Rounded.Edit, "Edit", onEdit, container = null, tint = c.textMuted, size = 34.dp, iconSize = 17.dp)
         }
         if (note.body.isNotBlank()) {
-            Spacer(Modifier.height(6.dp))
-            Text(note.body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground)
+            Spacer(Modifier.height(8.dp))
+            Text(note.body, style = MaterialTheme.typography.bodyMedium, color = c.text)
         }
         note.place?.let { p ->
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val emoji = p.category?.let { PLACE_CAT_EMOJI[it] }
-                if (emoji != null) Text(emoji) else Icon(Icons.Rounded.Place, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(4.dp))
-                Text(p.name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            }
+            Spacer(Modifier.height(8.dp))
+            Tag(listOfNotNull(p.category?.let { PLACE_CAT_EMOJI[it] }, p.name).joinToString(" "), color = c.accent)
         }
         if (note.photos.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
             MediaThumbnailRow(media = note.photos, serverUrl = serverUrl, modifier = Modifier.fillMaxWidth())
         }
     }
 }
 
+/** A person's round avatar: their picture, else their initial. */
 @Composable
-private fun DayAuthorAvatar(name: String, avatarUrl: String?) {
-    if (avatarUrl != null) {
-        AsyncImage(
-            model = avatarUrl,
-            contentDescription = null,
-            modifier = Modifier.size(34.dp).clip(CircleShape),
-            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-        )
+fun Avatar(name: String?, url: String? = null, size: Int = 34) {
+    val c = Atlas.colors
+    if (url != null) {
+        AsyncImage(url, null, Modifier.size(size.dp).clip(SquircleShape(50)), contentScale = ContentScale.Crop)
     } else {
-        Box(
-            modifier = Modifier.size(34.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(name.take(1).uppercase(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+        Box(Modifier.size(size.dp).clip(SquircleShape(50)).background(c.accentSoft), contentAlignment = Alignment.Center) {
+            Text(name?.firstOrNull()?.uppercaseChar()?.toString() ?: "?", style = MaterialTheme.typography.labelLarge, color = c.accent)
         }
     }
 }
 
+/** One stop on the itinerary, on a dotted rail joining it to the next. */
 @Composable
 fun ItineraryStopCard(
     index: Int,
     stop: PlannedStop,
+    last: Boolean = false,
     onEdit: (() -> Unit)? = null,
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(SquircleShape(SquircleRadius.control))
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(14.dp),
-    ) {
-        // Numbered badge
-        Box(
-            modifier = Modifier.size(28.dp).clip(CircleShape).background(Clay.colors.mauve),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("$index", style = MaterialTheme.typography.labelMedium, color = Color.White, fontWeight = FontWeight.Bold)
+    val c = Atlas.colors
+    Row(Modifier.fillMaxWidth()) {
+        Column(Modifier.width(34.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.size(30.dp).clip(SquircleShape(50)).background(c.violet), contentAlignment = Alignment.Center) {
+                Text("$index", style = MaterialTheme.typography.labelLarge, color = Color.White)
+            }
+            if (!last) Box(Modifier.width(2.dp).height(70.dp).background(c.violet.copy(alpha = 0.3f)))
         }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(stop.name.ifBlank { "Stop $index" }, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-            stop.locationName?.takeIf { it.isNotBlank() }?.let {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Place, null, Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.width(3.dp))
-                    Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(10.dp))
+        Panel(Modifier.weight(1f).padding(bottom = 10.dp), padding = PaddingValues(start = 14.dp, end = 4.dp, top = 12.dp, bottom = 12.dp), onClick = onEdit) {
+            Row {
+                Column(Modifier.weight(1f)) {
+                    Text(stop.name.ifBlank { "Stop $index" }, style = MaterialTheme.typography.titleSmall, color = c.text)
+                    stop.locationName?.takeIf { it.isNotBlank() }?.let { Meta(Icons.Rounded.Place, it) }
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        stop.arrivalDate?.takeIf { it.isNotBlank() }?.let { Meta(Icons.Rounded.CalendarMonth, it) }
+                        stop.nights?.takeIf { it > 0 }?.let { Meta(Icons.Rounded.NightsStay, "$it night${if (it != 1) "s" else ""}") }
+                        stop.transport?.takeIf { it.isNotBlank() }?.let { Meta(Icons.Rounded.DirectionsCar, TRANSPORT_OPTIONS.firstOrNull { o -> o.first == it }?.second ?: it) }
+                    }
+                    stop.accommodation?.takeIf { it.isNotBlank() }?.let { Meta(Icons.Rounded.Hotel, it) }
+                    stop.notes?.takeIf { it.isNotBlank() }?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                    }
                 }
-            }
-            Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                stop.arrivalDate?.takeIf { it.isNotBlank() }?.let { StopMeta(Icons.Rounded.CalendarMonth, it) }
-                stop.nights?.takeIf { it > 0 }?.let { StopMeta(Icons.Rounded.NightsStay, "$it night${if (it != 1) "s" else ""}") }
-                stop.transport?.takeIf { it.isNotBlank() }?.let { StopMeta(Icons.Rounded.DirectionsCar, it) }
-            }
-            stop.accommodation?.takeIf { it.isNotBlank() }?.let {
-                Spacer(Modifier.height(2.dp))
-                StopMeta(Icons.Rounded.Hotel, it)
-            }
-            stop.notes?.takeIf { it.isNotBlank() }?.let {
-                Spacer(Modifier.height(4.dp))
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        if (onEdit != null) {
-            Column {
-                IconButton(onClick = onEdit, modifier = Modifier.size(30.dp)) {
-                    Icon(Icons.Rounded.Edit, "Edit", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (onMoveUp != null) IconButton(onClick = onMoveUp, modifier = Modifier.size(30.dp)) {
-                    Icon(Icons.Rounded.KeyboardArrowUp, "Move up", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (onMoveDown != null) IconButton(onClick = onMoveDown, modifier = Modifier.size(30.dp)) {
-                    Icon(Icons.Rounded.KeyboardArrowDown, "Move down", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (onEdit != null) {
+                    Column {
+                        if (onMoveUp != null) IconAction(Icons.Rounded.KeyboardArrowUp, "Move up", onMoveUp, container = null, tint = c.textMuted, size = 32.dp, feel = Feel.Tick)
+                        if (onMoveDown != null) IconAction(Icons.Rounded.KeyboardArrowDown, "Move down", onMoveDown, container = null, tint = c.textMuted, size = 32.dp, feel = Feel.Tick)
+                    }
                 }
             }
         }
     }
 }
 
+@Composable
+private fun Meta(icon: ImageVector, text: String) {
+    val c = Atlas.colors
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+        Icon(icon, null, Modifier.size(13.dp), tint = c.textFaint)
+        Spacer(Modifier.width(4.dp))
+        Text(text, style = MaterialTheme.typography.labelMedium, color = c.textMuted)
+    }
+}
+
 private val TRANSPORT_OPTIONS = listOf(
-    "" to "—", "plane" to "✈️ Plane", "car" to "🚗 Car", "train" to "🚆 Train",
-    "bus" to "🚌 Bus", "boat" to "⛴️ Boat", "cycle" to "🚲 Cycle", "walk" to "🚶 Walk", "other" to "• Other",
+    "plane" to "✈️ Plane", "car" to "🚗 Car", "train" to "🚆 Train", "bus" to "🚌 Bus",
+    "boat" to "⛴️ Boat", "cycle" to "🚲 Cycle", "walk" to "🚶 Walk", "other" to "• Other",
 )
 
-/** Create/edit dialog for one planned itinerary stop. */
+/** Create/edit one planned itinerary stop. */
 @Composable
-fun StopEditorDialog(
-    stop: PlannedStop,
-    onSave: (PlannedStop) -> Unit,
-    onDelete: (() -> Unit)?,
-    onClose: () -> Unit,
-) {
+fun StopEditorDialog(stop: PlannedStop, onSave: (PlannedStop) -> Unit, onDelete: (() -> Unit)?, onClose: () -> Unit) {
     var name by remember { mutableStateOf(stop.name) }
     var locationName by remember { mutableStateOf(stop.locationName ?: "") }
     var arrivalDate by remember { mutableStateOf(stop.arrivalDate ?: "") }
@@ -207,182 +202,112 @@ fun StopEditorDialog(
     var transport by remember { mutableStateOf(stop.transport ?: "") }
     var accommodation by remember { mutableStateOf(stop.accommodation ?: "") }
     var notes by remember { mutableStateOf(stop.notes ?: "") }
-    var transportOpen by remember { mutableStateOf(false) }
-
-    androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth().padding(16.dp)
-                .clip(SquircleShape(SquircleRadius.panel)).background(MaterialTheme.colorScheme.background).padding(18.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(if (stop.id == 0) "New stop" else "Edit stop", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
-            androidx.compose.material3.OutlinedTextField(name, { name = it }, label = { Text("Name *") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            androidx.compose.material3.OutlinedTextField(locationName, { locationName = it }, label = { Text("Location") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                androidx.compose.material3.OutlinedTextField(arrivalDate, { arrivalDate = it }, label = { Text("Arrival (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.weight(1f), placeholder = { Text("2025-06-01") })
-                androidx.compose.material3.OutlinedTextField(nights, { nights = it.filter { c -> c.isDigit() } }, label = { Text("Nights") }, singleLine = true, modifier = Modifier.width(90.dp))
+    AtlasSheet(onDismiss = onClose, title = if (stop.id == 0) "New stop" else "Edit stop") {
+        Column(Modifier.verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            AtlasField(name, { name = it }, label = "Name", placeholder = "Porto")
+            AtlasField(locationName, { locationName = it }, label = "Location")
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                AtlasField(arrivalDate, { arrivalDate = it }, Modifier.weight(1f), label = "Arrival", placeholder = "2025-06-01")
+                AtlasField(nights, { nights = it.filter { ch -> ch.isDigit() } }, Modifier.width(96.dp), label = "Nights",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
             }
-            // Transport dropdown
-            Box {
-                Row(
-                    modifier = Modifier.fillMaxWidth().clip(SquircleShape(SquircleRadius.control))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        .clickable { transportOpen = true }.padding(horizontal = 12.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Getting there:  ${TRANSPORT_OPTIONS.firstOrNull { it.first == transport }?.second ?: "—"}",
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                }
-                androidx.compose.material3.DropdownMenu(expanded = transportOpen, onDismissRequest = { transportOpen = false }) {
-                    TRANSPORT_OPTIONS.forEach { (v, label) ->
-                        androidx.compose.material3.DropdownMenuItem(text = { Text(label) }, onClick = { transport = v; transportOpen = false })
-                    }
-                }
+            Text("Getting there", style = MaterialTheme.typography.labelMedium, color = Atlas.colors.textMuted, modifier = Modifier.padding(start = 4.dp))
+            ChipRow(contentPadding = PaddingValues(0.dp)) {
+                TRANSPORT_OPTIONS.forEach { (v, label) -> AtlasChip(label, transport == v, { transport = if (transport == v) "" else v }) }
             }
-            androidx.compose.material3.OutlinedTextField(accommodation, { accommodation = it }, label = { Text("Accommodation") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            androidx.compose.material3.OutlinedTextField(notes, { notes = it }, label = { Text("Notes") }, minLines = 2, modifier = Modifier.fillMaxWidth())
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (onDelete != null) {
-                    ClayTextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-                }
-                Spacer(Modifier.weight(1f))
-                ClayTextButton(onClick = onClose) { Text("Cancel") }
-                ClayButton(onClick = {
-                    onSave(stop.copy(
-                        name = name, locationName = locationName, arrivalDate = arrivalDate,
-                        nights = nights.toIntOrNull() ?: 0, transport = transport,
-                        accommodation = accommodation, notes = notes,
-                    ))
-                }) { Text("Save") }
+            AtlasField(accommodation, { accommodation = it }, label = "Accommodation")
+            AtlasField(notes, { notes = it }, label = "Notes", singleLine = false, minLines = 2)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (onDelete != null) AtlasButton("Delete", onDelete, Modifier.weight(1f), kind = ButtonKind.Danger, icon = Icons.Rounded.DeleteOutline)
+                AtlasButton("Save stop", {
+                    onSave(stop.copy(name = name, locationName = locationName, arrivalDate = arrivalDate, nights = nights.toIntOrNull() ?: 0,
+                        transport = transport, accommodation = accommodation, notes = notes))
+                }, Modifier.weight(1.4f), enabled = name.isNotBlank(), feel = Feel.Confirm)
             }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
 
-@Composable
-private fun StopMeta(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(3.dp))
-        Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
-    }
-}
-
-/** Color-swatch legend for the map's per-member tracks. Owner is color index 0
- *  (matching MEMBER_TRACK_COLORS / adventure_public.html); other members follow
- *  in the same order drawMemberTracks assigns them. */
+/** Colour swatches for the per-member tracks on the trip map (owner = index 0). */
 @Composable
 fun MemberTrackLegend(trip: com.roamly.data.api.TripResponse) {
     val members = trip.memberLocations.keys.filter { trip.memberLocations[it]?.isNotEmpty() == true }
     if (members.isEmpty()) return
     val ownerName = trip.members?.firstOrNull { it.role == "creator" }?.username ?: "Owner"
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        LegendSwatch(MEMBER_TRACK_COLORS[0], ownerName)
-        members.forEachIndexed { i, name ->
-            LegendSwatch(MEMBER_TRACK_COLORS[(i + 1) % MEMBER_TRACK_COLORS.size], name)
-        }
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Swatch(MEMBER_TRACK_COLORS[0], ownerName)
+        members.forEachIndexed { i, name -> Swatch(MEMBER_TRACK_COLORS[(i + 1) % MEMBER_TRACK_COLORS.size], name) }
     }
 }
 
 @Composable
-private fun LegendSwatch(color: Int, label: String) {
+private fun Swatch(color: Int, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(12.dp).clip(CircleShape).background(Color(color)))
-        Spacer(Modifier.width(5.dp))
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Dot(Color(color), 10.dp)
+        Spacer(Modifier.width(6.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Atlas.colors.textMuted)
     }
 }
 
-/** Format an ISO date (yyyy-MM-dd) as a friendly day header. */
+/** An ISO date (yyyy-MM-dd) as a day header. */
 fun formatDayHeader(iso: String): String = try {
-    val d = java.time.LocalDate.parse(iso.take(10))
-    d.format(java.time.format.DateTimeFormatter.ofPattern("EEEE, MMM d, yyyy"))
+    java.time.LocalDate.parse(iso.take(10)).format(java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM yyyy"))
 } catch (e: Exception) { iso }
 
-/** Create dialog for an "update" blurb: text + optional title, rating, category, photos. */
+/** A new "update": text, optional title, rating, category and up to 5 photos/videos. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BlurbCreateDialog(
     onDismiss: () -> Unit,
     onPost: (text: String, title: String, rating: Int?, category: String?, uris: List<android.net.Uri>) -> Unit,
 ) {
+    val c = Atlas.colors
+    val haptics = rememberHaptics()
     var text by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
-    var rating by remember { mutableStateOf(0) }
+    var rating by remember { mutableIntStateOf(0) }
     var category by remember { mutableStateOf("") }
-    var catOpen by remember { mutableStateOf(false) }
     var picked by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
-
-    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia(5)
-    ) { uris -> if (uris.isNotEmpty()) picked = (picked + uris).distinct().take(5) }
-
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth().padding(16.dp)
-                .clip(SquircleShape(SquircleRadius.panel)).background(MaterialTheme.colorScheme.background).padding(18.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text("Add update", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
-            androidx.compose.material3.OutlinedTextField(title, { title = it }, label = { Text("Title (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            androidx.compose.material3.OutlinedTextField(text, { text = it }, label = { Text("What's happening?") }, minLines = 3, modifier = Modifier.fillMaxWidth())
-
-            // Star rating (tap to set; tap the current value to clear).
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(5)) { uris ->
+        if (uris.isNotEmpty()) picked = (picked + uris).distinct().take(5)
+    }
+    AtlasSheet(onDismiss = onDismiss, title = "Post an update") {
+        Column(Modifier.verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            AtlasField(title, { title = it }, label = "Title", placeholder = "Optional")
+            AtlasField(text, { text = it }, label = "What's happening?", singleLine = false, minLines = 3,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Rating", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(8.dp))
+                Text("Rating", style = MaterialTheme.typography.labelMedium, color = c.textMuted, modifier = Modifier.padding(start = 4.dp, end = 10.dp))
                 (1..5).forEach { n ->
                     Text(
-                        if (n <= rating) "★" else "☆",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = if (n <= rating) Clay.colors.ochre else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clickable { rating = if (rating == n) 0 else n }.padding(horizontal = 2.dp),
+                        if (n <= rating) "★" else "☆", style = MaterialTheme.typography.headlineSmall,
+                        color = if (n <= rating) c.amber else c.textFaint,
+                        modifier = Modifier.clip(SquircleShape(8.dp)).tappable(feel = Feel.None, pressedScale = 0.8f) {
+                            haptics.tick(); rating = if (rating == n) 0 else n
+                        }.padding(horizontal = 3.dp),
                     )
                 }
             }
-
-            // Category dropdown
-            Box {
-                Row(
-                    modifier = Modifier.fillMaxWidth().clip(SquircleShape(SquircleRadius.control))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        .clickable { catOpen = true }.padding(horizontal = 12.dp, vertical = 14.dp),
-                ) {
-                    Text("Category:  " + (if (category.isBlank()) "None" else "${PLACE_CAT_EMOJI[category] ?: ""} ${PLACE_CAT_LABEL[category] ?: category}"),
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                }
-                androidx.compose.material3.DropdownMenu(expanded = catOpen, onDismissRequest = { catOpen = false }) {
-                    androidx.compose.material3.DropdownMenuItem(text = { Text("None") }, onClick = { category = ""; catOpen = false })
-                    PLACE_CAT_LABEL.forEach { (slug, label) ->
-                        androidx.compose.material3.DropdownMenuItem(text = { Text("${PLACE_CAT_EMOJI[slug] ?: ""} $label") }, onClick = { category = slug; catOpen = false })
-                    }
+            Text("Category", style = MaterialTheme.typography.labelMedium, color = c.textMuted, modifier = Modifier.padding(start = 4.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                PLACE_CAT_LABEL.forEach { (slug, label) ->
+                    AtlasChip("${PLACE_CAT_EMOJI[slug] ?: ""} $label", category == slug, { category = if (category == slug) "" else slug })
                 }
             }
-
-            if (picked.isNotEmpty()) {
-                Text("${picked.size} attached", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            androidx.compose.material3.OutlinedButton(
-                onClick = { picker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
-                enabled = picked.size < 5, modifier = Modifier.fillMaxWidth(),
-            ) { Text("Add photos / videos") }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ClayTextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
-                ClayButton(onClick = { onPost(text, title, rating.takeIf { it > 0 }, category.ifBlank { null }, picked) }, modifier = Modifier.weight(1f)) { Text("Post") }
-            }
+            AtlasButton(
+                if (picked.isEmpty()) "Add photos or videos" else "${picked.size} attached — add more",
+                { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+                Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, icon = Icons.Rounded.AddPhotoAlternate, enabled = picked.size < 5,
+            )
+            AtlasButton("Post", { onPost(text, title, rating.takeIf { it > 0 }, category.ifBlank { null }, picked) },
+                Modifier.fillMaxWidth(), enabled = text.isNotBlank() || title.isNotBlank() || picked.isNotEmpty(), feel = Feel.Confirm)
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
 
-/** Invite-by-link sheet: shows the join URL with copy/share/reset + member list. */
+/** Invite by link: the join URL with copy / share / reset, and the member list. */
 @Composable
 fun InviteSheet(
     inviteUrl: String?,
@@ -391,57 +316,47 @@ fun InviteSheet(
     onRemoveMember: (Int) -> Unit,
     onClose: () -> Unit,
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-    androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp)
-                .clip(SquircleShape(SquircleRadius.panel)).background(MaterialTheme.colorScheme.background).padding(18.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text("Invite by link", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
-            Text("Anyone with this link can join and share their track.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
+    val c = Atlas.colors
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val haptics = rememberHaptics()
+    AtlasSheet(onDismiss = onClose, title = "Invite people") {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Anyone with this link can join and share their track.", style = MaterialTheme.typography.bodyMedium, color = c.textMuted)
             if (inviteUrl.isNullOrBlank()) {
-                androidx.compose.material3.CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = c.accent)
             } else {
-                Text(inviteUrl, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.fillMaxWidth().clip(SquircleShape(SquircleRadius.control)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)).padding(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    androidx.compose.material3.OutlinedButton(onClick = {
-                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(inviteUrl))
-                    }, modifier = Modifier.weight(1f)) { Text("Copy") }
-                    androidx.compose.material3.OutlinedButton(onClick = {
-                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                            type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, inviteUrl)
-                        }
-                        context.startActivity(android.content.Intent.createChooser(send, "Share invite"))
-                    }, modifier = Modifier.weight(1f)) { Text("Share") }
+                Box(Modifier.fillMaxWidth().clip(SquircleShape(SquircleRadius.control)).background(c.surfaceHigh).border(1.dp, c.line, SquircleShape(SquircleRadius.control)).padding(14.dp)) {
+                    Text(inviteUrl, style = AtlasType.mono, color = c.accent)
                 }
-                ClayTextButton(onClick = onRotate) { Text("Reset link") }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    AtlasButton("Copy", { clipboard.setText(AnnotatedString(inviteUrl)); haptics.confirm() }, Modifier.weight(1f),
+                        kind = ButtonKind.Secondary, compact = true, icon = Icons.Rounded.ContentCopy)
+                    AtlasButton("Share", {
+                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, inviteUrl) }
+                        context.startActivity(android.content.Intent.createChooser(send, "Share invite"))
+                    }, Modifier.weight(1f), compact = true, icon = Icons.Rounded.Share)
+                }
+                AtlasButton("Reset link", onRotate, kind = ButtonKind.Ghost, compact = true)
             }
-
             if (members.isNotEmpty()) {
-                HorizontalDivider()
-                Text("Members", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SectionTitle("Members · ${members.size}")
                 members.forEach { m ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(m.username, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-                        if (m.role == "creator") {
-                            Text("owner", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                        } else {
-                            ClayTextButton(onClick = { onRemoveMember(m.userId) }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
-                        }
+                        Avatar(m.username)
+                        Spacer(Modifier.width(12.dp))
+                        Text(m.username, style = MaterialTheme.typography.bodyLarge, color = c.text, modifier = Modifier.weight(1f))
+                        if (m.role == "creator") Tag("Owner", color = c.amber)
+                        else IconAction(Icons.Rounded.PersonRemove, "Remove ${m.username}", { onRemoveMember(m.userId) }, container = null, tint = c.textMuted, size = 38.dp)
                     }
                 }
             }
-            ClayTextButton(onClick = onClose, modifier = Modifier.align(Alignment.End)) { Text("Done") }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
 
-/** Full-screen editor for one of the member's own Day Log entries. */
+/** Editor for one of your own Day Log entries. */
 @Composable
 fun DayNoteEditorDialog(
     editor: DayNoteEditorState,
@@ -456,106 +371,43 @@ fun DayNoteEditorDialog(
     onDelete: () -> Unit,
     onClose: () -> Unit,
 ) {
-    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia(10)
-    ) { uris -> if (uris.isNotEmpty()) onAddPhotos(uris) }
-
-    androidx.compose.ui.window.Dialog(
-        onDismissRequest = onClose,
-        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-                .clip(SquircleShape(SquircleRadius.panel))
-                .background(MaterialTheme.colorScheme.background)
-                .padding(18.dp)
-                .verticalScroll(androidx.compose.foundation.rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(formatDayHeader(editor.note.date), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f))
-                IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, "Delete entry", tint = MaterialTheme.colorScheme.error) }
-            }
-            androidx.compose.material3.OutlinedTextField(
-                value = editor.title, onValueChange = onTitle,
-                label = { Text("Title") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-            )
-            androidx.compose.material3.OutlinedTextField(
-                value = editor.body, onValueChange = onBody,
-                label = { Text("What happened?") }, minLines = 3, modifier = Modifier.fillMaxWidth(),
-            )
-
-            // Linked place dropdown (optional).
+    val c = Atlas.colors
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris -> if (uris.isNotEmpty()) onAddPhotos(uris) }
+    AtlasSheet(onDismiss = onClose) {
+        Row(Modifier.padding(start = 24.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(formatDayHeader(editor.note.date), style = MaterialTheme.typography.headlineSmall, color = c.text, modifier = Modifier.weight(1f))
+            IconAction(Icons.Rounded.DeleteOutline, "Delete entry", onDelete, tint = c.danger)
+        }
+        Column(Modifier.verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            AtlasField(editor.title, onTitle, label = "Title")
+            AtlasField(editor.body, onBody, label = "What happened?", singleLine = false, minLines = 4,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences))
             if (places.isNotEmpty()) {
-                PlacePickerRow(places = places, selectedId = editor.placeId, onSelect = onPlace)
+                Text("Linked place", style = MaterialTheme.typography.labelMedium, color = c.textMuted, modifier = Modifier.padding(start = 4.dp))
+                ChipRow(contentPadding = PaddingValues(0.dp)) {
+                    AtlasChip("None", editor.placeId == null, { onPlace(null) })
+                    places.forEach { p -> AtlasChip(p.name, editor.placeId == p.id, { onPlace(p.id) }, icon = Icons.Rounded.Place) }
+                }
             }
-
-            // Photos
             if (editor.photos.isNotEmpty()) {
-                Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     editor.photos.forEach { m ->
                         Box {
-                            AsyncImage(
-                                model = mediaUrl(serverUrl, m.thumb ?: m.url),
-                                contentDescription = null,
-                                modifier = Modifier.size(80.dp).clip(SquircleShape(SquircleRadius.control)),
-                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                            )
-                            IconButton(onClick = { onDeletePhoto(m.id) }, modifier = Modifier.align(Alignment.TopEnd).size(24.dp)) {
-                                Icon(Icons.Rounded.Delete, "Remove", Modifier.size(14.dp), tint = Color.White)
-                            }
+                            AsyncImage(mediaUrl(serverUrl, m.thumb ?: m.url), null, Modifier.size(84.dp).clip(SquircleShape(SquircleRadius.control)), contentScale = ContentScale.Crop)
+                            IconAction(Icons.Rounded.Close, "Remove", { onDeletePhoto(m.id) }, Modifier.align(Alignment.TopEnd).padding(4.dp),
+                                tint = Color.White, container = Color.Black.copy(alpha = 0.55f), size = 24.dp, iconSize = 14.dp)
                         }
                     }
                 }
             }
-            androidx.compose.material3.OutlinedButton(
-                onClick = { picker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
-                enabled = !editor.uploading && editor.photos.size < 10,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                if (editor.uploading) androidx.compose.material3.CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                else Text("Add photos / videos")
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ClayTextButton(onClick = onClose, modifier = Modifier.weight(1f)) { Text("Close") }
-                ClayButton(onClick = onSave, enabled = !editor.saving, modifier = Modifier.weight(1f)) {
-                    Text(if (editor.saving) "Saving…" else "Save")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlacePickerRow(
-    places: List<com.roamly.data.api.PlacePayload>,
-    selectedId: Int?,
-    onSelect: (Int?) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val selectedName = places.firstOrNull { it.id == selectedId }?.name ?: "No linked place"
-    Box {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(SquircleShape(SquircleRadius.control))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                .clickable { expanded = true }
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Rounded.Place, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(8.dp))
-            Text(selectedName, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-        }
-        androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            androidx.compose.material3.DropdownMenuItem(text = { Text("No linked place") }, onClick = { expanded = false; onSelect(null) })
-            places.forEach { p ->
-                androidx.compose.material3.DropdownMenuItem(text = { Text(p.name) }, onClick = { expanded = false; onSelect(p.id) })
-            }
+            AtlasButton(
+                "Add photos or videos",
+                { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+                Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, icon = Icons.Rounded.AddPhotoAlternate,
+                loading = editor.uploading, enabled = editor.photos.size < 10,
+            )
+            AtlasButton("Save entry", onSave, Modifier.fillMaxWidth(), loading = editor.saving, feel = Feel.Confirm)
+            Spacer(Modifier.height(8.dp))
         }
     }
 }

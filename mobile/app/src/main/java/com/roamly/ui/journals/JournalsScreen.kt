@@ -2,54 +2,49 @@ package com.roamly.ui.journals
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import com.roamly.ui.theme.SquircleRadius
-import com.roamly.ui.theme.SquircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material.icons.rounded.Place
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,26 +54,38 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.viewinterop.AndroidView
-import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.util.BoundingBox
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Polyline
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.roamly.data.api.JournalListItem
 import com.roamly.data.api.JournalTrack
-import com.roamly.ui.theme.Clay
-import com.roamly.ui.theme.ClayCard
-import com.roamly.ui.theme.ClayIconBadge
-import androidx.compose.ui.graphics.toArgb
+import com.roamly.ui.kit.AtlasButton
+import com.roamly.ui.kit.AtlasDialog
+import com.roamly.ui.kit.AtlasField
+import com.roamly.ui.kit.AtlasSheet
+import com.roamly.ui.kit.ButtonKind
+import com.roamly.ui.kit.EmptyState
+import com.roamly.ui.kit.Feel
+import com.roamly.ui.kit.IconAction
+import com.roamly.ui.kit.Panel
+import com.roamly.ui.kit.PanelTone
+import com.roamly.ui.kit.SectionTitle
+import com.roamly.ui.kit.StatBlock
+import com.roamly.ui.kit.TrackMap
+import com.roamly.ui.kit.dockAwareBottom
+import com.roamly.ui.kit.rememberHaptics
+import com.roamly.ui.kit.tappable
+import com.roamly.ui.theme.Atlas
+import com.roamly.ui.theme.AtlasType
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
+import org.osmdroid.util.GeoPoint
 import java.time.LocalDate
-import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
@@ -86,77 +93,55 @@ import java.util.Locale
 private val MOODS = listOf("😊", "😍", "😌", "😐", "😔", "😢", "😡", "😴", "🤩", "😎")
 private val WEATHERS = listOf("☀️", "⛅", "☁️", "🌧️", "⛈️", "❄️", "🌫️", "🌈")
 
+/** The private journal: streaks, a month of days, recent entries; tap a day to write. */
 @Composable
 fun JournalsScreen(
     viewModel: JournalsViewModel = hiltViewModel(),
     onOpenMap: ((String) -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsState()
-    val clay = Clay.colors
+    val c = Atlas.colors
 
-    // Refresh data each time this screen enters composition (e.g. tab switch back)
-    androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.refresh() }
-
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().statusBarsPadding(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp, 0.dp, 16.dp, 110.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = dockAwareBottom(96.dp)),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ClayIconBadge(Icons.Rounded.AutoStories, gradient = clay.tertiaryGradient, size = 40.dp)
-                    Spacer(Modifier.width(12.dp))
-                    Text("Journal", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
-                }
-            }
-
-            state.stats?.let { stats ->
+            state.stats?.let { s ->
                 item {
-                    ClayCard {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                            StreakBlock("${stats.currentStreak}", "day streak", highlight = stats.currentStreak > 0)
-                            StreakBlock("${stats.longestStreak}", "longest")
-                            StreakBlock("${stats.totalEntries}", "entries")
-                            StreakBlock("${stats.thisMonth}", "this month")
+                    Panel(Modifier.fillMaxWidth(), padding = PaddingValues(horizontal = 18.dp, vertical = 16.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.LocalFireDepartment, null, tint = if (s.currentStreak > 0) c.accent else c.textFaint, modifier = Modifier.size(30.dp))
+                                Spacer(Modifier.width(6.dp))
+                                StatBlock("${s.currentStreak}", "day streak", color = if (s.currentStreak > 0) c.accent else c.text)
+                            }
+                            StatBlock("${s.longestStreak}", "longest", small = true)
+                            StatBlock("${s.totalEntries}", "entries", small = true)
+                            StatBlock("${s.thisMonth}", "this month", small = true)
                         }
                     }
                 }
             }
-
             item { MonthCalendar(state, onPrev = viewModel::prevMonth, onNext = viewModel::nextMonth, onDay = viewModel::openEditor) }
-
             if (state.recent.isNotEmpty()) {
-                item {
-                    Text("Recent", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(start = 4.dp, top = 4.dp))
-                }
-                items(state.recent.take(30)) { entry ->
-                    RecentRow(entry, cover = viewModel.mediaUrl(entry.cover)) {
+                item { SectionTitle("Recent", Modifier.padding(top = 4.dp)) }
+                items(state.recent.take(30), key = { it.date }) { entry ->
+                    EntryRow(entry, cover = viewModel.mediaUrl(entry.cover)) {
                         runCatching { LocalDate.parse(entry.date) }.getOrNull()?.let(viewModel::openEditor)
                     }
                 }
             } else if (!state.isLoading) {
                 item {
-                    Text(
-                        "No entries yet — tap “Today” to write your first.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(16.dp),
-                    )
+                    EmptyState(Icons.Rounded.AutoStories, "Your journal is empty", body = "Tap a day, or “Write today”, to start. Your route for the day shows up alongside.")
                 }
             }
         }
-
-        ExtendedFloatingActionButton(
-            onClick = viewModel::openToday,
-            text = { Text("Today") },
-            icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
+        AtlasButton(
+            "Write today",
+            viewModel::openToday,
+            Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = dockAwareBottom(16.dp)),
+            icon = Icons.Rounded.EditNote,
         )
     }
 
@@ -164,65 +149,39 @@ fun JournalsScreen(
 }
 
 @Composable
-private fun StreakBlock(value: String, label: String, highlight: Boolean = false) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        if (highlight) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.LocalFireDepartment, null, tint = Clay.colors.rust, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(2.dp))
-                Text(value, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
-            }
-        } else {
-            Text(value, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
-        }
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun MonthCalendar(
-    state: JournalsUiState,
-    onPrev: () -> Unit,
-    onNext: () -> Unit,
-    onDay: (LocalDate) -> Unit,
-) {
+private fun MonthCalendar(state: JournalsUiState, onPrev: () -> Unit, onNext: () -> Unit, onDay: (LocalDate) -> Unit) {
+    val c = Atlas.colors
+    val haptics = rememberHaptics()
     val ym = state.displayMonth
     val today = LocalDate.now()
-    ClayCard {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onPrev) { Icon(Icons.Rounded.ChevronLeft, "previous month", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-            Text(
-                "${ym.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${ym.year}",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.weight(1f),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
-            IconButton(onClick = onNext) { Icon(Icons.Rounded.ChevronRight, "next month", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+    Panel(Modifier.fillMaxWidth(), padding = PaddingValues(14.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(start = 6.dp)) {
+                Text(ym.month.getDisplayName(TextStyle.FULL, Locale.getDefault()), style = MaterialTheme.typography.titleLarge, color = c.text)
+                Text("${ym.year}", style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+            }
+            IconAction(Icons.Rounded.ChevronLeft, "Previous month", { haptics.tick(); onPrev() }, size = 38.dp, feel = Feel.None)
+            Spacer(Modifier.width(6.dp))
+            IconAction(Icons.Rounded.ChevronRight, "Next month", { haptics.tick(); onNext() }, size = 38.dp, feel = Feel.None)
         }
-        Spacer(Modifier.height(6.dp))
-        Row(modifier = Modifier.fillMaxWidth()) {
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth()) {
             listOf("M", "T", "W", "T", "F", "S", "S").forEach { d ->
-                Text(d, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f))
+                Text(d, style = MaterialTheme.typography.labelSmall, color = c.textFaint, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
             }
         }
-        Spacer(Modifier.height(4.dp))
-
-        val daysInMonth = ym.lengthOfMonth()
-        val leadBlanks = ym.atDay(1).dayOfWeek.value - 1 // Mon=0
-        val cells = leadBlanks + daysInMonth
-        val rows = (cells + 6) / 7
+        Spacer(Modifier.height(6.dp))
+        val days = ym.lengthOfMonth()
+        val lead = ym.atDay(1).dayOfWeek.value - 1
+        val rows = (lead + days + 6) / 7
         for (r in 0 until rows) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                for (c in 0 until 7) {
-                    val cellIndex = r * 7 + c
-                    val dayNum = cellIndex - leadBlanks + 1
-                    Box(modifier = Modifier.weight(1f).aspectRatio(1f).padding(2.dp), contentAlignment = Alignment.Center) {
-                        if (dayNum in 1..daysInMonth) {
-                            val date = ym.atDay(dayNum)
-                            val entry = state.byDate[date.toString()]
-                            DayCell(dayNum, entry, isToday = date == today, onClick = { onDay(date) })
+            Row(Modifier.fillMaxWidth()) {
+                for (col in 0 until 7) {
+                    val n = r * 7 + col - lead + 1
+                    Box(Modifier.weight(1f).aspectRatio(1f).padding(2.dp), contentAlignment = Alignment.Center) {
+                        if (n in 1..days) {
+                            val date = ym.atDay(n)
+                            DayCell(n, state.byDate[date.toString()], date == today, date.isAfter(today)) { onDay(date) }
                         }
                     }
                 }
@@ -232,335 +191,230 @@ private fun MonthCalendar(
 }
 
 @Composable
-private fun DayCell(day: Int, entry: JournalListItem?, isToday: Boolean, onClick: () -> Unit) {
-    val clay = Clay.colors
-    val hasEntry = entry != null
+private fun DayCell(day: Int, entry: JournalListItem?, isToday: Boolean, future: Boolean, onClick: () -> Unit) {
+    val c = Atlas.colors
+    val bg by animateColorAsState(
+        when {
+            entry != null -> c.accent.copy(alpha = if (entry.isFavorite) 0.9f else 0.55f)
+            isToday -> c.surfaceHighest
+            else -> Color.Transparent
+        }, label = "day",
+    )
+    val shape = SquircleShape(SquircleRadius.tag)
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clip(SquircleShape(SquircleRadius.control))
-            .then(
-                if (hasEntry) Modifier.background(MaterialTheme.colorScheme.tertiaryContainer)
-                else if (isToday) Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-                else Modifier
-            )
-            .clickable(onClick = onClick),
+        Modifier.fillMaxSize().clip(shape).background(bg)
+            .then(if (isToday) Modifier.border(1.5.dp, c.accent, shape) else Modifier)
+            .tappable(feel = Feel.Tick, pressedScale = 0.88f, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            if (entry != null && entry.mood.isNotBlank()) {
-                Text(entry.mood, style = MaterialTheme.typography.bodyMedium)
-            } else {
-                Text(
-                    "$day",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (hasEntry) Color.White else MaterialTheme.colorScheme.onBackground,
-                    fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
-                )
-            }
-            if (entry != null && (entry.isFavorite || entry.photoCount > 0)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (entry.isFavorite) Text("★", style = MaterialTheme.typography.labelSmall, color = Color.White)
-                    if (entry.photoCount > 0) Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(Color.White))
-                }
-            }
+        if (entry != null && entry.mood.isNotBlank()) {
+            Text(entry.mood, style = MaterialTheme.typography.bodyLarge)
+        } else {
+            Text(
+                "$day",
+                style = AtlasType.mono.copy(fontSize = MaterialTheme.typography.labelLarge.fontSize),
+                fontWeight = if (isToday || entry != null) FontWeight.SemiBold else FontWeight.Normal,
+                color = when {
+                    entry != null -> c.onAccent
+                    future -> c.textFaint
+                    else -> c.text
+                },
+            )
+        }
+        if (entry != null && entry.photoCount > 0) {
+            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp).size(4.dp).clip(SquircleShape(50)).background(c.onAccent))
         }
     }
 }
 
 @Composable
-private fun RecentRow(entry: JournalListItem, cover: String?, onClick: () -> Unit) {
-    ClayCard(contentPadding = 12.dp, onClick = onClick) {
+private fun EntryRow(entry: JournalListItem, cover: String?, onClick: () -> Unit) {
+    val c = Atlas.colors
+    Panel(Modifier.fillMaxWidth(), padding = PaddingValues(12.dp), onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (cover != null) {
-                AsyncImage(
-                    model = cover,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp).clip(SquircleShape(SquircleRadius.control)),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                )
-            } else {
-                Box(
-                    modifier = Modifier.size(48.dp).clip(SquircleShape(SquircleRadius.control))
-                        .background(MaterialTheme.colorScheme.tertiaryContainer),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(entry.mood.ifBlank { "📝" }, style = MaterialTheme.typography.titleMedium)
+            Box(Modifier.size(56.dp).clip(SquircleShape(SquircleRadius.control)).background(c.surfaceHigh), contentAlignment = Alignment.Center) {
+                if (cover != null) AsyncImage(cover, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                else Text(entry.mood.ifBlank { "✏️" }, style = MaterialTheme.typography.headlineSmall)
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(prettyDate(entry.date).uppercase(), style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+                Spacer(Modifier.height(2.dp))
+                val snippet = entry.snippet.ifBlank { entry.quickNote.orEmpty().trim().substringBefore('\n') }
+                Text(entry.title.ifBlank { snippet.ifBlank { "Untitled day" } }, style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (entry.title.isNotBlank() && snippet.isNotBlank()) {
+                    Text(snippet, style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    entry.title.ifBlank { prettyDate(entry.date) },
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-                val snippet = entry.snippet.ifBlank { entry.quickNote.orEmpty().trim().substringBefore('\n') }
-                Text(
-                    if (entry.title.isBlank()) snippet else "${prettyDate(entry.date)} · $snippet",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (entry.isFavorite) Icon(Icons.Rounded.Favorite, null, tint = Clay.colors.rust, modifier = Modifier.size(18.dp))
+            if (entry.isFavorite) Icon(Icons.Rounded.Favorite, null, tint = c.rose, modifier = Modifier.size(18.dp))
         }
     }
 }
 
 // ── Editor ──────────────────────────────────────────────────────────────────
 
+/** A day's entry, in a full-height sheet. Every field autosaves. */
 @Composable
-private fun EntryEditor(editor: JournalEditorState, viewModel: JournalsViewModel, onOpenMap: ((String) -> Unit)? = null) {
+private fun EntryEditor(editor: JournalEditorState, viewModel: JournalsViewModel, onOpenMap: ((String) -> Unit)?) {
+    val c = Atlas.colors
+    val haptics = rememberHaptics()
     var confirmDelete by remember { mutableStateOf(false) }
-    val photoPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetMultipleContents()
-    ) { uris -> if (uris.isNotEmpty()) viewModel.addPhotos(uris) }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNotEmpty()) viewModel.addPhotos(uris)
+    }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-            // Top bar
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = viewModel::closeEditor) { Icon(Icons.Rounded.Close, "close") }
-                Column(Modifier.weight(1f)) {
-                    Text(prettyDate(editor.date.toString()), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-                    Text(
-                        if (editor.saving) "saving…" else if (editor.exists) "saved" else "new entry",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = viewModel::onToggleFavorite) {
-                    Icon(
-                        if (editor.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                        "favorite", tint = if (editor.isFavorite) Clay.colors.rust else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (editor.exists) {
-                    IconButton(onClick = { confirmDelete = true }) {
-                        Icon(Icons.Rounded.Delete, "delete", tint = MaterialTheme.colorScheme.error)
-                    }
-                }
+    AtlasSheet(onDismiss = viewModel::closeEditor) {
+        Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(prettyDate(editor.date.toString()), style = MaterialTheme.typography.headlineSmall, color = c.text)
+                Text(
+                    when { editor.saving -> "Saving…"; editor.exists -> "Saved"; else -> "New entry" },
+                    style = MaterialTheme.typography.labelMedium, color = if (editor.saving) c.accent else c.textMuted,
+                )
             }
-
-            if (editor.loading) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                return@Column
+            IconAction(
+                if (editor.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Favourite",
+                { haptics.toggle(!editor.isFavorite); viewModel.onToggleFavorite() },
+                tint = if (editor.isFavorite) c.rose else c.textMuted, feel = Feel.None,
+            )
+            if (editor.exists) {
+                Spacer(Modifier.width(6.dp))
+                IconAction(Icons.Rounded.DeleteOutline, "Delete", { confirmDelete = true }, tint = c.danger)
             }
+            Spacer(Modifier.width(6.dp))
+            IconAction(Icons.Rounded.Close, "Close", viewModel::closeEditor)
+        }
+        if (editor.loading) {
+            Box(Modifier.fillMaxWidth().height(320.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = c.accent) }
+            return@AtlasSheet
+        }
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            if (editor.track.pointCount > 0) DayTrackCard(editor.track, onOpenMap?.let { open -> { open(editor.date.toString()) } })
 
-            Column(
-                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                // Day track
-                if (editor.track.pointCount > 0) TrackCard(
-                    track = editor.track,
-                    onExpand = if (onOpenMap != null) ({ onOpenMap(editor.date.toString()) }) else null,
-                )
+            AtlasField(editor.title, viewModel::onTitleChange, placeholder = "Give the day a title",
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences))
+            AtlasField(editor.quickNote, viewModel::onQuickNoteChange, label = "Quick note", placeholder = "What you did, in a line",
+                singleLine = false, maxLines = 4, supportingText = "Shows on the map",
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences))
 
-                OutlinedTextField(
-                    value = editor.title,
-                    onValueChange = viewModel::onTitleChange,
-                    label = { Text("Title") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+            EmojiPicker("Mood", MOODS, editor.mood) { viewModel.onMoodChange(it) }
+            EmojiPicker("Weather", WEATHERS, editor.weather) { viewModel.onWeatherChange(if (editor.weather == it) "" else it) }
 
-                // The quick "what I did today" line. Its own field because it is
-                // the one part of an entry the map shows.
-                OutlinedTextField(
-                    value = editor.quickNote,
-                    onValueChange = viewModel::onQuickNoteChange,
-                    label = { Text("Quick note") },
-                    placeholder = { Text("What you did, in a line") },
-                    supportingText = { Text("Shows on the map") },
-                    minLines = 1,
-                    maxLines = 4,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+            OutlinedTextField(
+                value = editor.body,
+                onValueChange = viewModel::onBodyChange,
+                placeholder = { Text("Write about your day…", color = c.textFaint) },
+                textStyle = MaterialTheme.typography.bodyLarge,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                shape = SquircleShape(SquircleRadius.panel),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = c.surfaceHigh, unfocusedContainerColor = c.surfaceHigh,
+                    focusedBorderColor = c.accent, unfocusedBorderColor = Color.Transparent, cursorColor = c.accent,
+                ),
+                modifier = Modifier.fillMaxWidth().height(240.dp),
+            )
 
-                // Mood picker
-                Text("Mood", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(MOODS) { m -> EmojiChip(m, selected = editor.mood == m) { viewModel.onMoodChange(m) } }
-                }
-
-                // Weather picker
-                Text("Weather", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(WEATHERS) { w -> EmojiChip(w, selected = editor.weather == w) { viewModel.onWeatherChange(if (editor.weather == w) "" else w) } }
-                }
-
-                OutlinedTextField(
-                    value = editor.body,
-                    onValueChange = viewModel::onBodyChange,
-                    label = { Text("Write about your day…") },
-                    modifier = Modifier.fillMaxWidth().height(220.dp),
-                    keyboardOptions = KeyboardOptions.Default,
-                )
-
-                // Photos
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Photos", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                    if (editor.uploading) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    TextButton(onClick = { photoPicker.launch("image/*") }) {
-                        Icon(Icons.Rounded.Add, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Add")
-                    }
-                }
-                if (editor.photos.isNotEmpty()) {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(editor.photos) { photo ->
-                            Box {
-                                AsyncImage(
-                                    model = viewModel.mediaUrl(photo.thumbnail ?: photo.url),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(96.dp).clip(SquircleShape(SquircleRadius.control)),
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                )
-                                IconButton(
-                                    onClick = { viewModel.deletePhoto(photo.id) },
-                                    modifier = Modifier.align(Alignment.TopEnd).size(26.dp)
-                                        .background(Color.Black.copy(alpha = 0.5f), CircleShape),
-                                ) { Icon(Icons.Rounded.Close, "remove", tint = Color.White, modifier = Modifier.size(16.dp)) }
-                            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SectionTitle("Photos", Modifier.weight(1f))
+                if (editor.uploading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = c.accent)
+            }
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                item {
+                    Box(
+                        Modifier.size(96.dp).clip(SquircleShape(SquircleRadius.control)).background(c.surfaceHigh)
+                            .border(1.dp, c.lineStrong, SquircleShape(SquircleRadius.control))
+                            .tappable { photoPicker.launch("image/*") },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Rounded.AddPhotoAlternate, null, tint = c.accent)
+                            Text("Add", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
                         }
                     }
                 }
-                Spacer(Modifier.height(40.dp))
+                items(editor.photos, key = { it.id }) { photo ->
+                    Box {
+                        AsyncImage(
+                            viewModel.mediaUrl(photo.thumbnail ?: photo.url), null,
+                            Modifier.size(96.dp).clip(SquircleShape(SquircleRadius.control)),
+                            contentScale = ContentScale.Crop,
+                        )
+                        IconAction(
+                            Icons.Rounded.Close, "Remove photo", { viewModel.deletePhoto(photo.id) },
+                            Modifier.align(Alignment.TopEnd).padding(4.dp),
+                            tint = Color.White, container = Color.Black.copy(alpha = 0.55f), size = 26.dp, iconSize = 15.dp,
+                        )
+                    }
+                }
             }
+            Spacer(Modifier.height(24.dp))
         }
     }
 
     if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete this entry?") },
-            text = { Text("This permanently removes the journal entry and its photos for this day.") },
-            confirmButton = {
-                TextButton(onClick = { confirmDelete = false; viewModel.deleteEntry() }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        AtlasDialog(
+            title = "Delete this entry?",
+            onDismiss = { confirmDelete = false },
+            confirmText = "Delete",
+            onConfirm = { confirmDelete = false; viewModel.deleteEntry() },
+            destructive = true,
+            icon = Icons.Rounded.DeleteOutline,
+            body = { Text("This permanently removes the journal entry and its photos for this day.") },
         )
     }
 }
 
 @Composable
-private fun EmojiChip(emoji: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .clip(SquircleShape(SquircleRadius.control))
-            .background(
-                if (selected) MaterialTheme.colorScheme.tertiaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(emoji, style = MaterialTheme.typography.titleLarge)
-    }
-}
-
-/** Day track map — real osmdroid tiles + map-blue polyline, same as the adventure view. */
-@Composable
-private fun TrackCard(track: JournalTrack, onExpand: (() -> Unit)? = null) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val trackLineColor = Clay.colors.mapBlue.toArgb()
-    val mapView = remember {
-        Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
-        Configuration.getInstance().userAgentValue = "Roamly/1.0"
-        Configuration.getInstance().osmdroidBasePath = context.cacheDir
-        Configuration.getInstance().osmdroidTileCache = java.io.File(context.cacheDir, "osmdroid_tiles").apply { mkdirs() }
-        MapView(context).apply {
-            setTileSource(TileSourceFactory.MAPNIK)
-            setMultiTouchControls(true)
-            setDestroyMode(false)
-            controller.setZoom(12.0)
-        }
-    }
-
-    LaunchedEffect(track) {
-        mapView.overlays.clear()
-        if (track.points.size >= 2) {
-            // Points are [lng, lat] pairs
-            val geo = track.points.map { p -> GeoPoint(p[1], p[0]) }
-            val line = Polyline(mapView).apply {
-                setPoints(geo)
-                outlinePaint.color = trackLineColor
-                outlinePaint.strokeWidth = 7f
-                outlinePaint.isAntiAlias = true
-            }
-            mapView.overlays.add(line)
-            mapView.post {
-                runCatching {
-                    mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(geo), false, 48)
-                }
-                mapView.invalidate()
-            }
-        }
-    }
-
-    DisposableEffect(mapView) {
-        mapView.onResume()
-        onDispose { mapView.onPause() }
-    }
-
-    ClayCard(contentPadding = 0.dp, onClick = onExpand) {
-        Box(modifier = Modifier.fillMaxWidth().height(200.dp).clip(SquircleShape(SquircleRadius.panel))) {
-            AndroidView(factory = { (mapView.parent as? android.view.ViewGroup)?.removeView(mapView); mapView }, modifier = Modifier.fillMaxSize())
-
-            // Stats overlay at the bottom (semi-transparent scrim)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TrackStat("${"%.1f".format(track.distanceKm)} km", "distance")
-                    TrackStat("${track.pointCount}", "points")
-                    if (track.cities.isNotEmpty()) TrackStat("${track.cities.size}", "places")
-                    Spacer(Modifier.weight(1f))
-                    if (onExpand != null) {
-                        Text("open map ↗", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
-
-            if (track.cities.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .clip(SquircleShape(SquircleRadius.tag))
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Rounded.Place, null, tint = Clay.colors.rust, modifier = Modifier.size(12.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(track.cities.joinToString(" · "), style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TrackStat(value: String, label: String) {
+private fun EmojiPicker(label: String, options: List<String>, selected: String, onPick: (String) -> Unit) {
+    val c = Atlas.colors
     Column {
-        Text(value, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+        Spacer(Modifier.height(8.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(options) { e ->
+                val on = e == selected
+                val bg by animateColorAsState(if (on) c.accentSoft else c.surfaceHigh, label = "emoji")
+                Box(
+                    Modifier.size(46.dp).clip(SquircleShape(SquircleRadius.control)).background(bg)
+                        .border(1.dp, if (on) c.accent else Color.Transparent, SquircleShape(SquircleRadius.control))
+                        .tappable(feel = Feel.Select, pressedScale = 0.85f) { onPick(e) },
+                    contentAlignment = Alignment.Center,
+                ) { Text(e, style = MaterialTheme.typography.titleLarge) }
+            }
+        }
     }
 }
 
-private val prettyFmt = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy")
-private fun prettyDate(iso: String): String =
-    runCatching { LocalDate.parse(iso).format(prettyFmt) }.getOrDefault(iso)
+@Composable
+private fun DayTrackCard(track: JournalTrack, onExpand: (() -> Unit)?) {
+    val c = Atlas.colors
+    val points = remember(track) { track.points.mapNotNull { p -> if (p.size >= 2) GeoPoint(p[1], p[0]) else null } }
+    Panel(Modifier.fillMaxWidth(), padding = PaddingValues(0.dp), onClick = onExpand) {
+        Box(Modifier.fillMaxWidth().height(190.dp).clip(SquircleShape(topStart = SquircleRadius.panel, topEnd = SquircleRadius.panel))) {
+            TrackMap(points, Modifier.fillMaxSize())
+            if (onExpand != null) {
+                Box(Modifier.align(Alignment.TopEnd).padding(10.dp)) {
+                    IconAction(Icons.Rounded.OpenInFull, "Open on the map", onExpand, container = c.glass, size = 36.dp, iconSize = 16.dp)
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+            StatBlock("%.1f".format(track.distanceKm), "distance", unit = "km", small = true)
+            StatBlock("%,d".format(track.pointCount), "points", small = true)
+            if (track.cities.isNotEmpty()) StatBlock("${track.cities.size}", "places", small = true)
+        }
+        if (track.cities.isNotEmpty()) {
+            Row(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Place, null, tint = c.accent, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(track.cities.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+private val prettyFmt = DateTimeFormatter.ofPattern("EEE d MMM yyyy")
+private fun prettyDate(iso: String): String = runCatching { LocalDate.parse(iso).format(prettyFmt) }.getOrDefault(iso)

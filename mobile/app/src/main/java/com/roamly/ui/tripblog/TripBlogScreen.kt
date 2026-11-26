@@ -1,45 +1,65 @@
 package com.roamly.ui.tripblog
 
 import android.content.Intent
-import android.graphics.drawable.ShapeDrawable
-import android.graphics.drawable.shapes.OvalShape
 import android.net.Uri
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
-import com.roamly.ui.theme.SquircleRadius
-import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
@@ -48,16 +68,31 @@ import com.roamly.data.api.TripDay
 import com.roamly.data.api.TripMedia
 import com.roamly.data.api.TripPostDto
 import com.roamly.data.api.TripStatus
-import com.roamly.ui.theme.Clay
-import com.roamly.ui.theme.ClayCard
-import com.roamly.ui.trips.MEMBER_TRACK_COLORS
+import com.roamly.ui.kit.AtlasButton
+import com.roamly.ui.kit.AtlasDialog
+import com.roamly.ui.kit.AtlasField
+import com.roamly.ui.kit.Dot
+import com.roamly.ui.kit.EmptyState
+import com.roamly.ui.kit.Eyebrow
+import com.roamly.ui.kit.Feel
+import com.roamly.ui.kit.IconAction
+import com.roamly.ui.kit.MEMBER_TRACK_COLORS
+import com.roamly.ui.kit.MapViewHost
+import com.roamly.ui.kit.Panel
+import com.roamly.ui.kit.PushedScreen
+import com.roamly.ui.kit.SegmentedSwitch
+import com.roamly.ui.kit.StatBlock
+import com.roamly.ui.kit.avatarMarker
+import com.roamly.ui.kit.fitTo
+import com.roamly.ui.kit.rememberAtlasMapView
+import com.roamly.ui.kit.rememberHaptics
+import com.roamly.ui.kit.tappable
+import com.roamly.ui.theme.Atlas
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import com.roamly.ui.trips.mediaUrl
 import kotlinx.coroutines.launch
-import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polygon
 import java.time.LocalDate
@@ -65,108 +100,90 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 private val EMOJI = listOf("❤️", "😂", "😮", "😢", "👏")
-private val DAY_FMT = DateTimeFormatter.ofPattern("EEE, MMM d")
+private val DAY_FMT = DateTimeFormatter.ofPattern("EEE d MMM")
 private val TIME_FMT = DateTimeFormatter.ofPattern("h:mm a")
 
 /**
- * The Trip tab: the featured trip blog's header ("Staying in Kyoto"), a
- * Feed | Map toggle, and the day-grouped feed — the app's twin of the web
- * page (tracker/static/tracker/trip-blog.js). Posting opens [TripComposeScreen].
+ * The featured trip blog: where the travellers are now, a Feed | Map switch,
+ * and the day-grouped feed — the app's twin of the web page
+ * (tracker/static/tracker/trip-blog.js). Posting opens [TripComposeScreen].
  */
 @Composable
-fun TripBlogScreen(viewModel: TripBlogViewModel, onCompose: () -> Unit) {
+fun TripBlogScreen(viewModel: TripBlogViewModel, onBack: () -> Unit, onCompose: () -> Unit) {
     val state by viewModel.state.collectAsState()
-    var mapMode by rememberSaveable { mutableStateOf(false) }
+    val c = Atlas.colors
+    var page by rememberSaveable { mutableIntStateOf(0) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // Index of each post in the flattened list (header, toggle-less rows…).
+    // Index of each post in the flattened list (header + pending slots, then day headers and posts).
     fun indexOfPost(id: Int): Int? {
-        var i = 2                          // header + pending banner slot
+        var i = 2
         for (d in state.days) {
-            i += 1                         // day header
+            i += 1
             for (p in d.posts) { if (p.id == id) return i; i += 1 }
         }
         return null
     }
 
-    Box(Modifier.fillMaxSize().statusBarsPadding()) {
-        Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                SingleChoiceSegmentedButtonRow(Modifier.weight(1f)) {
-                    SegmentedButton(selected = !mapMode, onClick = { mapMode = false },
-                        shape = SegmentedButtonDefaults.itemShape(0, 2)) { Text("Feed") }
-                    SegmentedButton(selected = mapMode, onClick = { mapMode = true },
-                        shape = SegmentedButtonDefaults.itemShape(1, 2)) { Text("Map") }
-                }
-                IconButton(onClick = viewModel::reload) { Icon(Icons.Rounded.Refresh, "Refresh") }
+    Box(Modifier.fillMaxSize()) {
+        PushedScreen(
+            title = state.status?.blog?.name ?: "Trip blog",
+            onBack = onBack,
+            actions = { IconAction(Icons.Rounded.Refresh, "Refresh", viewModel::reload) },
+        ) {
+            if (state.blogId != null) {
+                SegmentedSwitch(listOf("Feed", "Map"), page, { page = it }, Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp))
             }
             when {
-                state.blogId == null && !state.loading -> Empty(state.error ?: "No trip yet. Create one on the web under Adventures.")
-                mapMode -> TripMap(state.status, Modifier.fillMaxSize()) { postId ->
-                    mapMode = false
+                state.blogId == null && !state.loading ->
+                    EmptyState(Icons.Rounded.Public, "No trip blog yet", body = state.error ?: "Create one on the web under Adventures.")
+                page == 1 -> TripMap(state.status, Modifier.fillMaxSize().padding(12.dp).clip(SquircleShape(SquircleRadius.panel))) { postId ->
+                    page = 0
                     scope.launch { indexOfPost(postId)?.let { listState.animateScrollToItem(it) } }
                 }
-                else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp)) {
+                else -> LazyColumn(
+                    state = listState, modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 110.dp),
+                ) {
                     item(key = "header") { state.status?.let { Header(it) } ?: Spacer(Modifier.height(1.dp)) }
                     item(key = "pending") {
                         if (state.pendingPosts > 0) {
-                            Text("${state.pendingPosts} post${if (state.pendingPosts == 1) "" else "s"} uploading — they appear once they're in.",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(vertical = 8.dp))
+                            Row(Modifier.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = c.accent)
+                                Spacer(Modifier.width(8.dp))
+                                Text("${state.pendingPosts} post${if (state.pendingPosts == 1) "" else "s"} uploading — they appear once they're in.",
+                                    style = MaterialTheme.typography.bodySmall, color = c.accent)
+                            }
                         }
                     }
                     if (state.loading && state.days.isEmpty()) {
-                        item { Box(Modifier.fillMaxWidth().padding(40.dp), Alignment.Center) { CircularProgressIndicator() } }
+                        item { Box(Modifier.fillMaxWidth().padding(40.dp), Alignment.Center) { CircularProgressIndicator(color = c.accent) } }
                     }
                     if (!state.loading && state.days.isEmpty()) {
-                        item { Empty(state.error ?: "No posts yet. Tap New post to write the first one.") }
+                        item { EmptyState(Icons.Rounded.Edit, "No posts yet", body = state.error ?: "Tap New post to write the first one.") }
                     }
                     state.days.forEach { day ->
                         item(key = "day-${day.date}") { DayHeader(day) }
-                        items(day.posts, key = { "post-${it.id}" }) { p ->
-                            PostCard(p, state.serverUrl, viewModel)
-                        }
+                        items(day.posts, key = { "post-${it.id}" }) { p -> PostCard(p, state.serverUrl, viewModel) }
                     }
                     if (state.nextBefore != null) {
                         item(key = "more") {
                             LaunchedEffect(state.nextBefore) { viewModel.loadMore() }
-                            Box(Modifier.fillMaxWidth().padding(20.dp), Alignment.Center) {
-                                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                            }
+                            Box(Modifier.fillMaxWidth().padding(20.dp), Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = c.accent) }
                         }
                     }
                 }
             }
         }
-        if (state.blogId != null) {
-            ExtendedFloatingActionButton(
-                onClick = onCompose,
-                icon = { Icon(Icons.Rounded.Edit, null) },
-                text = { Text("New post") },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-            )
+        if (state.blogId != null && page == 0) {
+            AtlasButton("New post", onCompose, Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp), icon = Icons.Rounded.Edit)
         }
     }
 }
 
-@Composable
-private fun Empty(msg: String) {
-    Box(Modifier.fillMaxWidth().padding(32.dp), Alignment.Center) {
-        Text(msg, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-private fun dayLabel(iso: String): String =
-    runCatching { LocalDate.parse(iso.take(10)).format(DAY_FMT) }.getOrDefault(iso)
-
-private fun wallTime(local: String): String =
-    runCatching { LocalDateTime.parse(local).format(TIME_FMT) }.getOrDefault("")
-
+private fun dayLabel(iso: String): String = runCatching { LocalDate.parse(iso.take(10)).format(DAY_FMT) }.getOrDefault(iso)
+private fun wallTime(local: String): String = runCatching { LocalDateTime.parse(local).format(TIME_FMT) }.getOrDefault("")
 private fun ago(iso: String): String = runCatching {
     val s = java.time.Duration.between(java.time.OffsetDateTime.parse(iso).toInstant(), java.time.Instant.now()).seconds
     when {
@@ -180,6 +197,7 @@ private fun ago(iso: String): String = runCatching {
 
 @Composable
 private fun Header(s: TripStatus) {
+    val c = Atlas.colors
     val b = s.blog
     val (label, big) = when {
         s.stats.upcoming -> "Starts ${dayLabel(b.startDate)}" to b.name
@@ -188,102 +206,81 @@ private fun Header(s: TripStatus) {
         s.people.isNotEmpty() -> "Now in" to (s.people.firstOrNull { !it.stale } ?: s.people.first()).city.ifBlank { b.name }
         else -> dayLabel(b.startDate) to b.name
     }
-    ClayCard(modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp)) {
-        Text(b.name.uppercase(), style = MaterialTheme.typography.labelSmall,
-             color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Panel(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (b.live && !s.stats.upcoming) { Dot(c.accent, 7.dp, pulse = true); Spacer(Modifier.width(7.dp)) }
+            Eyebrow(label)
+        }
         Spacer(Modifier.height(6.dp))
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-        Text(big, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+        Text(big, style = MaterialTheme.typography.headlineMedium, color = c.text)
         if (s.together.isNotBlank()) {
             Spacer(Modifier.height(4.dp))
-            Text(s.together, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(s.together, style = MaterialTheme.typography.bodyMedium, color = c.textMuted)
         }
         s.people.filter { it.stale }.forEach {
-            Text("${it.name} · last seen ${it.city.ifBlank { "somewhere" }} ${ago(it.seen)}",
-                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${it.name} · last seen ${it.city.ifBlank { "somewhere" }} ${ago(it.seen)}", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
         }
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            if (!s.stats.upcoming) Stat("${s.stats.day}", if (b.live) "Day" else "Days")
-            Stat("${s.stats.countries}", if (s.stats.countries == 1) "Country" else "Countries")
-            Stat("${s.stats.cities}", if (s.stats.cities == 1) "Place" else "Places")
-            Stat("${s.stats.posts}", if (s.stats.posts == 1) "Post" else "Posts")
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            if (!s.stats.upcoming) StatBlock("${s.stats.day}", if (b.live) "day" else "days", small = true, color = c.accent)
+            StatBlock("${s.stats.countries}", if (s.stats.countries == 1) "country" else "countries", small = true)
+            StatBlock("${s.stats.cities}", if (s.stats.cities == 1) "place" else "places", small = true)
+            StatBlock("${s.stats.posts}", if (s.stats.posts == 1) "post" else "posts", small = true)
         }
-    }
-}
-
-@Composable
-private fun Stat(value: String, label: String) {
-    Column {
-        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 private fun DayHeader(d: TripDay) {
-    Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
-        Text("Day ${d.day}", style = MaterialTheme.typography.titleLarge)
+    val c = Atlas.colors
+    Row(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 10.dp), verticalAlignment = Alignment.Bottom) {
+        Text("Day ${d.day}", style = MaterialTheme.typography.headlineSmall, color = c.text)
         Spacer(Modifier.width(10.dp))
-        Text(dayLabel(d.date) + if (d.city.isNotBlank()) " · ${d.city}" else "",
-             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-             modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text((dayLabel(d.date) + if (d.city.isNotBlank()) " · ${d.city}" else "").uppercase(),
+            style = MaterialTheme.typography.labelSmall, color = c.textMuted,
+            modifier = Modifier.weight(1f).padding(bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
-    HorizontalDivider()
-    Spacer(Modifier.height(10.dp))
 }
 
 @Composable
 private fun Avatar(name: String, id: Int, url: String?) {
     val color = Color(MEMBER_TRACK_COLORS[Math.floorMod(id, MEMBER_TRACK_COLORS.size)])
-    Box(Modifier.size(34.dp).clip(CircleShape).background(color), Alignment.Center) {
+    Box(Modifier.size(36.dp).clip(SquircleShape(50)).background(color), Alignment.Center) {
         if (url != null) AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        else Text(name.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
+        else Text(name.take(1).uppercase(), style = MaterialTheme.typography.labelLarge, color = Color.White)
     }
 }
 
 @Composable
 private fun PostCard(p: TripPostDto, server: String, vm: TripBlogViewModel) {
+    val c = Atlas.colors
     val context = LocalContext.current
     var lightbox by remember { mutableStateOf<Int?>(null) }
-    var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
-    ClayCard(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), contentPadding = 0.dp) {
-        Row(Modifier.padding(start = 14.dp, end = 4.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Panel(Modifier.fillMaxWidth().padding(bottom = 12.dp), padding = PaddingValues(0.dp)) {
+        Row(Modifier.padding(start = 14.dp, end = 6.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Avatar(p.author.name, p.author.id, mediaUrl(server, p.author.avatar))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(p.author.name, style = MaterialTheme.typography.titleSmall)
-                Text(wallTime(p.localTime), style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            p.place?.let { pl ->
+                Text(p.author.name, style = MaterialTheme.typography.titleSmall, color = c.text)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Place, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                    Text(listOf(pl.city.ifBlank { pl.name }, pl.country).filter { it.isNotBlank() }.joinToString(", "),
-                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
-                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 150.dp))
-                }
-            }
-            if (p.mine) {
-                Box {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Post options") }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("Delete post") }, onClick = { menu = false; confirmDelete = true })
+                    Text(wallTime(p.localTime), style = MaterialTheme.typography.labelMedium, color = c.textMuted)
+                    p.place?.let { pl ->
+                        Spacer(Modifier.width(6.dp))
+                        Icon(Icons.Rounded.Place, null, Modifier.size(12.dp), tint = c.accent)
+                        Text(listOf(pl.city.ifBlank { pl.name }, pl.country).filter { it.isNotBlank() }.joinToString(", "),
+                            style = MaterialTheme.typography.labelMedium, color = c.accent, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 170.dp))
                     }
                 }
-            } else Spacer(Modifier.width(10.dp))
+            }
+            if (p.mine) IconAction(Icons.Rounded.DeleteOutline, "Delete post", { confirmDelete = true }, container = null, tint = c.textMuted, size = 38.dp, iconSize = 18.dp)
         }
-        if (p.text.isNotBlank()) {
-            Text(p.text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
-        } else Spacer(Modifier.height(10.dp))
+        if (p.text.isNotBlank()) Text(p.text, style = MaterialTheme.typography.bodyLarge, color = c.text, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
+        else Spacer(Modifier.height(10.dp))
         if (p.media.isNotEmpty()) {
             MediaBlock(p.media, server, onImage = { lightbox = it }, onVideo = { m ->
-                mediaUrl(server, m.url)?.let { u ->
-                    runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(u), "video/mp4"))
-                    }
-                }
+                mediaUrl(server, m.url)?.let { u -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(u), "video/mp4")) } }
             })
         }
         Reactions(p) { vm.react(p, it) }
@@ -291,30 +288,31 @@ private fun PostCard(p: TripPostDto, server: String, vm: TripBlogViewModel) {
     }
     lightbox?.let { start -> Lightbox(p.media.filter { it.type == "image" }, server, start) { lightbox = null } }
     if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete this post?") },
-            text = { Text("Its photos, videos and comments go with it.") },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; vm.deletePost(p) }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        AtlasDialog(
+            title = "Delete this post?",
+            onDismiss = { confirmDelete = false },
+            confirmText = "Delete",
+            onConfirm = { confirmDelete = false; vm.deletePost(p) },
+            destructive = true, icon = Icons.Rounded.DeleteOutline,
+            body = { Text("Its photos, videos and comments go with it.") },
         )
     }
 }
 
 @Composable
 private fun MediaBlock(media: List<TripMedia>, server: String, onImage: (Int) -> Unit, onVideo: (TripMedia) -> Unit) {
+    val c = Atlas.colors
     val images = media.filter { it.type == "image" }
     @Composable
     fun tile(m: TripMedia, modifier: Modifier, big: Boolean) {
-        Box(modifier.background(Color(0x22000000)).clickable {
+        Box(modifier.background(c.surfaceHigh).tappable(pressedScale = 0.98f) {
             if (m.type == "video") { if (m.url != null) onVideo(m) } else onImage(images.indexOf(m).coerceAtLeast(0))
         }, Alignment.Center) {
             val src = if (m.type == "video") m.poster else if (big) m.url else (m.thumb ?: m.url)
-            if (src != null) AsyncImage(model = mediaUrl(server, src), contentDescription = null,
-                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            if (src != null) AsyncImage(model = mediaUrl(server, src), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             if (m.type == "video") {
                 if (m.url == null) Text("Video is processing…", style = MaterialTheme.typography.bodySmall, color = Color.White)
-                else Box(Modifier.size(52.dp).clip(CircleShape).background(Color(0x99000000)), Alignment.Center) {
+                else Box(Modifier.size(54.dp).clip(SquircleShape(50)).background(Color(0x99000000)), Alignment.Center) {
                     Icon(Icons.Rounded.PlayArrow, "Play", tint = Color.White, modifier = Modifier.size(30.dp))
                 }
             }
@@ -339,14 +337,11 @@ private fun Lightbox(images: List<TripMedia>, server: String, start: Int, onClos
         val pager = rememberPagerState(initialPage = start.coerceIn(0, images.size - 1)) { images.size }
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { i ->
-                AsyncImage(model = mediaUrl(server, images[i].url), contentDescription = null,
-                    contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                AsyncImage(model = mediaUrl(server, images[i].url), contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
             }
-            IconButton(onClick = onClose, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(8.dp)) {
-                Icon(Icons.Rounded.Close, "Close", tint = Color.White)
-            }
-            if (images.size > 1) Text("${pager.currentPage + 1} / ${images.size}", color = Color.White,
-                style = MaterialTheme.typography.labelMedium,
+            IconAction(Icons.Rounded.Close, "Close", onClose, Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp),
+                container = Color.White.copy(alpha = 0.15f), tint = Color.White)
+            if (images.size > 1) Text("${pager.currentPage + 1} / ${images.size}", color = Color.White, style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp))
         }
     }
@@ -354,17 +349,21 @@ private fun Lightbox(images: List<TripMedia>, server: String, start: Int, onClos
 
 @Composable
 private fun Reactions(p: TripPostDto, onReact: (String) -> Unit) {
-    Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    val c = Atlas.colors
+    val haptics = rememberHaptics()
+    Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         EMOJI.forEach { e ->
             val n = p.reactions[e] ?: 0
             val on = e in p.myReactions
-            val border = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-            Row(Modifier.clip(SquircleShape(SquircleRadius.tag)).border(1.dp, border, SquircleShape(SquircleRadius.tag))
-                .background(if (on) MaterialTheme.colorScheme.primary.copy(alpha = 0.13f) else Color.Transparent)
-                .clickable { onReact(e) }.padding(horizontal = 9.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically) {
+            val bg by animateColorAsState(if (on) c.accentSoft else c.surfaceHigh, label = "react")
+            Row(
+                Modifier.clip(SquircleShape(50)).background(bg).border(1.dp, if (on) c.accent.copy(alpha = 0.6f) else Color.Transparent, SquircleShape(50))
+                    .tappable(feel = Feel.None, pressedScale = 0.85f) { haptics.toggle(!on); onReact(e) }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(e)
-                if (n > 0) { Spacer(Modifier.width(4.dp)); Text("$n", style = MaterialTheme.typography.labelSmall) }
+                if (n > 0) { Spacer(Modifier.width(4.dp)); Text("$n", style = MaterialTheme.typography.labelMedium, color = if (on) c.accent else c.textMuted) }
             }
         }
     }
@@ -372,73 +371,60 @@ private fun Reactions(p: TripPostDto, onReact: (String) -> Unit) {
 
 @Composable
 private fun Comments(p: TripPostDto, vm: TripBlogViewModel) {
+    val c = Atlas.colors
     var text by remember(p.id) { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
-    Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) {
+    Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 14.dp)) {
         if (p.commentCount > p.comments.size) {
-            Text("View all ${p.commentCount} comments", style = MaterialTheme.typography.bodySmall,
-                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                 modifier = Modifier.clickable { vm.loadAllComments(p) }.padding(vertical = 6.dp))
+            Text("View all ${p.commentCount} comments", style = MaterialTheme.typography.labelLarge, color = c.accent,
+                modifier = Modifier.clip(SquircleShape(8.dp)).tappable(feel = Feel.Tick) { vm.loadAllComments(p) }.padding(vertical = 6.dp))
         }
-        p.comments.forEach { c -> CommentRow(c) { vm.deleteComment(p, c) } }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(value = text, onValueChange = { text = it }, placeholder = { Text("Write a comment…") },
-                singleLine = false, maxLines = 4, modifier = Modifier.weight(1f), textStyle = MaterialTheme.typography.bodyMedium)
-            IconButton(enabled = text.isNotBlank() && !sending, onClick = {
+        p.comments.forEach { cm -> CommentRow(cm) { vm.deleteComment(p, cm) } }
+        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            AtlasField(text, { text = it }, Modifier.weight(1f), placeholder = "Write a comment…", singleLine = false, maxLines = 4)
+            Spacer(Modifier.width(8.dp))
+            val can = text.isNotBlank() && !sending
+            IconAction(Icons.Rounded.ArrowUpward, "Send", {
                 sending = true
                 vm.comment(p, text.trim()) { ok -> sending = false; if (ok) text = "" }
-            }) { Icon(Icons.AutoMirrored.Rounded.Send, "Send") }
+            }, enabled = can, container = if (can) c.accent else c.surfaceHighest, tint = if (can) c.onAccent else c.textFaint)
         }
     }
 }
 
 @Composable
-private fun CommentRow(c: TripCommentDto, onDelete: () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+private fun CommentRow(cm: TripCommentDto, onDelete: () -> Unit) {
+    val c = Atlas.colors
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(c.name, style = MaterialTheme.typography.labelLarge,
-                 color = if (c.traveller) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+            Text(cm.name, style = MaterialTheme.typography.labelLarge, color = if (cm.traveller) c.accent else c.text)
             Spacer(Modifier.width(8.dp))
-            Text(ago(c.at), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                 modifier = Modifier.weight(1f))
-            if (c.canDelete) Text("delete", style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onDelete).padding(4.dp))
+            Text(ago(cm.at), style = MaterialTheme.typography.labelMedium, color = c.textFaint, modifier = Modifier.weight(1f))
+            if (cm.canDelete) IconAction(Icons.Rounded.DeleteOutline, "Delete comment", onDelete, container = null, tint = c.textFaint, size = 28.dp, iconSize = 14.dp)
         }
-        Text(c.text, style = MaterialTheme.typography.bodyMedium)
+        Text(cm.text, style = MaterialTheme.typography.bodyMedium, color = c.text)
     }
 }
 
-/** Post pins + each traveller's fuzzed circle. Tapping a pin opens its post. */
+/** Post pins plus each traveller's fuzzed circle. Tapping a pin opens its post. */
 @Composable
 fun TripMap(status: TripStatus?, modifier: Modifier = Modifier, onPin: (Int) -> Unit) {
+    val c = Atlas.colors
     val context = LocalContext.current
-    val density = LocalDensity.current
-    val primary = MaterialTheme.colorScheme.primary
-    val mapView = remember {
-        Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
-        Configuration.getInstance().userAgentValue = "Roamly/1.0"
-        Configuration.getInstance().osmdroidBasePath = context.cacheDir
-        Configuration.getInstance().osmdroidTileCache = java.io.File(context.cacheDir, "osmdroid_tiles").apply { mkdirs() }
-        MapView(context).apply {
-            setTileSource(TileSourceFactory.MAPNIK)
-            setMultiTouchControls(true)
-            setDestroyMode(false)
-            controller.setZoom(3.0)
-        }
-    }
+    val accent = c.accent.toArgb()
+    val mapView = rememberAtlasMapView(interactive = true)
     LaunchedEffect(status) {
         val s = status ?: return@LaunchedEffect
         mapView.overlays.clear()
+        mapView.controller.setZoom(3.0)
         val fit = mutableListOf<GeoPoint>()
-        val pinPx = with(density) { 14.dp.toPx() }.toInt()
         s.people.forEach { person ->
             val color = MEMBER_TRACK_COLORS[Math.floorMod(person.id, MEMBER_TRACK_COLORS.size)]
             val centre = GeoPoint(person.spot.lat, person.spot.lon)
             fit += centre
             mapView.overlays.add(Polygon(mapView).apply {
-                setPoints(Polygon.pointsAsCircle(centre, person.spot.radiusM.toDouble()))
-                fillPaint.color = android.graphics.Color.argb(46, android.graphics.Color.red(color),
-                    android.graphics.Color.green(color), android.graphics.Color.blue(color))
+                points = Polygon.pointsAsCircle(centre, person.spot.radiusM.toDouble())
+                fillPaint.color = android.graphics.Color.argb(46, android.graphics.Color.red(color), android.graphics.Color.green(color), android.graphics.Color.blue(color))
                 outlinePaint.color = color
                 outlinePaint.strokeWidth = 3f
                 title = person.name
@@ -448,33 +434,19 @@ fun TripMap(status: TripStatus?, modifier: Modifier = Modifier, onPin: (Int) -> 
         s.pins.forEach { pin ->
             val gp = GeoPoint(pin.lat, pin.lon)
             fit += gp
-            val dot = ShapeDrawable(OvalShape()).apply {
-                paint.color = android.graphics.Color.argb(255, (primary.red * 255).toInt(), (primary.green * 255).toInt(), (primary.blue * 255).toInt())
-                setIntrinsicWidth(pinPx)
-                setIntrinsicHeight(pinPx)
-                setBounds(0, 0, pinPx, pinPx)
-            }
             mapView.overlays.add(Marker(mapView).apply {
                 position = gp
-                icon = dot
+                icon = avatarMarker(context, accent, null, 18f)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 setOnMarkerClickListener { _, _ -> onPin(pin.id); true }
             })
         }
         mapView.invalidate()
-        if (fit.isNotEmpty()) mapView.post {
-            runCatching {
-                if (fit.size == 1) { mapView.controller.setZoom(11.0); mapView.controller.setCenter(fit[0]) }
-                else mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(fit), false, 64)
-            }
-        }
+        mapView.fitTo(fit, 64)
     }
-    DisposableEffect(mapView) { mapView.onResume(); onDispose { mapView.onPause() } }
     Box(modifier) {
-        AndroidView(factory = { (mapView.parent as? android.view.ViewGroup)?.removeView(mapView); mapView },
-            modifier = Modifier.fillMaxSize())
-        Text("Locations are approximate", style = MaterialTheme.typography.labelSmall,
-             color = Clay.colors.moss, modifier = Modifier.align(Alignment.BottomStart)
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)).padding(6.dp))
+        MapViewHost(mapView, Modifier.fillMaxSize())
+        Text("Locations are approximate", style = MaterialTheme.typography.labelMedium, color = c.textMuted,
+            modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).clip(SquircleShape(50)).background(c.glass).padding(horizontal = 12.dp, vertical = 6.dp))
     }
 }

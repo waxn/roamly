@@ -37,7 +37,7 @@ import com.google.gson.JsonObject
 import com.roamly.data.api.BodyBlock
 import com.roamly.data.api.MediaItem
 import com.roamly.data.api.PlacePayload
-import com.roamly.ui.theme.Clay
+import com.roamly.ui.theme.Atlas
 
 // ── JsonObject field helpers (block content is read loosely) ────────────────
 private fun JsonObject?.str(key: String): String? =
@@ -54,10 +54,10 @@ private fun JsonObject?.intList(key: String): List<Int> =
 /** Callout accent colors, keyed like the web's data-color values (clay-mint/coral/amber/lavender/sky). */
 @Composable
 private fun calloutColors(): Map<String, Color> {
-    val clay = Clay.colors
+    val c = Atlas.colors
     return mapOf(
-        "mint" to clay.moss, "coral" to clay.rust, "amber" to clay.ochre,
-        "lavender" to clay.mauve, "sky" to clay.mapBlue,
+        "mint" to c.lime, "coral" to c.rose, "amber" to c.amber,
+        "lavender" to c.violet, "sky" to c.sky,
     )
 }
 
@@ -230,7 +230,7 @@ fun PlaceMeta(rating: Int?, category: String?) {
             )
         }
         if (stars.isNotEmpty()) {
-            Text(stars, style = MaterialTheme.typography.labelMedium, color = Clay.colors.ochre)
+            Text(stars, style = MaterialTheme.typography.labelMedium, color = Atlas.colors.amber)
         }
     }
 }
