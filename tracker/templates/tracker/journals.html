@@ -303,13 +303,13 @@
    Editable here too, and visibly its own thing, since only it shows on the map. */
 .j-quick {
     margin-bottom: 0.7rem;
-    border: 1px solid var(--border); border-left: 3px solid var(--primary);
+    border: 1px solid var(--border);
     border-radius: var(--radius-clay-sm); background: var(--bg-input);
     box-shadow: var(--clay-shadow-inset);
     padding: 0.5rem 0.75rem 0.55rem;
     transition: border-color 0.2s;
 }
-.j-quick:focus-within { border-color: var(--border-bright); border-left-color: var(--primary); }
+.j-quick:focus-within { border-color: var(--border-bright); }
 .j-quick-label {
     display: flex; justify-content: space-between; gap: 0.5rem;
     font-size: 0.62rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
@@ -506,7 +506,7 @@
 
     <div class="j-layout">
         <!-- Calendar -->
-        <div class="card card-teal">
+        <div class="card">
             <div class="j-cal-head">
                 <div class="j-cal-title" id="j-cal-title">—</div>
                 <div class="j-cal-nav">
