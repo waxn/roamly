@@ -1,206 +1,144 @@
 package com.roamly.ui.search
 
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import com.roamly.ui.theme.SquircleRadius
-import com.roamly.ui.theme.SquircleShape
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.data.api.SearchDay
 import com.roamly.data.api.SearchPlace
+import com.roamly.ui.kit.AtlasField
+import com.roamly.ui.kit.AtlasMotion
+import com.roamly.ui.kit.EmptyState
+import com.roamly.ui.kit.ErrorNote
+import com.roamly.ui.kit.Feel
+import com.roamly.ui.kit.IconAction
+import com.roamly.ui.kit.IconTile
+import com.roamly.ui.kit.SectionTitle
+import com.roamly.ui.kit.dockAwareBottom
+import com.roamly.ui.kit.tappable
+import com.roamly.ui.theme.Atlas
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+
+private val EXAMPLES = listOf("Lisbon", "May 2026", "airport", "last summer")
 
 /**
- * Search over the user's history. Mirrors the web search page: text search
- * returns the days you visited a matching city/state/place plus named POI
- * matches with coordinates. Tapping a place focuses the map on it.
- *
- * Lives inside the Search tab (alongside Ask), so it draws no status-bar padding
- * of its own — the host supplies it. [onClose] is optional: when null the close
- * button is hidden, which is what the tab wants.
+ * Search your history: the days you were somewhere matching, plus named
+ * places with coordinates. A place with days expands to list them.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SearchScreen(
     onPlaceClick: (lat: Double, lng: Double) -> Unit,
-    onClose: (() -> Unit)? = null,
-    onDayClick: ((com.roamly.data.api.SearchDay) -> Unit)? = null,
+    onDayClick: ((SearchDay) -> Unit)? = null,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val c = Atlas.colors
+    val focus = LocalFocusManager.current
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    value = state.query,
-                    onValueChange = viewModel::onQueryChange,
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    shape = SquircleShape(SquircleRadius.dialog),
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                    placeholder = { Text("City, place, or date") },
-                )
-                if (onClose != null) {
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.Rounded.Close, contentDescription = "close")
-                    }
+    Column(Modifier.fillMaxSize()) {
+        AtlasField(
+            value = state.query,
+            onValueChange = viewModel::onQueryChange,
+            placeholder = "City, place or date",
+            leading = Icons.Rounded.Search,
+            trailing = if (state.query.isNotEmpty()) ({
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (state.isLoading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = c.accent)
+                    IconAction(Icons.Rounded.Close, "Clear", { viewModel.onQueryChange("") }, container = null, tint = c.textMuted, size = 40.dp, iconSize = 18.dp)
                 }
+            }) else null,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+        )
+
+        when {
+            state.isLoading && state.result == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = c.accent)
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-
-            when {
-                state.isLoading && state.result == null -> CenterBox {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                }
-                state.error != null && state.result == null -> CenterBox {
-                    Text(state.error!!, color = MaterialTheme.colorScheme.error)
-                }
-                !state.hasSearched -> CenterBox {
-                    Text(
-                        "Search your history by city, place name, or a date like \"May 2026\"",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 32.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
-                }
-                else -> {
-                    val result = state.result
-                    val places = result?.placeResults ?: emptyList()
-                    val days = result?.locationResults ?: emptyList()
-                    if (places.isEmpty() && days.isEmpty()) {
-                        CenterBox {
-                            Text(
-                                "No matches for \"${state.query}\"",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            if (places.isNotEmpty()) {
-                                item { SectionLabel("Places") }
-                                items(places) { place ->
-                                    PlaceRow(place, onDayClick = onDayClick) { onPlaceClick(place.lat, place.lng) }
-                                }
-                            }
-                            if (days.isNotEmpty()) {
-                                item { SectionLabel("Days${if (onDayClick != null) " · tap to view on map" else ""}") }
-                                items(days) { day -> DayRow(day, onClick = if (onDayClick != null) ({ onDayClick(day) }) else null) }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelMedium,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
-    )
-}
-
-@Composable
-private fun PlaceRow(
-    place: SearchPlace,
-    onDayClick: ((SearchDay) -> Unit)?,
-    onClick: () -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-        shape = SquircleShape(SquircleRadius.control),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        if (place.days.isNotEmpty() && onDayClick != null) expanded = !expanded
-                        else onClick()
-                    }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Rounded.Place, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(place.placeName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                    Text(
-                        "${place.days.size} days · ${place.totalPoints} pts${if (place.days.isNotEmpty() && onDayClick != null) " — tap to see days" else ""}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (place.days.isNotEmpty() && onDayClick != null) {
-                    Icon(
-                        if (expanded) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.ChevronRight,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            if (expanded && place.days.isNotEmpty() && onDayClick != null) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 40.dp, end = 8.dp, bottom = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+            state.error != null && state.result == null -> ErrorNote(state.error!!, Modifier.padding(20.dp), onRetry = viewModel::retry)
+            !state.hasSearched -> Column(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                EmptyState(Icons.Rounded.Search, "Find any day, anywhere", body = "Search by city, a place's name, or a date.")
+                FlowRow(
+                    Modifier.padding(horizontal = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    place.days.forEach { day ->
-                        DayRow(day, onClick = { onDayClick(day) })
+                    EXAMPLES.forEach { q ->
+                        Text(
+                            q, style = MaterialTheme.typography.labelLarge, color = c.text,
+                            modifier = Modifier.clip(SquircleShape(50)).background(c.surfaceHigh)
+                                .tappable(pressedScale = 0.94f, feel = Feel.Select) { viewModel.onQueryChange(q) }
+                                .padding(horizontal = 14.dp, vertical = 9.dp),
+                        )
+                    }
+                }
+            }
+            else -> {
+                val places = state.result?.placeResults.orEmpty()
+                val days = state.result?.locationResults.orEmpty()
+                if (places.isEmpty() && days.isEmpty()) {
+                    EmptyState(Icons.Rounded.SearchOff, "Nothing for “${state.query}”", body = "Try a city name, or a month like “June 2025”.", tint = c.textMuted)
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = dockAwareBottom()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (places.isNotEmpty()) {
+                            item { SectionTitle("Places · ${places.size}") }
+                            items(places) { place -> PlaceRow(place, onDayClick) { onPlaceClick(place.lat, place.lng) } }
+                        }
+                        if (days.isNotEmpty()) {
+                            item { SectionTitle("Days · ${days.size}", Modifier.padding(top = 10.dp)) }
+                            items(days) { day -> DayRow(day, onDayClick?.let { open -> { open(day) } }) }
+                        }
                     }
                 }
             }
@@ -209,40 +147,66 @@ private fun PlaceRow(
 }
 
 @Composable
-private fun DayRow(day: SearchDay, onClick: (() -> Unit)? = null) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = SquircleShape(SquircleRadius.control),
-    ) {
+private fun PlaceRow(place: SearchPlace, onDayClick: ((SearchDay) -> Unit)?, onClick: () -> Unit) {
+    val c = Atlas.colors
+    val expandable = place.days.isNotEmpty() && onDayClick != null
+    var expanded by remember { mutableStateOf(false) }
+    val angle by animateFloatAsState(if (expanded) 90f else 0f, AtlasMotion.snappy(), label = "placeChevron")
+    Column(Modifier.fillMaxWidth().clip(SquircleShape(SquircleRadius.panel)).background(c.surface).animateContentSize()) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().tappable(pressedScale = 0.99f, feel = if (expandable) Feel.Tick else Feel.Click) {
+                if (expandable) expanded = !expanded else onClick()
+            }.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Rounded.CalendarMonth, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(day.date, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                val where = day.cities.joinToString(", ") {
-                    if (it.state.isNotBlank()) "${it.city}, ${it.state}" else it.city
-                }.ifBlank { "${day.count} points" }
-                Text(where, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            IconTile(Icons.Rounded.Place, tint = c.accent, size = 38.dp, iconSize = 19.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(place.placeName, style = MaterialTheme.typography.titleSmall, color = c.text)
+                Text("${place.days.size} days · %,d points".format(place.totalPoints), style = MaterialTheme.typography.bodySmall, color = c.textMuted)
             }
-            if (day.timeSpent > 0) {
-                Text(formatDuration(day.timeSpent), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (expandable) {
+                IconAction(Icons.Rounded.Place, "Show on map", onClick, container = c.surfaceHigh, tint = c.accent, size = 34.dp, iconSize = 16.dp)
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Rounded.ChevronRight, null, tint = c.textFaint, modifier = Modifier.rotate(angle))
+            } else {
+                Icon(Icons.Rounded.ChevronRight, null, tint = c.textFaint)
             }
-            if (onClick != null) {
-                Spacer(Modifier.width(4.dp))
-                Icon(Icons.Rounded.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        AnimatedVisibility(expanded && expandable) {
+            Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                place.days.forEach { d -> DayRow(d, onDayClick?.let { open -> { open(d) } }, inset = true) }
             }
         }
     }
 }
 
 @Composable
-private fun CenterBox(content: @Composable () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
+private fun DayRow(day: SearchDay, onClick: (() -> Unit)?, inset: Boolean = false) {
+    val c = Atlas.colors
+    Row(
+        Modifier.fillMaxWidth().clip(SquircleShape(if (inset) SquircleRadius.control else SquircleRadius.panel))
+            .background(if (inset) c.surfaceHigh else c.surface)
+            .then(if (onClick != null) Modifier.tappable(pressedScale = 0.99f, onClick = onClick) else Modifier)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.CalendarMonth, null, tint = c.textMuted, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(prettyDay(day.date), style = MaterialTheme.typography.bodyLarge, color = c.text)
+            val where = day.cities.joinToString(", ") { if (it.state.isNotBlank()) "${it.city}, ${it.state}" else it.city }
+                .ifBlank { "${day.count} points" }
+            Text(where, style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+        }
+        if (day.timeSpent > 0) Text(formatDuration(day.timeSpent), style = MaterialTheme.typography.labelMedium, color = c.textMuted)
+        if (onClick != null) { Spacer(Modifier.width(4.dp)); Icon(Icons.Rounded.ChevronRight, null, tint = c.textFaint, modifier = Modifier.size(18.dp)) }
+    }
+    Spacer(Modifier.height(0.dp))
 }
+
+private val dayFmt = DateTimeFormatter.ofPattern("EEE d MMM yyyy")
+private fun prettyDay(iso: String) = runCatching { LocalDate.parse(iso).format(dayFmt) }.getOrDefault(iso)
 
 private fun formatDuration(seconds: Int): String {
     val h = seconds / 3600
