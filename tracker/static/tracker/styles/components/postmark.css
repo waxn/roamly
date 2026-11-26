@@ -86,8 +86,8 @@ html[data-style="postmark"] {
         position: relative;
     }
     .navbar-nav a:hover, .navbar-nav-toggle:hover { color: var(--cream); }
-    .navbar-nav a.active, .navbar-nav-toggle.active { color: var(--cream); border-bottom: none; }
-    .navbar-nav a.active::before, .navbar-nav-toggle.active::before {
+    .navbar-nav > li > a.active, .navbar-nav-toggle.active { color: var(--cream); border-bottom: none; }
+    .navbar-nav > li > a.active::before, .navbar-nav-toggle.active::before {
         content: '';
         position: absolute; left: 0.45rem; right: 0.45rem; bottom: 0.15rem;
         height: 3px;

@@ -316,10 +316,19 @@ def send_invite_email(to_email, trip_name, join_url, inviter_name=''):
     return _send(subject, text, html, to_email)
 
 
-def send_summary_email(to_email, *, period_label, heading, narrative_paras,
-                       stat_rows, top_cities=None, top_places=None,
-                       map_url=None, stats_url=None, unsubscribe_url=None):
-    """Send an AI-generated travel recap for a period.
+def send_summary_email(to_email, **kwargs):
+    """Build (see ``build_summary_email``) and send a recap; True on success."""
+    subject, text, html = build_summary_email(**kwargs)
+    return _send(subject, text, html, to_email)
+
+
+def build_summary_email(*, period_label, heading, narrative_paras,
+                        stat_rows, top_cities=None, top_places=None,
+                        map_url=None, stats_url=None, unsubscribe_url=None):
+    """Build an AI-generated travel recap for a period: ``(subject, text, html)``.
+
+    Split from the send so the scheduler can keep a copy of exactly what went
+    out (``SummaryEmailLog``, the Raw data page's "Recap emails").
 
     ``period_label`` is a short phrase like "day", "week", "month", "year" (used
     in the subject). ``heading`` is the card headline. ``narrative_paras`` is a
@@ -369,7 +378,7 @@ def send_summary_email(to_email, *, period_label, heading, narrative_paras,
         text_lines += ['', f'Manage email preferences: {unsubscribe_url}']
     text = '\n'.join(text_lines)
     html = _shell(heading, body, preheader=preheader)
-    return _send(subject, text, html, to_email)
+    return subject, text, html
 
 
 def send_no_data_alert_email(to_email, *, silent_for, last_point_at=None,

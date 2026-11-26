@@ -81,10 +81,17 @@ def _day_stats(profile, day):
     return start, end, qs
 
 
-def build_year_ago(profile):
+MAX_OFFSET_DAYS = 30           # the popover's ‹ › steps this far either side
+
+
+def build_year_ago(profile, offset=0):
     """The chip's payload for ``profile``. Runs in the request, under the zone
     ``UserTimezoneMiddleware`` activated, so "today" and the day's edges are the
     user's own.
+
+    ``offset`` moves the day that many days from the year-ago date (the
+    popover's previous/next buttons), clamped to ±``MAX_OFFSET_DAYS``. Each day
+    has its own cache entry, so stepping back and forth costs nothing twice.
 
     Raises ``ai_tasks.AIProviderError`` or ``YearAgoError``. A day with no points
     and no journal text returns ``{'status': 'none'}`` without calling the model.
@@ -93,7 +100,8 @@ def build_year_ago(profile):
     from .views import _compute_distance_from_qs
 
     today = timezone.localtime().date()
-    day = year_ago(today)
+    offset = max(-MAX_OFFSET_DAYS, min(MAX_OFFSET_DAYS, int(offset or 0)))
+    day = year_ago(today) + timedelta(days=offset)
     # Keyed on the consent too: turning journal sharing off must not keep serving
     # a line that was written from journal text.
     key = f'year_ago:{profile.user_id}:{day.isoformat()}:{int(bool(profile.ai_allow_journals))}'
@@ -129,7 +137,9 @@ def build_year_ago(profile):
             payload['journal_entry'] = journals[0]
         data = ai_tasks._provider_chat(profile, [
             {'role': 'system', 'content': SYSTEM_PROMPT},
-            {'role': 'user', 'content': f'This day one year ago:\n\n{json.dumps(payload)}\n\nWrite it up.'},
+            {'role': 'user', 'content': (
+                'This day one year ago' if not offset else 'This day, about a year ago'
+            ) + f':\n\n{json.dumps(payload)}\n\nWrite it up.'},
         ])
         headline, summary = _split_reply(data)
         result = {

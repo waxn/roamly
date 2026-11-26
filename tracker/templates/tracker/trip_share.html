@@ -50,10 +50,11 @@
         .card h1 { font-family: var(--font-display); font-weight: 600; font-size: 1.45rem; margin-bottom: .6rem; }
         .card p { color: var(--text-muted); font-size: .92rem; line-height: 1.55; margin-bottom: 1.4rem; }
         .eyebrow { font-family: var(--font-mono); font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: var(--text-dim); margin-bottom: .5rem; }
-        .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 1.4rem; width: 100%;
+        /* Scoped to the gate cards: the trip body (_trip_app.html) uses .btn too. */
+        .card .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 1.4rem; width: 100%;
                border: 1px solid var(--primary); background: var(--primary); color: #fff; font-family: var(--font-body);
                font-size: .95rem; font-weight: 600; cursor: pointer; }
-        .btn:hover { background: var(--primary-hover); }
+        .card .btn:hover { background: var(--primary-hover); }
         .pin-row { display: flex; gap: .6rem; justify-content: center; margin-bottom: 1.1rem; }
         .pin-row input { width: 58px; height: 68px; text-align: center; font-size: 1.8rem; font-weight: 600; background: var(--bg-input);
                          color: var(--text); border: 1px solid var(--border); font-family: var(--font-mono); outline: none; border-radius: var(--r-auto, 0); }

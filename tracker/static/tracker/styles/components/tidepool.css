@@ -78,8 +78,8 @@ html[data-style="tidepool"] {
         transition: color 0.25s, background 0.25s;
     }
     .navbar-nav a:hover, .navbar-nav-toggle:hover { color: var(--text); background: color-mix(in srgb, color-mix(in srgb, var(--primary-hover) 85%, #fff) 6%, transparent); }
-    .navbar-nav a.active, .navbar-nav-toggle.active { color: var(--foam); border-bottom: none; text-shadow: 0 0 14px color-mix(in srgb, var(--primary) 60%, transparent); }
-    .navbar-nav a.active::after, .navbar-nav-toggle.active::after {
+    .navbar-nav > li > a.active, .navbar-nav-toggle.active { color: var(--foam); border-bottom: none; text-shadow: 0 0 14px color-mix(in srgb, var(--primary) 60%, transparent); }
+    .navbar-nav > li > a.active::after, .navbar-nav-toggle.active::after {
         content: '';
         position: absolute; left: 50%; bottom: 3px;
         width: 5px; height: 5px; margin-left: -2.5px;

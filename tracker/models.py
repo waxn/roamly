@@ -2976,3 +2976,35 @@ class AskProposal(models.Model):
 
     class Meta:
         ordering = ['id']
+
+
+class SummaryEmailLog(models.Model):
+    """One AI recap email Roamly sent (or tried to send) to this user.
+
+    Written by ``summary_email_tasks._record_sent`` after each send, best-effort:
+    a failure to log never fails or retries the send. Read only by the Raw data
+    page's "Recap emails" source. A copy of mail that already reached the
+    user's inbox, so it is a log ⇒ excluded from backups, and pruned to
+    ``RETENTION_DAYS`` / ``MAX_PER_USER`` on every write.
+    """
+    PERIODS = [('daily', 'Daily'), ('weekly', 'Weekly'), ('monthly', 'Monthly'), ('yearly', 'Yearly')]
+    STATUSES = [('sent', 'Sent'), ('failed', 'Failed')]
+    RETENTION_DAYS = 400
+    MAX_PER_USER = 500
+    MAX_BODY_CHARS = 200_000   # an HTML body past this is not stored (the text one still is)
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='summary_email_logs')
+    period = models.CharField(max_length=10, choices=PERIODS)
+    # The local dates the recap covers, both inclusive.
+    period_start = models.DateField()
+    period_end = models.DateField()
+    subject = models.CharField(max_length=200)
+    body_text = models.TextField(blank=True)
+    body_html = models.TextField(blank=True)
+    status = models.CharField(max_length=10, choices=STATUSES, default='sent')
+    # The Settings "Send test" button, as opposed to a scheduled send.
+    is_test = models.BooleanField(default=False)
+    sent_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        indexes = [models.Index(fields=['user', '-sent_at', '-id'], name='tracker_sumlog_user_idx')]

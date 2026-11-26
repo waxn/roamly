@@ -19,8 +19,8 @@ fast ride. Fixing that takes three steps, all here:
    and a poor one barely nudges. A fix whose innovation is implausible under
    the filter's own uncertainty is skipped outright (Mahalanobis gate).
 3. ``simplify`` — Douglas-Peucker, which keeps the vertices that carry shape.
-   The old track endpoint kept every n-th fix, which can keep a spike and drop
-   the bend around it.
+   Used for the Activities list's tiny map tiles (``thumb_polylines``); the
+   detail map draws every smoothed point (``display_payload``).
 
 Pure Python and Django-free on purpose: no numpy dependency for a few tens of
 thousands of 2x2 matrix updates, and it can be exercised without a database.
@@ -510,31 +510,96 @@ def simplify(seg, tolerance_m):
     return [k for k in range(n) if keep[k]]
 
 
-def display_payload(sm, tolerance_m=2.0, max_points=6000):
-    """Segments of simplified ``[lon, lat]`` plus per-vertex speed/time/elevation.
+DISPLAY_FULL_MAX = 20000   # beyond this, drop only near-collinear points (see below)
 
-    Simplification widens until the vertex count fits ``max_points``, so a long
-    ride's response stays small without falling back to index striding.
+
+def display_payload(sm, tolerance_m=None, max_points=None):
+    """Segments of ``[lon, lat]`` plus per-vertex speed/time/elevation.
+
+    By default this is **every smoothed point** — every fix that survived
+    ``clean`` (accuracy cut, two-way speed check) and the smoother's
+    Mahalanobis gate. The detail map used to Douglas-Peucker this at 2 m, which
+    on an 800-fix walk drew a couple of hundred vertices: straights collapsed
+    to chords and the line no longer felt like the recording.
+
+    The one exception is a very long recording: past ``DISPLAY_FULL_MAX``
+    points (a 12 h ride at 1 Hz is ~43k, and the detail map draws one feature
+    per hop) it runs Douglas-Peucker from 0.5 m, which only removes points
+    lying on a straight line between their neighbours, widening until it fits.
+
+    ``tolerance_m`` (and optionally ``max_points``, widening the tolerance
+    until the vertex count fits) restore Douglas-Peucker simplification for a
+    caller that wants a lighter line.
     """
     by_seg = {}
     for p in sm:
         by_seg.setdefault(p[6], []).append(p)
     segs = list(by_seg.values())
     tol = tolerance_m
-    while True:
-        kept = [simplify(s, tol) for s in segs]
-        total = sum(len(k) for k in kept)
-        if total <= max_points or tol > 200:
-            break
-        tol *= 1.6
+    if tol is None and sum(len(s) for s in segs) > DISPLAY_FULL_MAX:
+        tol, max_points = 0.5, DISPLAY_FULL_MAX
+    if tol is None:
+        kept = [list(range(len(s))) for s in segs]
+    else:
+        while True:
+            kept = [simplify(s, tol) for s in segs]
+            total = sum(len(k) for k in kept)
+            if max_points is None or total <= max_points or tol > 200:
+                break
+            tol *= 1.6
     out = {'segments': [], 'speeds': [], 'times': [], 'elevations': []}
     for s, idx in zip(segs, kept):
         out['segments'].append([[round(s[i][2], 6), round(s[i][1], 6)] for i in idx])
         out['speeds'].append([round(s[i][4] * 3.6, 2) for i in idx])
         out['times'].append([int(s[i][0]) for i in idx])
         out['elevations'].append([None if s[i][3] is None else round(s[i][3], 1) for i in idx])
-    out['tolerance_m'] = round(tol, 1)
+    out['tolerance_m'] = None if tol is None else round(tol, 1)
     return out
+
+
+def encode_polyline(latlons, precision=5):
+    """Google's encoded-polyline format: ~4-6 ASCII chars per point."""
+    factor = 10 ** precision
+    out = []
+    plat = plon = 0
+    for lat, lon in latlons:
+        ilat = int(round(lat * factor))
+        ilon = int(round(lon * factor))
+        for d in (ilat - plat, ilon - plon):
+            v = ~(d << 1) if d < 0 else (d << 1)
+            while v >= 0x20:
+                out.append(chr((0x20 | (v & 0x1f)) + 63))
+                v >>= 5
+            out.append(chr(v + 63))
+        plat, plon = ilat, ilon
+    return ''.join(out)
+
+
+def thumb_polylines(sm, max_points=96):
+    """A tiny version of the track for the Activities list's map tiles.
+
+    One Google-encoded polyline per gap-split segment (so a tracking hole is
+    not drawn as a chord), Douglas-Peucker'd with a tolerance scaled to the
+    activity's own size and widened until the whole thing fits ``max_points``
+    vertices. Each widening pass runs over the previous pass's survivors, so a
+    36k-point ride pays for one full-resolution pass, not several.
+    """
+    by_seg = {}
+    for p in sm:
+        by_seg.setdefault(p[6], []).append(p)
+    segs = [s for s in by_seg.values() if len(s) >= 2]
+    if not segs:
+        return []
+    lats = [p[1] for s in segs for p in s]
+    lons = [p[2] for s in segs for p in s]
+    diag = haversine_m(min(lats), min(lons), max(lats), max(lons))
+    tol = max(1.0, diag / 500.0)
+    for _ in range(40):
+        segs = [[s[i] for i in simplify(s, tol)] for s in segs]
+        if sum(len(s) for s in segs) <= max_points:
+            break
+        tol *= 1.5
+    return [encode_polyline([(p[1], p[2]) for p in s]) for s in segs]
 
 
 def _window_mean(ts, vals, half_s):

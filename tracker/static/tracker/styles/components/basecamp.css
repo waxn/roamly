@@ -76,8 +76,8 @@ html[data-style="basecamp"] {
         padding: 0.4rem 0.6rem;
     }
     .navbar-nav a:hover, .navbar-nav-toggle:hover { color: var(--amber-hi); }
-    .navbar-nav a.active, .navbar-nav-toggle.active { background: var(--amber); color: var(--bg); text-shadow: none; border-bottom: none; }
-    .navbar-nav a.active::before { content: '>'; margin-right: 0.3rem; }
+    .navbar-nav > li > a.active, .navbar-nav-toggle.active { background: var(--amber); color: var(--bg); text-shadow: none; border-bottom: none; }
+    .navbar-nav > li > a.active::before { content: '>'; margin-right: 0.3rem; }
     .navbar-user-toggle { font-family: var(--font-body); text-transform: uppercase; font-size: 0.78rem; color: var(--text-muted); border-radius: var(--r-3); }
     .navbar-user-toggle:hover { background: var(--amber); color: var(--bg); text-shadow: none; }
     .notif-toggle { color: var(--text-muted); }
@@ -283,7 +283,7 @@ html[data-style="basecamp"] {
 
     @media (max-width: 1100px) {
         .navbar-nav a, .navbar-nav-toggle { padding: 0.4rem 0.4rem; font-size: 0.72rem; }
-        .navbar-nav a.active::before { content: none; }
+        .navbar-nav > li > a.active::before { content: none; }
     }
     @media (prefers-reduced-motion: reduce) {
         body, .notif-dot, .alert-error::before, .navbar-wordmark::after { animation: none; }

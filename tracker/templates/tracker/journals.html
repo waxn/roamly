@@ -64,7 +64,6 @@
 }
 .j-mini-text:focus { border-color: var(--border-bright); box-shadow: var(--clay-shadow-inset), 0 0 0 3px var(--primary-soft); }
 .j-mini-text::placeholder { color: var(--text-dim); }
-.j-mini .j-recap-btn { margin: 0; }
 @media (max-width: 900px) {
     .j-layout { grid-template-columns: 1fr; }
 }
@@ -443,18 +442,24 @@
 .j-skeleton { color: var(--text-muted); padding: 2rem; text-align: center; }
 
 /* ── AI recap side panel ── */
-.journal-wrap .page-header { position: relative; padding-right: 3rem; }
-.j-cog { position: absolute; top: 0; right: 0; z-index: 20; }
+/* Title row: a .page-toolbar, so the title and the settings button share one
+   flex row and appearance extras that add lines above the title keep working. */
+.j-toolbar { flex-wrap: nowrap; }
+.j-toolbar h1 { min-width: 0; }
+.j-cog { position: relative; flex: none; z-index: 20; }
 .j-cog-btn {
-    width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; padding: 0;
-    border: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted); cursor: pointer;
+    width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; padding: 0;
+    border: 1px solid var(--border); border-radius: var(--r-2, 0);
+    background: var(--bg-card); color: var(--text-muted); cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
-.j-cog-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.j-cog:hover .j-cog-btn, .j-cog.open .j-cog-btn { color: var(--primary); border-color: var(--primary); }
+.j-cog-btn svg { width: 18px; height: 18px; display: block; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.j-cog:hover .j-cog-btn, .j-cog.open .j-cog-btn { color: var(--primary); border-color: var(--primary); background: var(--bg-elevated); }
+.j-cog-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 /* The padding is the bridge: the pointer crosses it from cog to popup without leaving .j-cog. */
 .j-cog-pop { display: none; position: absolute; top: 100%; right: 0; padding-top: 6px; width: min(310px, calc(100vw - 32px)); }
 .j-cog:hover .j-cog-pop, .j-cog:focus-within .j-cog-pop, .j-cog.open .j-cog-pop { display: block; }
-.j-cog-card { background: var(--bg-card); border: 1px solid var(--border-strong); padding: 0.9rem; box-shadow: var(--clay-shadow-hover); }
+.j-cog-card { background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: var(--r-auto, 0); padding: 0.9rem; box-shadow: var(--clay-shadow-hover); }
 .j-cog-title { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 0.6rem; }
 .j-cog-row { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.45rem 0; cursor: pointer; font-size: 0.88rem; line-height: 1.35; text-transform: none; }
 .j-cog-row input { accent-color: var(--primary); width: 16px; height: 16px; margin-top: 0.1rem; flex: none; }
@@ -462,7 +467,17 @@
 .j-cog-row.off { opacity: 0.55; cursor: default; }
 .j-cog-note { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.4rem; }
 
-.j-recap-btn { width: 100%; justify-content: center; margin-bottom: 1rem; }
+/* Sits between the search box and today's entry: a full-width row with a
+   sparkle (it is AI-written) and a chevron (it opens the side panel). */
+.j-recap-btn {
+    width: 100%; justify-content: flex-start; gap: 0.6rem; margin: 0 0 0.8rem;
+    padding: 0.6rem 0.85rem; text-align: left; white-space: normal;
+}
+.j-recap-btn svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.j-recap-btn .j-recap-btn-icon { color: var(--primary); }
+.j-recap-btn .j-recap-btn-label { flex: 1; min-width: 0; }
+.j-recap-btn .j-recap-btn-chev { color: var(--text-dim); transition: transform 0.15s, color 0.15s; }
+.j-recap-btn:hover .j-recap-btn-chev, .j-recap-btn[aria-expanded="true"] .j-recap-btn-chev { color: var(--primary); transform: translateX(2px); }
 .j-recap {
     position: fixed; right: 0; z-index: 1500;
     top: var(--nav-h, 0px); bottom: var(--bottom-nav-height);
@@ -509,12 +524,11 @@
 
 {% block content %}
 <div class="container journal-wrap">
-    <div class="page-header">
+    <div class="page-toolbar j-toolbar">
         <h1>Journals</h1>
-        <p class="page-lead">one entry a day — what happened, how it felt, and the map of where you went.</p>
         <div class="j-cog" id="j-cog">
-            <button type="button" class="j-cog-btn" id="j-cog-btn" aria-label="Journal settings" aria-haspopup="true" aria-expanded="false">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-2.82-1.17l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 3.09 15H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.17-2.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.26V4a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 2.82 1.17l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 20.91 11H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <button type="button" class="j-cog-btn" id="j-cog-btn" aria-label="Journal settings" title="Journal settings" aria-haspopup="true" aria-expanded="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             </button>
             <div class="j-cog-pop">
                 <div class="j-cog-card">
@@ -561,6 +575,11 @@
                 <input class="j-search-input" id="j-search" type="text" placeholder="search entries…" autocomplete="off">
                 <button class="j-search-clear" id="j-search-clear" title="Clear">×</button>
             </div>
+            <button type="button" class="btn btn-outline j-recap-btn" id="j-recap-toggle" aria-expanded="false" aria-controls="j-recap">
+                <svg class="j-recap-btn-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 1.7 1.7.8-1.7.8L19 20l-.8-1.7-1.7-.8 1.7-.8z"/></svg>
+                <span class="j-recap-btn-label">recap my past few days</span>
+                <svg class="j-recap-btn-chev" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
             <div class="j-search-results" id="j-search-results">
                 <div class="j-search-count" id="j-search-count"></div>
                 <div class="j-recent" id="j-search-list"></div>
@@ -572,7 +591,6 @@
                     <span class="j-save-pill" id="j-mini-pill"></span>
                 </div>
                 <textarea class="j-mini-text" id="j-mini-text" placeholder="what happened today?" aria-label="Today's journal entry" disabled></textarea>
-                <button class="btn btn-outline j-recap-btn" id="j-recap-toggle" aria-expanded="false" aria-controls="j-recap">recap my past few days</button>
             </div>
         </div>
     </div>
@@ -980,13 +998,13 @@ function runSearch(q) {
             searchCount.textContent = `${data.count} result${data.count===1?'':'s'}`;
             renderEntryCards(data.entries, searchList);
             searchResults.classList.add('active');
-            recentCard.style.display = 'none'; miniBox.style.display = 'none';
+            recentCard.style.display = 'none'; miniBox.style.display = 'none'; recapToggle.style.display = 'none';
         })
         .catch(()=>{
             searchCount.textContent = '';
             searchList.innerHTML = '<div class="j-empty-state" style="color:var(--danger);">Search failed. <a href="#" onclick="runSearch(document.getElementById(\'j-search\').value);return false;">Retry</a></div>';
             searchResults.classList.add('active');
-            recentCard.style.display = 'none'; miniBox.style.display = 'none';
+            recentCard.style.display = 'none'; miniBox.style.display = 'none'; recapToggle.style.display = 'none';
         });
 }
 
@@ -994,7 +1012,7 @@ function clearSearch() {
     searchInput.value = '';
     searchClear.style.display = 'none';
     searchResults.classList.remove('active');
-    recentCard.style.display = ''; miniBox.style.display = '';
+    recentCard.style.display = ''; miniBox.style.display = ''; recapToggle.style.display = '';
     searchList.innerHTML = '';
 }
 

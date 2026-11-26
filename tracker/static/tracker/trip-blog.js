@@ -271,16 +271,16 @@
         const more = p.comment_count > p.comments.length
             ? `<button type="button" class="tb-cmore" data-call="${p.id}">View all ${p.comment_count} comments</button>` : '';
         const nameField = (!MEMBER && !guestName)
-            ? `<input class="tb-in" name="name" placeholder="Your name" maxlength="60" style="flex:0 0 32%" required>` : '';
+            ? `<input class="form-control tb-in" name="name" placeholder="Your name" maxlength="60" style="flex:0 0 32%" required>` : '';
         return `<div class="tb-comments" id="tb-cm-${p.id}">${more}<div class="tb-clist">${p.comments.map(commentHtml).join('')}</div>
             <form class="tb-cform" data-cform="${p.id}" autocomplete="off">
                 <input class="tb-hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
-                ${nameField}<input class="tb-in" name="text" placeholder="Write a comment…" maxlength="2000" required>
-                <button class="tb-btn" type="submit">Send</button></form></div>`;
+                ${nameField}<input class="form-control tb-in" name="text" placeholder="Write a comment…" maxlength="2000" required>
+                <button class="btn btn-outline tb-btn" type="submit">Send</button></form></div>`;
     }
     function postHtml(p) {
         const place = p.place ? `<button type="button" class="tb-place" data-fly="${p.id}">${ICON_PIN}${esc(p.place.city || p.place.name || 'On the map')}${p.place.country ? ', ' + esc(p.place.country) : ''}</button>` : '';
-        const menu = p.mine ? `<div class="tb-menu"><button type="button" class="tb-btn icon sm" data-pmenu="${p.id}" aria-label="Post options">⋯</button></div>` : '';
+        const menu = p.mine ? `<div class="tb-menu"><button type="button" class="btn btn-outline btn-sm tb-btn icon" data-pmenu="${p.id}" aria-label="Post options">⋯</button></div>` : '';
         return `<article class="tb-post" id="post-${p.id}" data-pid="${p.id}">
             <div class="tb-post-h">${avatar(p.author)}<div class="tb-post-who"><b>${esc(p.author.name)}</b>
                 <div>${esc(wallTime(p.local_time))}${p.edited ? ' · edited' : ''}</div></div>${place}${menu}</div>
@@ -314,8 +314,8 @@
             $('tb-more').hidden = !nextBefore;
             if (!feed.querySelector('.tb-day')) {
                 feed.innerHTML = MEMBER
-                    ? `<div class="tb-empty"><h3>No posts yet</h3>Write the first one above — add photos, a video, and where you are.</div>`
-                    : `<div class="tb-empty"><h3>No posts yet</h3>Check back soon — this page fills in as the trip happens.</div>`;
+                    ? `<div class="tb-empty"><h2>No posts yet</h2>Write the first one above — add photos, a video, and where you are.</div>`
+                    : `<div class="tb-empty"><h2>No posts yet</h2>Check back soon — this page fills in as the trip happens.</div>`;
             }
         } catch (e) {
             if (reset) feed.innerHTML = `<div class="tb-empty">${esc(e.message)}</div>`;
@@ -582,10 +582,10 @@
         return new Promise((resolve) => {
             const ov = document.createElement('div'); ov.className = 'tb-overlay';
             const md = document.createElement('div'); md.className = 'tb-modal';
-            md.innerHTML = `<div class="tb-drawer-h"><h2>Pick the place</h2><button class="tb-btn icon" data-x aria-label="Close">×</button></div>
+            md.innerHTML = `<div class="tb-drawer-h"><h2>Pick the place</h2><button class="btn btn-outline tb-btn icon" data-x aria-label="Close">×</button></div>
                 <div class="tb-modal-b"><p class="muted" style="margin:0 0 10px;font-size:.85rem">Tap the map where this happened.</p>
                 <div class="tb-pickmap"><div id="tb-pick-map"></div></div>
-                <div class="tb-row" style="margin-top:12px;justify-content:flex-end"><button class="tb-btn" data-x>Cancel</button><button class="tb-btn primary" data-ok disabled>Use this spot</button></div></div>`;
+                <div class="tb-row" style="margin-top:12px;justify-content:flex-end"><button class="btn btn-outline tb-btn" data-x>Cancel</button><button class="btn btn-primary tb-btn" data-ok disabled>Use this spot</button></div></div>`;
             document.body.append(ov, md);
             // Open on where the trip is now, so a tap needs no zooming across the
             // world first: the chosen spot, else a traveller or the newest post
@@ -714,12 +714,12 @@
             md.querySelector('[data-loc]').innerHTML = st.loc
                 ? `<button type="button" class="tb-chip on" data-clear>${esc(st.loc.label)}<span class="x">×</span></button>` : '<span class="dim" style="font-size:.85rem">No location</span>';
         };
-        md.innerHTML = `<div class="tb-drawer-h"><h2>Edit post</h2><button class="tb-btn icon" data-x aria-label="Close">×</button></div>
-            <div class="tb-modal-b"><textarea class="tb-ta" rows="6" maxlength="10000">${esc(p.text)}</textarea>
+        md.innerHTML = `<div class="tb-drawer-h"><h2>Edit post</h2><button class="btn btn-outline tb-btn icon" data-x aria-label="Close">×</button></div>
+            <div class="tb-modal-b"><textarea class="form-control tb-ta" rows="6" maxlength="10000">${esc(p.text)}</textarea>
             <div class="tb-row" style="margin-top:10px"><span data-loc class="grow"></span>
-              <button class="tb-btn icon" data-here title="Use my current location">⌖</button>
-              <button class="tb-btn icon" data-pick title="Pick on map">${ICON_PIN}</button></div>
-            <div class="tb-row" style="margin-top:14px;justify-content:flex-end"><button class="tb-btn" data-x>Cancel</button><button class="tb-btn primary" data-save>Save</button></div></div>`;
+              <button class="btn btn-outline tb-btn icon" data-here title="Use my current location">⌖</button>
+              <button class="btn btn-outline tb-btn icon" data-pick title="Pick on map">${ICON_PIN}</button></div>
+            <div class="tb-row" style="margin-top:14px;justify-content:flex-end"><button class="btn btn-outline tb-btn" data-x>Cancel</button><button class="btn btn-primary tb-btn" data-save>Save</button></div></div>`;
         document.body.append(ov, md);
         render();
         const close = () => { ov.remove(); md.remove(); };
@@ -745,7 +745,7 @@
         drawerTab = tab || drawerTab;
         const ov = document.createElement('div'); ov.className = 'tb-overlay';
         const dr = document.createElement('aside'); dr.className = 'tb-drawer'; dr.setAttribute('aria-label', 'Share and manage');
-        dr.innerHTML = `<div class="tb-drawer-h"><h2>Share &amp; manage</h2><button class="tb-btn icon" data-close aria-label="Close">×</button></div>
+        dr.innerHTML = `<div class="tb-drawer-h"><h2>Share &amp; manage</h2><button class="btn btn-outline tb-btn icon" data-close aria-label="Close">×</button></div>
             <div class="tb-tabs">${[['share', 'Share links'], ['viewers', 'Who viewed'], ['people', 'Travellers'], ['trip', 'Trip']]
                 .map(([k, l]) => `<button data-tab="${k}">${l}</button>`).join('')}</div><div class="tb-drawer-b" id="tb-dr-b"></div>`;
         document.body.append(ov, dr);
@@ -777,22 +777,22 @@
         if (l.revoked) bits.push('revoked'); else if (!l.active) bits.push('expired');
         return `<div class="tb-card${l.active ? '' : ' off'}" data-link="${l.id}"><div class="tb-row"><div class="grow"><div class="tb-card-t">${esc(l.label || 'Share link')}</div>
             <div class="tb-card-m">${esc(bits.join(' · '))}</div></div>
-            ${l.active ? `<button class="tb-btn sm" data-copy="${esc(l.url)}">Copy</button>` : ''}
-            ${navigator.share && l.active ? `<button class="tb-btn sm" data-share="${esc(l.url)}">Share</button>` : ''}</div>
+            ${l.active ? `<button class="btn btn-outline btn-sm tb-btn" data-copy="${esc(l.url)}">Copy</button>` : ''}
+            ${navigator.share && l.active ? `<button class="btn btn-outline btn-sm tb-btn" data-share="${esc(l.url)}">Share</button>` : ''}</div>
             ${l.active ? `<div class="tb-url">${esc(l.url)}</div>` : ''}
-            <div class="tb-row">${l.revoked ? `<button class="tb-btn sm" data-restore="${l.id}">Restore</button>` : `<button class="tb-btn sm danger" data-revoke="${l.id}">Revoke</button>`}
-            <button class="tb-btn sm danger" data-ldel="${l.id}">Delete</button></div></div>`;
+            <div class="tb-row">${l.revoked ? `<button class="btn btn-outline btn-sm tb-btn" data-restore="${l.id}">Restore</button>` : `<button class="btn btn-outline btn-sm tb-btn danger" data-revoke="${l.id}">Revoke</button>`}
+            <button class="btn btn-outline btn-sm tb-btn danger" data-ldel="${l.id}">Delete</button></div></div>`;
     }
     async function tabShare(body) {
         let links = [];
         try { links = (await memberApi(memberUrl('/links/'))).links; } catch (e) { body.innerHTML = esc(e.message); return; }
         body.innerHTML = `<div class="tb-sec"><h3>New link</h3>
-            <div class="tb-field"><label>Who is it for?</label><input class="tb-in" id="nl-label" placeholder="e.g. Grandparents, Book club" maxlength="120"></div>
+            <div class="tb-field"><label>Who is it for?</label><input class="form-control tb-in" id="nl-label" placeholder="e.g. Grandparents, Book club" maxlength="120"></div>
             <div class="tb-row"><div class="tb-field grow"><label>How many people</label><select class="tb-sel rly-native" id="nl-uses"><option value="1">1 person</option><option value="5">5 people</option><option value="25">25 people</option><option value="" selected>Anyone with the link</option></select></div>
             <div class="tb-field grow"><label>Works for</label><select class="tb-sel rly-native" id="nl-exp"><option value="1">1 day</option><option value="7">1 week</option><option value="30">1 month</option><option value="" selected>Forever</option></select></div></div>
-            <div class="tb-field"><label>PIN (optional)</label><input class="tb-in" id="nl-pin" inputmode="numeric" pattern="\\d{4}" maxlength="4" placeholder="4 digits" style="max-width:140px">
+            <div class="tb-field"><label>PIN (optional)</label><input class="form-control tb-in" id="nl-pin" inputmode="numeric" pattern="\\d{4}" maxlength="4" placeholder="4 digits" style="max-width:140px">
             <div class="hint">"People" means devices: each phone or computer that opens the link uses one. They keep access after that.</div></div>
-            <button class="tb-btn primary" id="nl-go">Create link</button></div>
+            <button class="btn btn-primary tb-btn" id="nl-go">Create link</button></div>
             <div class="tb-sec"><h3>Links</h3>${links.length ? links.map(linkCard).join('') : '<p class="muted" style="font-size:.88rem">No links yet. Create one above and send it to family and friends.</p>'}</div>`;
         $('nl-go').onclick = async () => {
             try {
@@ -820,7 +820,7 @@
         body.innerHTML = data.links.map((g) => `<div class="tb-sec"><h3>${esc(g.link.label || 'Share link')} · ${g.viewers.length}</h3>
             ${g.viewers.length ? g.viewers.map((v) => `<div class="tb-viewer"><div><b style="font-weight:${v.named ? 600 : 400}">${esc(v.name)}</b>
                 <div class="tb-card-m">first ${esc(new Date(v.first_at).toLocaleDateString())} · last ${esc(ago(v.last_at))} · ${v.visits} visit${v.visits === 1 ? '' : 's'}</div></div>
-                <button class="tb-btn sm danger" data-vrm="${v.id}" title="Remove this device's access">Remove</button></div>`).join('')
+                <button class="btn btn-outline btn-sm tb-btn danger" data-vrm="${v.id}" title="Remove this device's access">Remove</button></div>`).join('')
                 : '<p class="muted" style="font-size:.85rem">Nobody has opened it yet.</p>'}</div>`).join('')
             + '<p class="dim" style="font-size:.78rem">Names appear once someone comments. No IP addresses are stored.</p>';
         body.onclick = async (e) => {
@@ -838,11 +838,11 @@
             <label class="tb-switch" style="margin-top:12px"><input type="checkbox" id="me-feat" ${b.me.featured ? 'checked' : ''}><span><b>Show "Trip" in my menu</b><br><span class="muted">One trip at a time; on the app too.</span></span></label></div>
             <div class="tb-sec"><h3>Travellers</h3>${b.members.map((m) => `<div class="tb-viewer"><div><b>${esc(m.name)}</b> <span class="dim">@${esc(m.username)}</span>
                 <div class="tb-card-m">${m.role === 'owner' ? 'owner' : 'traveller'}${m.accepted ? '' : ' · invited'}${m.share_location ? ' · sharing location' : ''}</div></div>
-                ${b.is_owner && m.role !== 'owner' ? `<button class="tb-btn sm danger" data-mrm="${m.id}">Remove</button>` : ''}</div>`).join('')}</div>
+                ${b.is_owner && m.role !== 'owner' ? `<button class="btn btn-outline btn-sm tb-btn danger" data-mrm="${m.id}">Remove</button>` : ''}</div>`).join('')}</div>
             <div class="tb-sec"><h3>Invite a traveller</h3><p class="muted" style="font-size:.85rem;margin:0 0 8px">Send this to someone on the trip. They sign in (or make an account) and can post too.</p>
             ${b.invite_url ? `<div class="tb-url">${esc(b.invite_url)}</div>` : ''}
-            <div class="tb-row"><button class="tb-btn sm" data-icopy>Copy invite link</button><button class="tb-btn sm" data-irot>New link</button></div></div>
-            ${b.is_owner ? '' : '<div class="tb-sec"><button class="tb-btn danger" data-leave>Leave this trip</button></div>'}`;
+            <div class="tb-row"><button class="btn btn-outline btn-sm tb-btn" data-icopy>Copy invite link</button><button class="btn btn-outline btn-sm tb-btn" data-irot>New link</button></div></div>
+            ${b.is_owner ? '' : '<div class="tb-sec"><button class="btn btn-outline tb-btn danger" data-leave>Leave this trip</button></div>'}`;
         $('me-share').onchange = (e) => memberApi(memberUrl('/'), {method: 'POST', body: {share_location: e.target.checked}}).then(() => loadStatus()).catch((err) => toast(err.message, 'error'));
         $('me-feat').onchange = (e) => memberApi(memberUrl('/'), {method: 'POST', body: {featured: e.target.checked}}).then(() => toast('Saved — reload to update the menu')).catch((err) => toast(err.message, 'error'));
         body.onclick = async (e) => {
@@ -859,14 +859,14 @@
         let b;
         try { b = await memberApi(memberUrl('/')); } catch (e) { body.innerHTML = esc(e.message); return; }
         body.innerHTML = `<div class="tb-sec"><h3>Trip</h3>
-            <div class="tb-field"><label>Name</label><input class="tb-in" id="t-name" maxlength="200" value="${esc(b.name)}"></div>
-            <div class="tb-field"><label>Subtitle</label><input class="tb-in" id="t-sub" maxlength="300" value="${esc(b.subtitle)}" placeholder="e.g. 5 of us, 9 months, no plan"></div>
-            <div class="tb-row"><div class="tb-field grow"><label>Starts</label><input class="tb-in" type="date" id="t-start" value="${esc(b.start_date)}"></div>
-            <div class="tb-field grow"><label>Ends</label><input class="tb-in" type="date" id="t-end" value="${esc(b.end_date || '')}"><div class="hint">After this the page becomes an archive: no live locations.</div></div></div>
-            <button class="tb-btn primary" id="t-save">Save</button></div>
+            <div class="tb-field"><label>Name</label><input class="form-control tb-in" id="t-name" maxlength="200" value="${esc(b.name)}"></div>
+            <div class="tb-field"><label>Subtitle</label><input class="form-control tb-in" id="t-sub" maxlength="300" value="${esc(b.subtitle)}" placeholder="e.g. 5 of us, 9 months, no plan"></div>
+            <div class="tb-row"><div class="tb-field grow"><label>Starts</label><input class="form-control tb-in" type="date" id="t-start" value="${esc(b.start_date)}"></div>
+            <div class="tb-field grow"><label>Ends</label><input class="form-control tb-in" type="date" id="t-end" value="${esc(b.end_date || '')}"><div class="hint">After this the page becomes an archive: no live locations.</div></div></div>
+            <button class="btn btn-primary tb-btn" id="t-save">Save</button></div>
             <div class="tb-sec"><h3>Cover photo</h3>${b.cover ? `<img src="${esc(b.cover_thumb || b.cover)}" alt="" style="max-width:100%;max-height:160px;display:block;margin-bottom:8px">` : ''}
-            <div class="tb-row"><label class="tb-btn sm">Choose photo<input type="file" accept="image/*" id="t-cover" hidden></label>${b.cover ? '<button class="tb-btn sm danger" id="t-cover-rm">Remove</button>' : ''}</div></div>
-            ${b.is_owner ? '<div class="tb-sec"><h3>Danger</h3><button class="tb-btn danger" id="t-del">Delete this trip</button><div class="hint dim" style="font-size:.76rem;margin-top:6px">Deletes every post, photo, video and comment. Share links stop working.</div></div>' : ''}`;
+            <div class="tb-row"><label class="btn btn-outline btn-sm tb-btn">Choose photo<input type="file" accept="image/*" id="t-cover" hidden></label>${b.cover ? '<button class="btn btn-outline btn-sm tb-btn danger" id="t-cover-rm">Remove</button>' : ''}</div></div>
+            ${b.is_owner ? '<div class="tb-sec"><h3>Danger</h3><button class="btn btn-outline tb-btn danger" id="t-del">Delete this trip</button><div class="hint dim" style="font-size:.76rem;margin-top:6px">Deletes every post, photo, video and comment. Share links stop working.</div></div>' : ''}`;
         $('t-save').onclick = async () => {
             try {
                 await memberApi(memberUrl('/'), {method: 'POST', body: {name: $('t-name').value, subtitle: $('t-sub').value,

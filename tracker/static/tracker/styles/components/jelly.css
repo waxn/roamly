@@ -104,14 +104,13 @@ html[data-style="jelly"] {
     }
     &[data-theme="light"] .navbar-nav a, &[data-theme="light"] .navbar-nav-toggle, &[data-theme="light"] .navbar-user-toggle, &[data-theme="light"] .notif-toggle { color: var(--text-muted); }
     .navbar-nav a:hover, .navbar-nav-toggle:hover { color: #fff; }
-    .navbar-nav a.active, .navbar-nav-toggle.active { color: #fff; border-bottom: none; }
+    .navbar-nav > li > a.active, .navbar-nav-toggle.active { color: #fff; border-bottom: none; }
     /* without JS the active item is its own gummy */
-    &:not([data-fx~="goo"]) .navbar-nav a.active { --g: var(--primary); background: var(--gummy); box-shadow: var(--gummy-shadow); }
+    &:not([data-fx~="goo"]) .navbar-nav > li > a.active { --g: var(--primary); background: var(--gummy); box-shadow: var(--gummy-shadow); }
     .navbar-user-toggle { color: color-mix(in srgb, var(--text-muted) 60%, #fff); font-weight: 700; border-radius: var(--r-pill); padding: 0.45rem 0.8rem; }
     .navbar-user-toggle:hover { background: rgba(255, 255, 255, 0.07); color: #fff; }
     .notif-toggle { color: color-mix(in srgb, var(--text-muted) 60%, #fff); border-radius: 50%; }
     .notif-dot { background: var(--clay-amber); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bg-elevated) 5%, var(--bg-card)), 0 0 10px var(--clay-amber); animation: jl-wobble-dot 2.4s infinite; }
-    .btn.navbar-logout-mobile { --g: color-mix(in srgb, var(--border-strong) 90%, var(--bg-card)); }
 
     /* popovers are gummy bubbles that pop open */
     .nav-dropdown-menu, .notif-panel, .rly-select-menu, .rly-cal {

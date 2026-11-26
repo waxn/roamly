@@ -148,3 +148,17 @@ def test_provider_error_is_502_and_not_cached(client, device, monkeypatch):
     monkeypatch.setattr(ai_tasks, '_provider_chat', boom)
     assert client.post(URL).status_code == 502
     assert cache.get(f'year_ago:{device.user_id}:2025-06-19:0') is None
+
+
+def test_offset_steps_to_neighbouring_days(client, device, provider):
+    track(device, THEN - timedelta(days=1))
+    data = client.post(URL, {'offset': '-1'}).json()
+    assert data['status'] == 'ok'
+    assert data['date'] == '2025-06-18'
+    assert client.post(URL, {'offset': '1'}).json() == {'status': 'none', 'date': '2025-06-20'}
+    assert len(provider.calls) == 1
+
+
+def test_offset_is_clamped_and_validated(client, device, provider):
+    assert client.post(URL, {'offset': '999'}).json()['date'] == '2025-07-19'
+    assert client.post(URL, {'offset': 'soon'}).status_code == 400

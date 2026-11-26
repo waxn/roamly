@@ -80,8 +80,8 @@ html[data-style="pebble"] {
         transition: color 0.25s;
     }
     .navbar-nav a:hover, .navbar-nav-toggle:hover { color: var(--text); }
-    .navbar-nav a.active, .navbar-nav-toggle.active { color: var(--text); border-bottom: none; }
-    &:not([data-fx~="stone"]) .navbar-nav a.active { background: var(--stone-raised); box-shadow: var(--stone-lit), var(--clay-shadow-btn); }
+    .navbar-nav > li > a.active, .navbar-nav-toggle.active { color: var(--text); border-bottom: none; }
+    &:not([data-fx~="stone"]) .navbar-nav > li > a.active { background: var(--stone-raised); box-shadow: var(--stone-lit), var(--clay-shadow-btn); }
     .navbar-user-toggle { font-family: var(--font-body); font-weight: 500; color: var(--text-muted); border-radius: var(--r-2); padding: 0.5rem 0.75rem; }
     .navbar-user-toggle:hover { background: var(--bg-elevated); color: var(--text); }
     .notif-toggle { border-radius: var(--r-2); }

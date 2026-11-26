@@ -2,26 +2,24 @@
 {% block title %}Adventures - Roamly{% endblock %}
 
 {% block extra_css %}
-.tbl { border: 1px solid var(--border); background: var(--bg-card); padding: 16px; margin: 0 0 18px; }
-.tbl-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
-.tbl-h h2 { font-family: var(--font-display); font-size: 1.2rem; margin: 0 0 2px; }
-.tbl-h p { margin: 0; color: var(--text-muted); font-size: .86rem; }
-.tbl-form { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 14px; }
-.tbl-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+/* ── Trip blogs box: a plate like .adv-card, holding .adv-card tiles ── */
+.tbl { border: 1px solid var(--border); background: var(--bg-card); border-radius: var(--r-3, 0); padding: 1rem 1.125rem 1.125rem; margin: 1rem 0 0.25rem; }
+.tbl-h { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.tbl-h h2 { font-family: var(--font-display); font-size: 1.1rem; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 0.125rem; }
+.tbl-h p { margin: 0; color: var(--text-muted); font-size: 0.8125rem; }
+.tbl-form { margin-top: 0.875rem; border-top: 1px solid var(--border); padding-top: 0.875rem; }
+.tbl-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 0.75rem; }
 @media (max-width: 700px) { .tbl-grid { grid-template-columns: 1fr; } }
-.tbl-grid label { display: flex; flex-direction: column; gap: 5px; font-size: .8rem; color: var(--text-muted); }
-.tbl-in { background: var(--bg-input); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; font: inherit; font-size: .92rem; }
-.tbl-check { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: .86rem; color: var(--text-muted); }
+.tbl-grid label { display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.825rem; font-weight: 700; color: var(--text-muted); }
+.tbl-grid label .dim { color: var(--text-dim); font-weight: 400; }
+.tbl-check { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.75rem; font-size: 0.8125rem; color: var(--text-muted); }
 .tbl-check input { accent-color: var(--primary); }
-.tbl-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-.tbl-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-top: 14px; }
+.tbl-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.875rem; }
+.tbl-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.875rem; margin-top: 0.875rem; }
 .tbl-list:empty { display: none; }
-.tbl-card { display: flex; gap: 12px; align-items: center; border: 1px solid var(--border); background: var(--bg); padding: 10px; text-decoration: none; color: var(--text); }
-.tbl-card:hover { border-color: var(--primary); }
-.tbl-card .cv { width: 54px; height: 54px; flex: none; background: var(--bg-elevated) center/cover; }
-.tbl-card b { display: block; font-size: .95rem; }
-.tbl-card span { font-size: .75rem; color: var(--text-dim); font-family: var(--font-mono); }
-.tbl-card .live { color: var(--moss); }
+.tbl-list .adv-card { background: var(--bg); color: var(--text); text-decoration: none; }
+.tbl-list .adv-card-cover { height: 96px; }
+.tbl-badge-menu { background: var(--bg-elevated); color: var(--text-muted); }
 /* ── Adventure list page ── */
 .adv-list-page { padding: 0; }
 
@@ -36,7 +34,6 @@
     font-weight: 600;
     letter-spacing: -0.01em;
 }
-.adv-list-lead { font-size: 0.8125rem; color: var(--text-muted); margin: 0.125rem 0 0; }
 
 .adv-filter-bar {
     display: flex; gap: 0.5rem; padding: 0.875rem 0 0.75rem;
@@ -523,7 +520,6 @@
     <div class="adv-list-header">
         <div>
             <h1>Adventures</h1>
-            <p class="adv-list-lead">time-bounded adventures with maps, timeline posts, and sharing.</p>
         </div>
     </div>
 
@@ -537,9 +533,9 @@
         </div>
         <form class="tbl-form" id="tbl-form" hidden>
             <div class="tbl-grid">
-                <label>Name<input class="tbl-in" name="name" maxlength="200" required placeholder="Around the world 2027"></label>
-                <label>Starts<input class="tbl-in" type="date" name="start_date" required></label>
-                <label>Ends <span class="dim">(optional)</span><input class="tbl-in" type="date" name="end_date"></label>
+                <label>Name<input class="form-control" name="name" maxlength="200" required placeholder="Around the world 2027"></label>
+                <label>Starts<input class="form-control" type="date" name="start_date" required></label>
+                <label>Ends <span class="dim">(optional)</span><input class="form-control" type="date" name="end_date"></label>
             </div>
             <label class="tbl-check"><input type="checkbox" name="share_location" checked> Show my city and a rough spot (about 1 km) to followers</label>
             <div class="tbl-actions"><button class="btn btn-outline btn-sm" type="button" id="tbl-cancel">Cancel</button><button class="btn btn-primary btn-sm" type="submit">Create</button></div>
@@ -877,9 +873,15 @@
     const fmt = (d) => d ? new Date(d + 'T12:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'}) : '';
     async function load() {
         const d = await fetch('/api/tripblog/').then((r) => r.json()).catch(() => ({blogs: []}));
-        list.innerHTML = (d.blogs || []).filter((b) => b.accepted).map((b) => `<a class="tbl-card" href="/trip/${b.id}/">
-            <span class="cv" style="${b.cover ? `background-image:url('${esc(b.cover)}')` : ''}"></span>
-            <div><b>${esc(b.name)}</b><span>${esc(fmt(b.start_date))}${b.end_date ? ' – ' + esc(fmt(b.end_date)) : ''}${b.live ? ' · <em class="live">live</em>' : ''}${b.featured ? ' · in menu' : ''}</span></div></a>`).join('');
+        // Drawn with the adventure cards' own classes so both lists look alike.
+        list.innerHTML = (d.blogs || []).filter((b) => b.accepted).map((b) => `<a class="adv-card tbl-card" href="/trip/${b.id}/">
+            ${b.cover ? `<img class="adv-card-cover" src="${esc(b.cover)}" alt="" loading="lazy">` : ''}
+            <div class="adv-card-body">
+                <div class="adv-card-name">${esc(b.name)}</div>
+                ${b.subtitle ? `<div class="adv-card-subtitle">${esc(b.subtitle)}</div>` : ''}
+                <div class="adv-card-dates">${esc(fmt(b.start_date))}${b.end_date ? ' – ' + esc(fmt(b.end_date)) : ''}</div>
+                ${b.live || b.featured ? `<div class="adv-card-badges">${b.live ? '<span class="adv-badge adv-badge-active">live</span>' : ''}${b.featured ? '<span class="adv-badge tbl-badge-menu">in menu</span>' : ''}</div>` : ''}
+            </div></a>`).join('');
     }
     document.getElementById('tbl-new-btn').onclick = () => {
         form.hidden = !form.hidden;

@@ -75,8 +75,8 @@ html[data-style="bento"] {
         transition: background 0.2s, color 0.2s;
     }
     .navbar-nav a:hover, .navbar-nav-toggle:hover { color: var(--text); background: var(--bg-elevated); }
-    .navbar-nav a.active, .navbar-nav-toggle.active { color: var(--bg); background: var(--text); border-bottom: none; }
-    &[data-theme="light"] .navbar-nav a.active, &[data-theme="light"] .navbar-nav-toggle.active { color: #fff; background: var(--primary); }
+    .navbar-nav > li > a.active, .navbar-nav-toggle.active { color: var(--bg); background: var(--text); border-bottom: none; }
+    &[data-theme="light"] .navbar-nav > li > a.active, &[data-theme="light"] .navbar-nav-toggle.active { color: #fff; background: var(--primary); }
     .navbar-user-toggle { font-weight: 600; color: var(--text-muted); border-radius: var(--r-2); background: var(--bg-card); padding: 0.55rem 0.85rem; }
     .navbar-user-toggle:hover { background: var(--bg-elevated); color: var(--text); }
     .notif-toggle { border-radius: var(--r-2); background: var(--bg-card); width: 40px; height: 40px; display: inline-grid; place-items: center; }

@@ -70,7 +70,7 @@ html[data-style="riso"] {
         border-bottom: none;
     }
     .navbar-nav a:hover, .navbar-nav-toggle:hover { color: var(--ink-yellow); }
-    .navbar-nav a.active, .navbar-nav-toggle.active { color: var(--text); border-bottom: none; }
+    .navbar-nav > li > a.active, .navbar-nav-toggle.active { color: var(--text); border-bottom: none; }
     /* hand-drawn marker circle (riso.js injects the SVG) */
     .navbar-user-toggle { font-family: var(--font-mono); text-transform: uppercase; font-size: 0.74rem; color: var(--text-muted); }
     .navbar-user-toggle:hover { background: transparent; color: var(--ink-yellow); }

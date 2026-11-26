@@ -13,7 +13,7 @@ _Read when: CustomPlace, suggestions, arrival/departure notifications._
 
 User-defined named geofences — **Places** tab (`/places/`, `places_view` → `places.html`). `CustomPlace`: `name` + center + `radius_m` + auto-assigned clay-palette `color` + `notes` (migration `0030`). Membership computed on the fly via `_find_nearby_locations(qs, lat, lng, radius_m)` (PostGIS `ST_DWithin` / SQLite bbox) — **no FK on `Location`, no migration, no background job**.
 
-Places page: **suggested-places list** + card grid (point count + last-seen) + two MapLibre modals (create/edit; detail with stats, cities covered, autosaving notes). Endpoints (all `@login_required`, ownership-scoped):
+Places page: a centred name **search box** under the toolbar (client-side filter of the loaded grid, `renderPlaces()`), **suggested-places list** + card grid (point count + last-seen) + two MapLibre modals (create/edit; detail with stats, cities covered, autosaving notes). Endpoints (all `@login_required`, ownership-scoped):
 - `GET/POST /api/places/` — list / create
 - `GET /api/places/suggestions/` — recurring stays not yet named (registered **before** the `<int:place_id>` routes)
 - `POST /api/places/suggestions/dismiss/` — reject a suggestion

@@ -97,9 +97,9 @@ html[data-style="lantern"] {
         padding: 0.55rem 0.75rem;
     }
     .navbar-nav a:hover, .navbar-nav-toggle:hover { color: color-mix(in srgb, var(--link) 30%, #fff); text-shadow: 0 0 12px color-mix(in srgb, var(--primary) 60%, transparent); }
-    .navbar-nav a.active, .navbar-nav-toggle.active { color: var(--primary); border-bottom: none; }
+    .navbar-nav > li > a.active, .navbar-nav-toggle.active { color: var(--primary); border-bottom: none; }
     /* the hanging ribbon bookmark under the active section */
-    .navbar-nav a.active::after, .navbar-nav-toggle.active::after {
+    .navbar-nav > li > a.active::after, .navbar-nav-toggle.active::after {
         content: '';
         position: absolute;
         left: 50%; top: calc(100% + 0.62rem);
@@ -451,7 +451,7 @@ html[data-style="lantern"] {
     /* the compass in the corner (lantern.js) */
 
     @media (max-width: 768px) {
-        .navbar-nav a.active::after { display: none; }
+        .navbar-nav > li > a.active::after { display: none; }
         .ln-compass { display: none; }
     }
     @media (prefers-reduced-motion: reduce) {

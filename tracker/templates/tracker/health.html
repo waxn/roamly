@@ -133,6 +133,14 @@
     font-size: 0.875rem;
 }
 .h-source:last-child { border-bottom: none; }
+/* Collapsed by default: a long list of writing apps otherwise dominates the tab. */
+.h-sources-card > summary { display: flex; align-items: center; gap: 0.75rem; cursor: pointer; list-style: none; user-select: none; margin-bottom: 0; padding-bottom: 0; border-bottom-color: transparent; }
+.h-sources-card > summary::-webkit-details-marker { display: none; }
+.h-sources-card > summary:focus-visible { outline: 2px solid var(--border-bright); outline-offset: 4px; }
+.h-sources-card[open] > summary { margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom-color: var(--border); }
+.h-sources-summary { flex: 1 1 auto; text-align: right; font-family: var(--font-mono); font-size: 0.72rem; font-weight: 500; color: var(--text-muted); }
+.h-sources-caret { flex: none; fill: none; stroke: var(--text-muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.2s; }
+.h-sources-card[open] .h-sources-caret { transform: rotate(180deg); }
 .h-source-name { flex: 1 1 auto; font-family: var(--font-mono); font-size: 0.8125rem; }
 .h-source-count { color: var(--text-muted); font-family: var(--font-mono); font-size: 0.75rem; }
 
@@ -187,7 +195,6 @@
     <div class="page-toolbar">
         <div>
             <h1>Health</h1>
-            <p class="page-lead" style="margin-bottom:0;">steps, distance and calories from your phone.</p>
         </div>
         <div class="health-filters toolbar-actions">
             <select id="h-range">
@@ -322,15 +329,19 @@
                 </div>
             </div>
 
-            <div class="card" style="grid-column: 1 / -1;" id="h-sources-card">
-                <div class="card-header">Data sources</div>
+            <details class="card h-sources-card" style="grid-column: 1 / -1;" id="h-sources-card">
+                <summary class="card-header">
+                    <span>Data sources</span>
+                    <span class="h-sources-summary" id="h-sources-summary"></span>
+                    <svg class="h-sources-caret" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                </summary>
                 <p style="font-size:0.8125rem;color:var(--text-muted);margin-top:0;">
                     Several apps can record the same walk. Roamly counts one app per day and metric
                     so your steps aren&rsquo;t double counted &mdash; pick which one to trust, or leave
                     it on automatic and the most complete record for each day wins.
                 </p>
                 <div id="h-sources"></div>
-            </div>
+            </details>
         </div>
     </div>
 </div>
@@ -438,6 +449,8 @@ function renderSources(status) {
     }
     const preferred = status.preferred_source || '';
     const rows = [...byApp.entries()].sort((a, b) => b[1] - a[1]);
+    document.getElementById('h-sources-summary').textContent =
+        `${preferred || 'Automatic'} · ${rows.length} ${rows.length === 1 ? 'app' : 'apps'}`;
     el.innerHTML = `
         <div class="h-source">
             <input type="radio" name="h-source" value="" id="h-src-auto" ${preferred ? '' : 'checked'}>
@@ -445,8 +458,8 @@ function renderSources(status) {
         </div>
     ` + rows.map(([name, count], i) => `
         <div class="h-source">
-            <input type="radio" name="h-source" value="${name}" id="h-src-${i}" ${preferred === name ? 'checked' : ''}>
-            <label class="h-source-name" for="h-src-${i}">${name || 'unknown'}</label>
+            <input type="radio" name="h-source" value="${escapeHtml(name)}" id="h-src-${i}" ${preferred === name ? 'checked' : ''}>
+            <label class="h-source-name" for="h-src-${i}">${escapeHtml(name || 'unknown')}</label>
             <span class="h-source-count">${fmtInt(count)} records</span>
         </div>
     `).join('');

@@ -96,7 +96,7 @@ html[data-style="broadsheet"] {
         height: 100%;
     }
     .navbar-nav a:hover, .navbar-nav-toggle:hover { color: var(--ink); }
-    .navbar-nav a.active, .navbar-nav-toggle.active { color: var(--red); border-bottom: none; }
+    .navbar-nav > li > a.active, .navbar-nav-toggle.active { color: var(--red); border-bottom: none; }
     .navbar-user-toggle { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); border-radius: var(--r-3); }
     .navbar-user-toggle:hover { background: transparent; color: var(--ink); }
     .notif-dot { background: var(--red); box-shadow: 0 0 0 2px var(--bg); }

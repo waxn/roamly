@@ -355,7 +355,7 @@
 
     /* ── Riso ── */
     M.marker = function () {
-        document.querySelectorAll('.navbar-nav a.active, .navbar-nav-toggle.active').forEach(function (a) {
+        document.querySelectorAll('.navbar-nav > li > a.active, .navbar-nav-toggle.active').forEach(function (a) {
             var r = function (n) { return (Math.random() * 2 - 1) * n; }, pts = [];
             for (var i = 0; i <= 14; i++) { var t = i / 14 * Math.PI * 2.18 - 0.4; pts.push((50 + Math.cos(t) * (47 + r(3))).toFixed(1) + ' ' + (50 + Math.sin(t) * (40 + r(4))).toFixed(1)); }
             if (getComputedStyle(a).position === 'static') a.style.position = 'relative';

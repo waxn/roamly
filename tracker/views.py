@@ -1834,7 +1834,17 @@ def data_table(request):
 # as is Visit, which has its own page. Recorded points (`locations`) keep their
 # existing endpoint and are listed only so the selector can offer them.
 #
-# Column `type` drives client formatting: time / num / coord / speed / text.
+# Column `type` drives client formatting: time / date / num / coord / speed /
+# bool / text. `device_fk` None = the rows have no device (no column, and the
+# device filter doesn't apply); `windowed` False = the time-range filter doesn't
+# apply either (a short history, always shown whole); `open` names a detail
+# viewer the page offers per row.
+
+
+def _recap_email_qs(u):
+    from .models import SummaryEmailLog
+    return SummaryEmailLog.objects.filter(user=u)
+
 
 _RAW_SOURCES = {
     'locations': {
@@ -1888,6 +1898,22 @@ _RAW_SOURCES = {
                    ('source', 'Source', 'text'), ('start_time', 'Start', 'time'),
                    ('end_time', 'End', 'time')],
     },
+    'recaps': {
+        'label': 'Recap emails',
+        'qs': _recap_email_qs,
+        'time': 'sent_at',
+        'device_fk': None,
+        'windowed': False,
+        'open': 'recap',
+        # Offered before the first one goes out, so an opted-in user sees the
+        # empty state (and why older recaps aren't there) rather than nothing.
+        'show_empty': lambda u: bool(getattr(UserProfile.objects.filter(user=u).first(),
+                                             'summary_any', False)),
+        'fields': [('sent_at', 'Sent', 'time'), ('period', 'Period', 'text'),
+                   ('period_start', 'From', 'date'), ('period_end', 'To', 'date'),
+                   ('subject', 'Subject', 'text'), ('status', 'Status', 'text'),
+                   ('is_test', 'Test send', 'bool')],
+    },
 }
 
 _RAW_PAGE_SIZE = 200
@@ -1898,8 +1924,12 @@ def raw_data_sources_api(request):
     """The sources this user actually has rows in, in selector order."""
     out = []
     for key, src in _RAW_SOURCES.items():
-        if key == 'locations' or src['qs'](request.user).exists():
-            out.append({'key': key, 'label': src['label']})
+        if (key == 'locations' or src['qs'](request.user).exists()
+                or ('show_empty' in src and src['show_empty'](request.user))):
+            out.append({'key': key, 'label': src['label'],
+                        # Which toolbar filters apply, so the page can hide the rest.
+                        'device': src.get('device_fk', True) is not None,
+                        'range': src.get('windowed', True)})
     return JsonResponse({'sources': out})
 
 
@@ -1914,7 +1944,7 @@ def raw_data_source_api(request, key):
     qs = src['qs'](request.user)
 
     device = (request.GET.get('device_id') or '').strip()
-    if device:
+    if device and src['device_fk'] is not None:
         # Resolve against the user's own devices only. For FK sources that is
         # the filter itself; for the CharField sources the rows are already
         # user-scoped, but an unknown id still answers with nothing rather than
@@ -1927,7 +1957,7 @@ def raw_data_source_api(request, key):
         else:
             qs = qs.filter(device_id=dev.device_id)
 
-    if request.GET.get('all') != '1':
+    if request.GET.get('all') != '1' and src.get('windowed', True):
         try:
             hours = max(1, min(int(request.GET.get('hours', '24')), 24 * 365 * 50))
         except (TypeError, ValueError):
@@ -1950,7 +1980,7 @@ def raw_data_source_api(request, key):
     if src['device_fk']:
         cols = [('device', 'Device', 'text')] + cols
         names = ['device__name', 'device__device_id'] + names
-    else:
+    elif src['device_fk'] is not None:
         cols = [('device_id', 'Device', 'text')] + cols
         names = ['device_id'] + names
 
@@ -1976,11 +2006,48 @@ def raw_data_source_api(request, key):
         'columns': [{'key': k, 'label': lbl, 'type': t} for k, lbl, t in cols],
         'rows': out,
         'has_more': has_more,
+        'open': src.get('open'),
     }
     if rows:
         payload['next_before_value'] = rows[-1][1].isoformat()
         payload['next_before_id'] = rows[-1][0]
     return JsonResponse(payload)
+
+
+@login_required
+def raw_recap_email_api(request, pk):
+    """One recap email the user was sent, for the Raw data page's reader.
+
+    Scoped by the lookup itself, so another user's id is a 404. The HTML is
+    returned as data only: the page renders it in a sandboxed ``srcdoc`` iframe
+    (no scripts, opaque origin), never in its own DOM. The inline ``cid:`` logo
+    only resolves inside a mail client, so it is pointed at the static file.
+    """
+    from django.templatetags.static import static
+    from .models import SummaryEmailLog
+    from . import email_utils
+    log = SummaryEmailLog.objects.filter(user=request.user, pk=pk).first()
+    if log is None:
+        return JsonResponse({'error': 'Not found.'}, status=404)
+    try:
+        logo = static(email_utils._LOGO_STATIC)
+    except ValueError:  # manifest storage without a collectstatic run (tests/CI)
+        logo = settings.STATIC_URL + email_utils._LOGO_STATIC
+    html = log.body_html.replace(f'cid:{email_utils._LOGO_CID}', logo)
+    resp = JsonResponse({
+        'id': log.id,
+        'period': log.period,
+        'period_start': log.period_start.isoformat(),
+        'period_end': log.period_end.isoformat(),
+        'subject': log.subject,
+        'status': log.status,
+        'is_test': log.is_test,
+        'sent_at': log.sent_at.isoformat(),
+        'html': html,
+        'text': log.body_text,
+    })
+    resp['Cache-Control'] = 'private, no-store'
+    return resp
 
 
 @login_required
@@ -12821,7 +12888,11 @@ def year_ago_api(request):
                      identifier=str(request.user.id), include_ip=False):
         return JsonResponse({'error': 'Too many requests.'}, status=429)
     try:
-        result = year_ago.build_year_ago(profile)
+        offset = int(request.POST.get('offset') or 0)
+    except (TypeError, ValueError):
+        return JsonResponse({'error': 'Invalid offset.'}, status=400)
+    try:
+        result = year_ago.build_year_ago(profile, offset)
     except (ai_tasks.AIProviderError, year_ago.YearAgoError) as e:
         return JsonResponse({'error': str(e)}, status=502)
     except Exception:
@@ -16597,6 +16668,50 @@ _ACT_TRACK_MAX_POINTS = 60000
 _ACT_MIRROR_EVERY_S = 5.0
 _ACT_LIST_PAGE = 50
 _ACT_CACHE_TTL = 300
+# The list's map tiles: at most this many vertices per activity, and at most
+# this much wall time per list request spent building ones not cached yet.
+_ACT_THUMB_POINTS = 96
+_ACT_THUMB_BUDGET_S = 2.5
+
+
+def _activity_thumbs(user_id, rows):
+    """``({activity_id: [encoded polyline, ...] | None}, complete)`` for a list page.
+
+    Content-addressed like the track response (stats stamp + point count), so
+    a thumb is built once per version of the ride and never invalidated by
+    hand. Building one means reading the smoothed track — cheap from an
+    ActivityTrack's cache, a full pipeline run for the history fallback — so a
+    cold page stops after _ACT_THUMB_BUDGET_S and reports ``complete=False``;
+    the caller then skips caching the list so the next request carries on.
+    Activities still waiting for their points get ``None`` (nothing to draw).
+    """
+    keys = {}
+    for a in rows:
+        if a.stats_computed_at is not None:
+            stamp = int(a.stats_computed_at.timestamp())
+            keys[a.id] = f"act:thumb:v1:{user_id}:{a.id}:{stamp}:{a.stats_point_count}"
+    got = cache.get_many(list(keys.values())) if keys else {}
+    out, fresh, complete = {}, {}, True
+    t0 = time.monotonic()
+    for a in rows:
+        k = keys.get(a.id)
+        if k is None:
+            out[a.id] = None
+        elif k in got:
+            out[a.id] = got[k]
+        elif time.monotonic() - t0 < _ACT_THUMB_BUDGET_S:
+            try:
+                out[a.id] = fresh[k] = activity_track.thumb_polylines(_activity_smoothed(a), _ACT_THUMB_POINTS)
+            except Exception:
+                # Not cached: a transient failure shouldn't blank the tile for a month.
+                logger.exception('activity thumb failed for %s', a.id)
+                out[a.id] = []
+        else:
+            out[a.id] = None
+            complete = False
+    if fresh:
+        cache.set_many(fresh, 86400 * 30)
+    return out, complete
 
 
 def _activity_payload(act):
@@ -16808,14 +16923,23 @@ def activities_api(request):
         # list is served from the cached columns, never from a per-row scan.
         for act in rows:
             _activity_stats(act)
+        # Each row carries a tiny simplified polyline for its map tile, never
+        # the full track.
+        thumbs, thumbs_complete = _activity_thumbs(user.id, rows)
+        acts = []
+        for a in rows:
+            d = _activity_payload(a)
+            d['thumb'] = thumbs.get(a.id)
+            acts.append(d)
         payload = {
-            'activities': [_activity_payload(a) for a in rows],
+            'activities': acts,
             'total': total,
             'offset': offset,
             'limit': limit,
             'has_more': offset + len(rows) < total,
         }
-        cache.set(key, payload, _ACT_CACHE_TTL)
+        if thumbs_complete:
+            cache.set(key, payload, _ACT_CACHE_TTL)
         return JsonResponse(payload)
 
     err = _require_api_intent(request) or _require_json(request)
@@ -17010,13 +17134,12 @@ def activity_detail_api(request, activity_id):
 @login_required
 @require_http_methods(["GET"])
 def activity_track_api(request, activity_id):
-    """The drawn track: cleaned, smoothed, Douglas-Peucker-simplified segments.
+    """The drawn track: cleaned and smoothed segments, every surviving point.
 
     Per-vertex speed (km/h), time (epoch s) and elevation ride alongside so the
     page can paint the speed gradient; ``chart`` is a separate even-in-time,
-    full-resolution series for the speed/elevation charts (the simplified
-    vertices are too sparse on straights to chart). Simplification preserves
-    shape instead of keeping every n-th fix.
+    bucketed series for the speed/elevation charts. No simplification: every
+    fix that passed clean + the smoother's gate is drawn.
     """
     act = _get_activity(request, activity_id)
     if not act:
@@ -17024,8 +17147,9 @@ def activity_track_api(request, activity_id):
     _activity_stats(act)
 
     stamp = int(act.stats_computed_at.timestamp()) if act.stats_computed_at else 0
-    # ``c2``: the payload gained ``chart`` — older cached copies lack it.
-    key = f"act:track:c2:{request.user.id}:{act.id}:{stamp}:{act.stats_point_count}"
+    # ``c2``: the payload gained ``chart``. ``c3``: segments are every smoothed
+    # point, no longer Douglas-Peucker'd — older cached copies are thinned.
+    key = f"act:track:c3:{request.user.id}:{act.id}:{stamp}:{act.stats_point_count}"
     cached = cache.get(key)
     if cached is not None:
         return JsonResponse(cached)
@@ -17171,7 +17295,9 @@ def activity_recompute_api(request, activity_id):
 
 @login_required
 def activities_view(request):
-    return render(request, 'tracker/activities.html')
+    # The basemap list lets the tiles' mini-maps use the same background the
+    # user picked on /map/ (roamly_map_tile_style).
+    return render(request, 'tracker/activities.html', {'basemaps': _user_basemaps(request)})
 
 
 @login_required

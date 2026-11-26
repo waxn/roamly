@@ -26,6 +26,7 @@ urlpatterns = [
     path('data/', views.data_table, name='data'),
     path('api/data/sources/', views.raw_data_sources_api, name='raw_data_sources'),
     path('api/data/source/<str:key>/', views.raw_data_source_api, name='raw_data_source'),
+    path('api/data/recap-emails/<int:pk>/', views.raw_recap_email_api, name='raw_recap_email'),
     path('stats/', views.stats_view, name='stats'),
     path('achievements/', views.achievements_view, name='achievements'),
     path('cells/', views.cells_view, name='cells'),

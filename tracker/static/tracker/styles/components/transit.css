@@ -88,7 +88,7 @@ html[data-style="transit"] {
         padding: 0.35rem 0.85rem 1.85rem;
         transition: color 0.15s;
     }
-    .navbar-nav a::after, .navbar-nav-toggle::after {
+    .navbar-nav > li > a::after, .navbar-nav-toggle::after {
         content: '';
         position: absolute;
         left: 50%; bottom: 8px;
@@ -103,9 +103,9 @@ html[data-style="transit"] {
     .navbar-nav-toggle::after { width: 26px; margin-left: -13px; border-radius: var(--r-4); }
     .navbar-nav-toggle .nav-caret { position: absolute; right: -0.55rem; top: 0.42rem; }
     .navbar-nav a:hover, .navbar-nav-toggle:hover { color: #fff; }
-    .navbar-nav a:hover::after, .navbar-nav-toggle:hover::after { transform: scale(1.3); }
-    .navbar-nav a.active, .navbar-nav-toggle.active { color: var(--primary); border-bottom: none; }
-    .navbar-nav a.active::after, .navbar-nav-toggle.active::after {
+    .navbar-nav > li > a:hover::after, .navbar-nav-toggle:hover::after { transform: scale(1.3); }
+    .navbar-nav > li > a.active, .navbar-nav-toggle.active { color: var(--primary); border-bottom: none; }
+    .navbar-nav > li > a.active::after, .navbar-nav-toggle.active::after {
         background: #fff;
         box-shadow: 0 0 0 3px #000, 0 0 0 6px #fff;
         transform: scale(1.15);

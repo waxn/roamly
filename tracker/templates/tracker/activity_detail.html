@@ -3,9 +3,8 @@
 
 {% block extra_css %}
 <style>
-.ad-back { color: var(--text-muted); text-decoration: none; font-size: 0.75rem;
-           font-family: var(--font-mono); }
-.ad-back:hover { color: var(--primary); }
+.ad-back { margin-bottom: 0.75rem; }
+.ad-back svg { flex-shrink: 0; }
 .ad-glyph { font-size: 1.5rem; margin-right: 0.5rem; }
 .ad-when { color: var(--text-muted); font-size: 0.75rem; font-family: var(--font-mono);
            margin-top: 0.2rem; }
@@ -33,7 +32,11 @@
 
 {% block content %}
 <div class="container">
-    <a class="ad-back" href="{% url 'tracker:activities' %}">&larr; activities</a>
+    <a class="btn btn-outline btn-sm ad-back" id="ad-back" href="{% url 'tracker:activities' %}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Activities
+    </a>
 
     <div class="page-toolbar">
         <div>
@@ -407,6 +410,34 @@ function drawCharts(track) {
     }
 }
 
+// The Activities list keeps a sessionStorage copy of itself (see
+// activities.html). Drop it when this page changes what the list would show,
+// so going back doesn't flash the old title or a deleted card.
+function forgetActivityList() {
+    try {
+        for (let i = sessionStorage.length - 1; i >= 0; i--) {
+            const k = sessionStorage.key(i);
+            if (k && k.startsWith('roamly_act_list:')) sessionStorage.removeItem(k);
+        }
+    } catch (e) { /* storage unavailable — nothing cached either */ }
+}
+
+// Back goes *back* when we came from the list, so the browser restores its
+// scroll position (and the list paints from its cache); a direct visit or a
+// new tab still follows the link.
+document.getElementById('ad-back').addEventListener('click', e => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    let fromList = false;
+    try {
+        const ref = new URL(document.referrer);
+        fromList = ref.origin === location.origin && ref.pathname === '/activities/';
+    } catch (err) { /* no referrer */ }
+    if (fromList && history.length > 1) {
+        e.preventDefault();
+        history.back();
+    }
+});
+
 async function rename() {
     const current = document.getElementById('ad-title').textContent;
     // roamlyPrompt, not window.prompt — this was the last native browser dialog
@@ -422,6 +453,7 @@ async function rename() {
             method: 'POST', json: { title: next }, toast: false,
         });
         document.getElementById('ad-title').textContent = next || 'Activity';
+        forgetActivityList();
         window.roamlyToast('Renamed', { type: 'success' });
     } catch (e) {
         window.roamlyToast(e.message || 'Could not rename', { type: 'error' });
@@ -438,6 +470,7 @@ async function remove() {
         await window.roamlyFetch(`/api/activities/${ACTIVITY_ID}/delete/`, {
             method: 'POST', toast: false,
         });
+        forgetActivityList();
         window.location.href = '/activities/';
     } catch (e) {
         window.roamlyToast(e.message || 'Could not delete', { type: 'error' });

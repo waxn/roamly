@@ -1,33 +1,76 @@
 {% extends 'tracker/base.html' %}
 {% block title %}Activities - Roamly{% endblock %}
-{# No map on this page — skip MapLibre (~1MB JS + 70KB CSS). #}
+{# No map on this page — skip MapLibre (~1MB JS + 70KB CSS). The tiles' mini-maps
+   are a few raster <img>s and an SVG line each, composed client-side. #}
 {% block map_css %}{% endblock %}
 {% block map_js %}{% endblock %}
 
 {% block extra_css %}
 <style>
 .act-filters { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-.act-row {
-    display: flex; align-items: center; gap: 1rem;
-    padding: 1rem 1.25rem; margin-bottom: 0.5rem;
+.act-grid {
+    display: grid; gap: 0.75rem;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+}
+.act-card {
+    display: flex; flex-direction: column; min-width: 0; overflow: hidden;
     background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: var(--radius); text-decoration: none; color: inherit;
+    border-radius: var(--r-auto, 0); text-decoration: none; color: inherit;
     transition: border-color 0.2s var(--ease-out);
 }
-.act-row:hover { border-color: var(--primary); }
-.act-glyph { font-size: 1.5rem; width: 2rem; text-align: center; flex-shrink: 0; }
-.act-main { flex: 1; min-width: 0; }
-.act-name { font-weight: 600; font-size: 0.9375rem; }
-.act-when { color: var(--text-muted); font-size: 0.75rem; font-family: var(--font-mono); margin-top: 0.1rem; }
-.act-nums { display: flex; gap: 1.5rem; flex-shrink: 0; }
-.act-num .v { font-family: var(--font-mono); font-weight: 600; font-size: 0.9375rem; }
-.act-num .l { color: var(--text-muted); font-size: 0.6875rem; margin-top: 0.05rem; }
-.act-pending { color: var(--clay-amber); font-size: 0.75rem; font-family: var(--font-mono); }
-.act-empty { color: var(--text-muted); padding: 2.5rem 0; text-align: center; font-size: 0.875rem; }
-@media (max-width: 640px) {
-    .act-row { flex-wrap: wrap; }
-    .act-nums { width: 100%; justify-content: space-between; gap: 0; }
+.act-card:hover, .act-card:focus-visible { border-color: var(--primary); }
+/* The mini-map. Everything inside is laid out in a fixed 2:1 frame (tile <img>s
+   in percentages, the SVG in a matching viewBox), so it scales with the card
+   and never has to be measured. The dotted tint shows until tiles land, and is
+   the whole background when there are none. */
+.act-minimap {
+    position: relative; aspect-ratio: 2 / 1; overflow: hidden;
+    background-color: var(--bg-elevated);
+    background-image: radial-gradient(var(--border) 1px, transparent 1px);
+    background-size: 14px 14px;
+    border-bottom: 1px solid var(--border);
 }
+.act-minimap img {
+    position: absolute; max-width: none; display: block;
+    opacity: 0; transition: opacity 0.25s var(--ease-out);
+    pointer-events: none; user-select: none; -webkit-user-select: none;
+}
+.act-minimap img.ld { opacity: 1; }
+.act-minimap svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.act-minimap .cas, .act-minimap .ln {
+    fill: none; stroke-linecap: round; stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+}
+.act-minimap .cas { stroke: var(--bg); stroke-opacity: 0.75; stroke-width: 5; }
+.act-minimap .ln { stroke: var(--primary); stroke-width: 2.5; }
+.act-minimap-empty { display: grid; place-items: center; }
+.act-minimap-empty span {
+    color: var(--text-muted); font-family: var(--font-mono); font-size: 0.6875rem;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--r-auto, 0); padding: 0.2rem 0.5rem;
+}
+.act-body { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.85rem 1rem 0.9rem; flex: 1; }
+.act-head { display: flex; align-items: flex-start; gap: 0.6rem; min-width: 0; }
+.act-glyph { font-size: 1.25rem; line-height: 1.2; flex-shrink: 0; }
+.act-main { flex: 1; min-width: 0; }
+.act-name {
+    font-family: var(--font-display); font-weight: 600; font-size: 1rem; line-height: 1.25;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.act-when { color: var(--text-muted); font-size: 0.75rem; font-family: var(--font-mono); margin-top: 0.15rem; }
+.act-nums {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem;
+    margin-top: auto; padding-top: 0.7rem; border-top: 1px solid var(--border);
+}
+.act-num .v { font-family: var(--font-mono); font-weight: 600; font-size: 0.9375rem; white-space: nowrap; }
+.act-num .l { color: var(--text-muted); font-size: 0.6875rem; margin-top: 0.05rem; }
+.act-pending {
+    margin-top: auto; padding-top: 0.7rem; border-top: 1px solid var(--border);
+    color: var(--clay-amber); font-size: 0.75rem; font-family: var(--font-mono);
+}
+.act-empty { color: var(--text-muted); padding: 2.5rem 0; text-align: center; font-size: 0.875rem; }
+.act-attrib { color: var(--text-muted); font-size: 0.625rem; font-family: var(--font-mono); margin-top: 0.75rem; text-align: right; }
+.act-grid .skel-card { height: 15rem; }
 </style>
 {% endblock %}
 
@@ -38,17 +81,20 @@
     <div class="page-toolbar">
         <div>
             <h1>Activities</h1>
-            <p class="page-lead" style="margin-bottom:0;">rides, walks and runs you recorded deliberately.</p>
         </div>
         <div class="act-filters toolbar-actions" id="act-filters"></div>
     </div>
 
     <div id="act-list" aria-busy="true">
-        <div class="skeleton skel-card" style="height:4.5rem;margin-bottom:0.5rem"></div>
-        <div class="skeleton skel-card" style="height:4.5rem;margin-bottom:0.5rem"></div>
-        <div class="skeleton skel-card" style="height:4.5rem"></div>
+        <div class="act-grid">
+            <div class="skeleton skel-card"></div>
+            <div class="skeleton skel-card"></div>
+            <div class="skeleton skel-card"></div>
+        </div>
     </div>
+    <div class="act-attrib" id="act-attrib" hidden></div>
 </div>
+{{ basemaps|json_script:"roamly-basemaps" }}
 {% endblock %}
 
 {% block extra_js %}
@@ -63,9 +109,35 @@ const KINDS = [
     ['other', 'Other'],
 ];
 const GLYPH = { ride:'🚲', run:'🏃', walk:'🚶', hike:'🥾', row:'🚣', other:'📍' };
-let activeKind = '';
+const CARTO_QS = '{{ CARTO_TILE_QS|escapejs }}';
+// sessionStorage cache of the list response, per user and filter. Coming back
+// from an activity renders this synchronously (no skeleton, scroll position
+// restored) and revalidates in the background. activity_detail.html clears it
+// on rename/delete, so it shares the prefix.
+const CACHE_PREFIX = 'roamly_act_list:';
+const CACHE_KEY = kind => `${CACHE_PREFIX}v1:{{ request.user.id }}:${kind}`;
+const KIND_KEY = 'roamly_act_kind';
 
-function isImperial() { return (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph'; }
+function ssGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
+function ssSet(k, v) {
+    try { sessionStorage.setItem(k, v); } catch (e) {
+        // Quota: drop the other filters' copies and try once more.
+        try {
+            for (let i = sessionStorage.length - 1; i >= 0; i--) {
+                const key = sessionStorage.key(i);
+                if (key && key.startsWith(CACHE_PREFIX) && key !== k) sessionStorage.removeItem(key);
+            }
+            sessionStorage.setItem(k, v);
+        } catch (e2) { /* storage unavailable — the page still works uncached */ }
+    }
+}
+
+let activeKind = ssGet(KIND_KEY) || '';
+if (!KINDS.some(k => k[0] === activeKind)) activeKind = '';
+
+function isImperial() {
+    try { return (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph'; } catch (e) { return false; }
+}
 function fmtDistance(km) {
     if (km == null) return '—';
     return isImperial() ? (km * 0.621371).toFixed(2) + ' mi' : km.toFixed(2) + ' km';
@@ -84,29 +156,185 @@ function escapeHtml(s) {
         ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 }
 
+// ── Mini-map background ─────────────────────────────────────────────────────
+// The tiles follow the basemap picked on /map/ (roamly_map_tile_style), read
+// from the same catalog the map renders (tracker/basemaps.py). A vector-only
+// style (OpenFreeMap) has no raster tiles to borrow, so it falls back to the
+// closest CARTO raster the app already uses everywhere else.
+function rasterSource(style) {
+    if (!style || typeof style !== 'object' || !style.sources) return null;
+    for (const id of Object.keys(style.sources)) {
+        const s = style.sources[id];
+        if (s && s.type === 'raster' && Array.isArray(s.tiles) && s.tiles.length) {
+            return { tiles: s.tiles, size: s.tileSize || 256, maxzoom: s.maxzoom || 19,
+                     attribution: s.attribution || '' };
+        }
+    }
+    return null;
+}
+const TILE_SRC = (function () {
+    let list = [];
+    try { list = JSON.parse(document.getElementById('roamly-basemaps').textContent) || []; } catch (e) {}
+    let saved = 'Streets';
+    try { saved = localStorage.getItem('roamly_map_tile_style') || 'Streets'; } catch (e) {}
+    const entry = list.find(b => b.id === saved) || list[0];
+    const src = entry && rasterSource(entry.style);
+    if (src) return src;
+    const dark = entry ? /dark/i.test(entry.id)
+                       : document.documentElement.getAttribute('data-theme') !== 'light';
+    return {
+        tiles: [`https://basemaps.cartocdn.com/${dark ? 'dark_all' : 'rastertiles/voyager'}/{z}/{x}/{y}.png${CARTO_QS}`],
+        size: 256, maxzoom: 19, attribution: '© OpenStreetMap contributors © CARTO',
+    };
+})();
+(function showAttribution() {
+    // Attribution strings carry links; show them as plain text, once, under the grid.
+    // DOMParser builds an inert document: nothing in it loads or runs.
+    let text = '';
+    try {
+        const doc = new DOMParser().parseFromString(String(TILE_SRC.attribution || ''), 'text/html');
+        text = (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
+    } catch (e) { /* no attribution line */ }
+    const el = document.getElementById('act-attrib');
+    el.textContent = text ? 'Map tiles ' + text : '';
+})();
+
+/** Google encoded polyline (precision 5) → [[lat, lon], …]. */
+function decodePolyline(enc) {
+    const out = [];
+    let i = 0, lat = 0, lon = 0;
+    while (i < enc.length) {
+        for (let k = 0; k < 2; k++) {
+            let shift = 0, result = 0, b;
+            do {
+                b = enc.charCodeAt(i++) - 63;
+                result |= (b & 0x1f) << shift;
+                shift += 5;
+            } while (b >= 0x20 && i < enc.length);
+            const d = (result & 1) ? ~(result >> 1) : (result >> 1);
+            if (k === 0) lat += d; else lon += d;
+        }
+        out.push([lat / 1e5, lon / 1e5]);
+    }
+    return out;
+}
+
+// Nominal frame: the card's 2:1 mini-map, in "pixels" that only exist to do
+// the web-mercator arithmetic. Everything is emitted as percentages of it.
+const MW = 360, MH = 180, PAD = 18;
+const mercX = lon => (lon + 180) / 360;
+const mercY = lat => {
+    const s = Math.sin(Math.max(-85.0511, Math.min(85.0511, lat)) * Math.PI / 180);
+    return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
+};
+const pct = (v, of) => (v / of * 100).toFixed(3) + '%';
+
+function miniMapHtml(thumb, emptyLabel) {
+    const segs = (Array.isArray(thumb) ? thumb : [])
+        .map(e => typeof e === 'string' ? decodePolyline(e) : [])
+        .filter(s => s.length >= 2)
+        .map(s => s.map(([la, lo]) => [mercX(lo), mercY(la)]));
+    if (!segs.length) {
+        return `<div class="act-minimap act-minimap-empty" aria-hidden="true">
+            <span>${escapeHtml(emptyLabel)}</span></div>`;
+    }
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    segs.forEach(s => s.forEach(([x, y]) => {
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }));
+    const src = TILE_SRC, ts = src.size;
+    // Fractional zoom that fits the bbox inside the padded frame, capped so a
+    // short stroll isn't blown up past street level.
+    const cap = Math.min(src.maxzoom, ts >= 512 ? 15 : 16);
+    const fit = Math.min((MW - 2 * PAD) / (Math.max(x1 - x0, 1e-12) * ts),
+                         (MH - 2 * PAD) / (Math.max(y1 - y0, 1e-12) * ts));
+    const zf = Math.max(1, Math.min(cap, Math.log2(fit)));
+    let z = Math.floor(zf);
+    // Sharper tiles on high-DPI screens: one zoom deeper, each drawn half size.
+    // @2x and 512px sources are already high-resolution.
+    const hd = ts >= 512 || src.tiles[0].indexOf('@2x') !== -1;
+    if (!hd && (window.devicePixelRatio || 1) >= 1.5 && z + 1 <= src.maxzoom) z += 1;
+    const world = ts * Math.pow(2, zf);
+    const tilePx = ts * Math.pow(2, zf - z);
+    const ox = (x0 + x1) / 2 * world - MW / 2;
+    const oy = (y0 + y1) / 2 * world - MH / 2;
+    const n = Math.pow(2, z);
+    const imgs = [];
+    for (let ty = Math.floor(oy / tilePx); ty * tilePx < oy + MH; ty++) {
+        if (ty < 0 || ty >= n) continue;
+        for (let tx = Math.floor(ox / tilePx); tx * tilePx < ox + MW; tx++) {
+            const wx = ((tx % n) + n) % n;
+            // Deterministic subdomain + URL, so the same tile is the same
+            // request every time and the browser's HTTP cache serves it.
+            const tpl = src.tiles[(wx + ty) % src.tiles.length];
+            const url = tpl.replace(/\{z\}/g, z).replace(/\{x\}/g, wx).replace(/\{y\}/g, ty)
+                           .replace(/\{s\}/g, 'a').replace(/\{r\}/g, '');
+            // +1px hides hairline seams from sub-pixel rounding between tiles.
+            imgs.push(`<img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async"
+                style="left:${pct(tx * tilePx - ox, MW)};top:${pct(ty * tilePx - oy, MH)};width:calc(${pct(tilePx, MW)} + 1px);height:calc(${pct(tilePx, MH)} + 1px)">`);
+        }
+    }
+    const d = segs.map(s => 'M' + s.map(([x, y]) =>
+        `${(x * world - ox).toFixed(1)} ${(y * world - oy).toFixed(1)}`).join('L')).join('');
+    return `<div class="act-minimap" aria-hidden="true">${imgs.join('')}
+        <svg viewBox="0 0 ${MW} ${MH}" preserveAspectRatio="none" focusable="false">
+            <path class="cas" d="${d}"/><path class="ln" d="${d}"/></svg></div>`;
+}
+
+// Fade tiles in as they arrive; drop any that fail (the tint and line remain).
+(function wireTileEvents() {
+    const list = document.getElementById('act-list');
+    list.addEventListener('load', e => {
+        if (e.target.tagName === 'IMG') e.target.classList.add('ld');
+    }, true);
+    list.addEventListener('error', e => {
+        if (e.target.tagName === 'IMG') e.target.remove();
+    }, true);
+})();
+
+// ── Rendering ───────────────────────────────────────────────────────────────
 function renderFilters() {
     document.getElementById('act-filters').innerHTML = KINDS.map(([slug, label]) =>
         `<button class="btn btn-sm ${slug === activeKind ? 'btn-primary' : 'btn-outline'}" data-kind="${slug}">${label}</button>`
     ).join('');
     document.querySelectorAll('#act-filters .btn').forEach(btn => {
-        btn.addEventListener('click', () => { activeKind = btn.dataset.kind; renderFilters(); load(); });
+        btn.addEventListener('click', () => {
+            if (btn.dataset.kind === activeKind) return;
+            activeKind = btn.dataset.kind;
+            ssSet(KIND_KEY, activeKind);
+            renderFilters();
+            load();
+        });
     });
+}
+
+function showSkeleton() {
+    const el = document.getElementById('act-list');
+    el.setAttribute('aria-busy', 'true');
+    el.innerHTML = '<div class="act-grid">' +
+        '<div class="skeleton skel-card"></div>'.repeat(3) + '</div>';
+    document.getElementById('act-attrib').hidden = true;
 }
 
 function render(rows) {
     const el = document.getElementById('act-list');
+    const attrib = document.getElementById('act-attrib');
     el.setAttribute('aria-busy', 'false');
     if (!rows.length) {
-        el.innerHTML = `<div class="act-empty">No activities recorded yet.<br>
-            Start one from the record button on the map in the Roamly app.</div>`;
+        attrib.hidden = true;
+        el.innerHTML = activeKind
+            ? `<div class="act-empty">No activities of this kind yet.</div>`
+            : `<div class="act-empty">No activities recorded yet.<br>
+                Start one from the record button on the map in the Roamly app.</div>`;
         return;
     }
-    el.innerHTML = rows.map(a => {
+    el.innerHTML = '<div class="act-grid">' + rows.map(a => {
         const when = new Date(a.start).toLocaleString([], {
             year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const pending = a.computed_at === null;
         // computed_at is null until the server has seen the points. Saying so beats
         // showing a confident 0.00 km for a ride still uploading from a tunnel.
-        const nums = a.computed_at === null
+        const nums = pending
             ? `<div class="act-pending">waiting for points…</div>`
             : `<div class="act-nums">
                  <div class="act-num"><div class="v">${fmtDistance(a.distance_km)}</div><div class="l">distance</div></div>
@@ -114,38 +342,73 @@ function render(rows) {
                  <div class="act-num"><div class="v">${fmtSpeed(a.avg_speed_kmh)}</div><div class="l">${isImperial() ? 'mph' : 'km/h'}</div></div>
                </div>`;
         const label = (KINDS.find(k => k[0] === a.kind) || ['', 'Activity'])[1];
-        return `<a class="act-row" href="/activities/${a.id}/">
-            <div class="act-glyph">${GLYPH[a.kind] || GLYPH.other}</div>
-            <div class="act-main">
-                <div class="act-name">${escapeHtml(a.title || label)}</div>
-                <div class="act-when">${when}</div>
+        // thumb === null on a scored activity means "not built yet" (the server
+        // ran out of its per-request budget); [] means there is no line to draw.
+        const emptyLabel = pending ? 'uploading' : (a.thumb == null ? 'map pending' : 'no GPS line');
+        return `<a class="act-card" href="/activities/${Number(a.id)}/">
+            ${miniMapHtml(a.thumb, emptyLabel)}
+            <div class="act-body">
+                <div class="act-head">
+                    <span class="act-glyph" aria-hidden="true">${GLYPH[a.kind] || GLYPH.other}</span>
+                    <div class="act-main">
+                        <div class="act-name">${escapeHtml(a.title || label)}</div>
+                        <div class="act-when">${when}</div>
+                    </div>
+                </div>
+                ${nums}
             </div>
-            ${nums}
         </a>`;
-    }).join('');
+    }).join('') + '</div>';
+    attrib.hidden = !attrib.textContent;
+    // Tiles already in the memory cache are complete at once — show them
+    // without the fade so a cached re-render doesn't flicker.
+    el.querySelectorAll('.act-minimap img').forEach(img => {
+        if (img.complete && img.naturalWidth) img.classList.add('ld');
+    });
 }
 
+let loadSeq = 0;
+/** Stale-while-revalidate: paint the cached copy for this filter at once, then
+ *  fetch and re-render only if the response differs. */
 function load() {
-    const el = document.getElementById('act-list');
-    el.setAttribute('aria-busy', 'true');
-    const qs = activeKind ? `?kind=${encodeURIComponent(activeKind)}` : '';
+    const seq = ++loadSeq;
+    const kind = activeKind;
+    const key = CACHE_KEY(kind);
+    const cachedText = ssGet(key);
+    let shown = false;
+    if (cachedText) {
+        try { render(JSON.parse(cachedText).activities || []); shown = true; } catch (e) { /* corrupt copy */ }
+    }
+    if (!shown) showSkeleton();
+
+    const qs = kind ? `?kind=${encodeURIComponent(kind)}` : '';
     // Check r.ok before reading the body: an error response is still JSON, so
     // `d.activities || []` quietly rendered "no activities yet" for a 403 or a
     // 500 — a failing request looked exactly like an empty account.
-    fetch(`/api/activities/${qs}`)
+    fetch(`/api/activities/${qs}`, { credentials: 'same-origin' })
         .then(r => {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            return r.json();
+            return r.text();
         })
-        .then(d => render(d.activities || []))
+        .then(text => {
+            if (seq !== loadSeq) return;        // a newer filter click won
+            const d = JSON.parse(text);
+            ssSet(key, text);
+            if (text !== cachedText || !shown) render(d.activities || []);
+        })
         .catch(() => {
+            if (seq !== loadSeq || shown) return;   // keep showing the cached copy
+            const el = document.getElementById('act-list');
             el.setAttribute('aria-busy', 'false');
             el.innerHTML = `<div class="act-empty">Couldn't load activities.
-                <button class="btn btn-outline" onclick="load()">Retry</button></div>`;
+                <button class="btn btn-outline" id="act-retry">Retry</button></div>`;
+            document.getElementById('act-retry').addEventListener('click', load);
         });
 }
 
 renderFilters();
 load();
+// Restored from the back/forward cache: the DOM is already there, just revalidate.
+window.addEventListener('pageshow', e => { if (e.persisted) load(); });
 </script>
 {% endblock %}

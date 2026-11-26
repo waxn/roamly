@@ -9,7 +9,6 @@
     <div class="page-toolbar">
         <div>
             <h1>Raw data</h1>
-            <p class="page-lead" style="margin-bottom:0;" id="data-lead">Browse and sort every recorded GPS point.</p>
         </div>
         <div class="toolbar-actions">
             <select id="data-source" class="form-control" style="width: auto;" aria-label="Data source">
@@ -83,11 +82,58 @@
         </div>
     </div>
 </div>
+
+{# Recap email reader: the email's HTML goes only into a sandboxed srcdoc iframe (no allow-scripts, opaque origin), never into this page's DOM. #}
+<div class="recap-overlay" id="recap-overlay" hidden>
+    <div class="recap-panel" role="dialog" aria-modal="true" aria-labelledby="recap-subject">
+        <div class="recap-head">
+            <div style="min-width:0;">
+                <h3 class="recap-subject" id="recap-subject"></h3>
+                <div class="recap-meta" id="recap-meta"></div>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" id="recap-close" aria-label="Close">Close</button>
+        </div>
+        <div class="recap-tabs" id="recap-tabs">
+            <button type="button" class="btn btn-outline btn-sm" data-view="html" aria-pressed="true">Email</button>
+            <button type="button" class="btn btn-outline btn-sm" data-view="text" aria-pressed="false">Plain text</button>
+        </div>
+        <iframe class="recap-frame" id="recap-frame" title="Recap email"
+                sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe>
+        <pre class="recap-text" id="recap-text" hidden></pre>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_css %}
 <style>
 .toolbar-actions .btn-sm { padding: 0.5rem 0.75rem; }
+#raw-body tr.raw-open { cursor: pointer; }
+#raw-body tr.raw-open:hover td, #raw-body tr.raw-open:focus-visible td { background: var(--bg-elevated); }
+#raw-body tr.raw-open:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.recap-overlay {
+    position: fixed; inset: 0; z-index: 9000; display: flex;
+    align-items: center; justify-content: center;
+    padding: 1rem; background: rgba(0, 0, 0, 0.6);
+}
+.recap-overlay[hidden] { display: none; }
+.recap-panel {
+    width: 100%; max-width: 640px; max-height: calc(100vh - 2rem);
+    display: flex; flex-direction: column; gap: 0.75rem;
+    background: var(--bg-card); border: 1px solid var(--border);
+    padding: 1.25rem; box-shadow: var(--clay-shadow-hover);
+}
+.recap-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; }
+.recap-subject { margin: 0; font-family: var(--font-display); font-size: 1.1rem; overflow-wrap: anywhere; }
+.recap-meta { margin-top: 0.25rem; font-size: 0.8125rem; color: var(--text-muted); }
+.recap-tabs { display: flex; gap: 0.5rem; }
+.recap-tabs[hidden] { display: none; }
+.recap-tabs [aria-pressed="true"] { border-color: var(--primary); color: var(--primary); }
+.recap-frame { width: 100%; height: 65vh; min-height: 0; flex: 0 1 auto; border: 1px solid var(--border); background: #14160f; }
+.recap-text {
+    margin: 0; height: 65vh; min-height: 0; flex: 0 1 auto; overflow: auto; padding: 0.75rem;
+    border: 1px solid var(--border); background: var(--bg-elevated);
+    font-size: 0.8125rem; white-space: pre-wrap; overflow-wrap: anywhere;
+}
 </style>
 {% endblock %}
 
@@ -488,14 +534,21 @@ const SOURCE_LEADS = {
     hidden: 'Points hidden because another of your devices recorded the same trip.',
     cells: 'Cell tower readings your phone logged alongside its GPS fixes.',
     health: 'Raw records from Health Connect, Zepp and file imports.',
+    recaps: 'The AI recap emails Roamly sent you. Click one to read it.',
+};
+const EMPTY_TEXT = {
+    recaps: 'No recap emails yet. Recaps sent before this history was added are not listed.',
 };
 const sourceSel = document.getElementById('data-source');
 let activeSource = 'locations';
-let raw = { rows: [], columns: [], bv: null, bid: null, loading: false, token: 0 };
+let raw = { rows: [], columns: [], bv: null, bid: null, loading: false, token: 0, open: null };
+let sourceInfo = {};  // key -> {device, range}: which toolbar filters apply
 
 function fmtRaw(v, type) {
     if (v === null || v === undefined || v === '') return '-';
     if (type === 'time') return new Date(v).toLocaleString();
+    if (type === 'date') return new Date(v + 'T00:00:00').toLocaleDateString();
+    if (type === 'bool') return v ? 'Yes' : '-';
     if (type === 'coord') return Number(v).toFixed(5);
     if (type === 'speed') return formatSpeed(v);
     if (type === 'num') return typeof v === 'number' && !Number.isInteger(v) ? v.toFixed(1) : String(v);
@@ -506,10 +559,12 @@ function rawRender() {
     document.getElementById('raw-head').innerHTML =
         raw.columns.map(c => `<th>${escHtml(c.label)}</th>`).join('');
     const n = raw.columns.length || 1;
+    const openAttrs = raw.open ? ' class="raw-open" tabindex="0"' : '';
+    const empty = EMPTY_TEXT[activeSource] || 'Nothing in this range. Try a wider time range or another device.';
     document.getElementById('raw-body').innerHTML = raw.rows.length
-        ? raw.rows.map(r => '<tr>' + raw.columns.map(c =>
+        ? raw.rows.map(r => `<tr data-id="${Number(r.id)}"${openAttrs}>` + raw.columns.map(c =>
             `<td${c.type === 'time' ? ' style="color:var(--text-muted)"' : ''}>${fmtRaw(r[c.key], c.type)}</td>`).join('') + '</tr>').join('')
-        : `<tr><td colspan="${n}" style="text-align:center;padding:2.5rem 1rem;color:var(--text-muted);">Nothing in this range. Try a wider time range or another device.</td></tr>`;
+        : `<tr><td colspan="${n}" style="text-align:center;padding:2.5rem 1rem;color:var(--text-muted);">${escHtml(empty)}</td></tr>`;
     document.getElementById('raw-info').textContent = `Showing ${raw.rows.length} rows`;
 }
 
@@ -535,6 +590,7 @@ async function rawLoad(append = false) {
         const d = await r.json();
         if (token !== raw.token) return;  // the source or filters changed meanwhile
         raw.columns = d.columns || [];
+        raw.open = d.open || null;
         raw.rows = raw.rows.concat(d.rows || []);
         raw.bv = d.next_before_value ?? null;
         raw.bid = d.next_before_id ?? null;
@@ -560,7 +616,11 @@ function selectSource(key, push = true) {
     sourceSel.value = key;
     document.getElementById('loc-card').hidden = key !== 'locations';
     document.getElementById('raw-card').hidden = key === 'locations';
-    document.getElementById('data-lead').textContent = SOURCE_LEADS[key] || '';
+    // The page has no lead paragraph any more; the description rides on the selector.
+    sourceSel.title = SOURCE_LEADS[key] || '';
+    const info = sourceInfo[key] || { device: true, range: true };
+    document.getElementById('data-device').style.display = info.device ? '' : 'none';
+    document.getElementById('data-range').style.display = info.range ? '' : 'none';
     try { localStorage.setItem('roamly_data_source', key); } catch (e) {}
     if (push) {
         const u = new URL(location.href);
@@ -578,6 +638,7 @@ function selectSource(key, push = true) {
         const r = await fetch('/api/data/sources/');
         if (r.ok) sources = (await r.json()).sources || sources;
     } catch (e) {}
+    sources.forEach(s => { sourceInfo[s.key] = { device: s.device !== false, range: s.range !== false }; });
     sourceSel.innerHTML = sources.map(s => `<option value="${escHtml(s.key)}">${escHtml(s.label)}</option>`).join('');
     // A single source has nothing to choose between.
     sourceSel.style.display = sources.length > 1 ? '' : 'none';
@@ -586,6 +647,91 @@ function selectSource(key, push = true) {
 })();
 
 sourceSel.addEventListener('change', () => selectSource(sourceSel.value));
+
+// ---- Recap email reader -----------------------------------------------------
+const recapEl = {
+    overlay: document.getElementById('recap-overlay'),
+    subject: document.getElementById('recap-subject'),
+    meta: document.getElementById('recap-meta'),
+    frame: document.getElementById('recap-frame'),
+    text: document.getElementById('recap-text'),
+    tabs: document.getElementById('recap-tabs'),
+};
+let recapReturnFocus = null;
+let recapToken = 0;
+
+function recapView(view) {
+    recapEl.frame.hidden = view !== 'html';
+    recapEl.text.hidden = view !== 'text';
+    recapEl.tabs.querySelectorAll('[data-view]').forEach(b =>
+        b.setAttribute('aria-pressed', b.dataset.view === view ? 'true' : 'false'));
+}
+
+function closeRecap() {
+    if (recapEl.overlay.hidden) return;
+    recapToken++;
+    recapEl.overlay.hidden = true;
+    recapEl.frame.srcdoc = '';
+    if (recapReturnFocus) recapReturnFocus.focus();
+}
+
+async function openRecap(id, fromEl) {
+    const token = ++recapToken;
+    recapReturnFocus = fromEl || null;
+    recapEl.subject.textContent = 'Loading\u2026';
+    recapEl.meta.textContent = '';
+    recapEl.text.textContent = '';
+    recapEl.frame.srcdoc = '';
+    recapEl.tabs.hidden = true;
+    recapView('text');
+    recapEl.overlay.hidden = false;
+    document.getElementById('recap-close').focus();
+    try {
+        const r = await fetch(`/api/data/recap-emails/${encodeURIComponent(id)}/`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        if (token !== recapToken) return;
+        recapEl.subject.textContent = d.subject || 'Recap email';
+        const period = d.period ? d.period.charAt(0).toUpperCase() + d.period.slice(1) : '';
+        const span = d.period_start === d.period_end
+            ? fmtRaw(d.period_start, 'date')
+            : `${fmtRaw(d.period_start, 'date')} \u2013 ${fmtRaw(d.period_end, 'date')}`;
+        const status = d.status === 'failed' ? 'Not delivered' : 'Sent';
+        recapEl.meta.textContent = [period, span, `${status} ${new Date(d.sent_at).toLocaleString()}`,
+                                    d.is_test ? 'Test send' : ''].filter(Boolean).join(' \u00b7 ');
+        recapEl.text.textContent = d.text || '(no plain-text copy)';
+        if (d.html) {
+            // Open links in a new tab rather than inside the frame.
+            const base = '<base target="_blank">';
+            recapEl.frame.srcdoc = /<head[^>]*>/i.test(d.html)
+                ? d.html.replace(/<head[^>]*>/i, m => m + base)
+                : (/<html[^>]*>/i.test(d.html) ? d.html.replace(/<html[^>]*>/i, m => m + base) : base + d.html);
+            recapEl.tabs.hidden = false;
+            recapView('html');
+        }
+    } catch (err) {
+        if (token !== recapToken) return;
+        recapEl.subject.textContent = 'Could not load this email';
+        recapEl.meta.textContent = err.message;
+    }
+}
+
+document.getElementById('raw-body').addEventListener('click', ev => {
+    const tr = ev.target.closest('tr.raw-open');
+    if (tr && raw.open === 'recap') openRecap(tr.dataset.id, tr);
+});
+document.getElementById('raw-body').addEventListener('keydown', ev => {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    const tr = ev.target.closest('tr.raw-open');
+    if (tr && raw.open === 'recap') { ev.preventDefault(); openRecap(tr.dataset.id, tr); }
+});
+document.getElementById('recap-close').addEventListener('click', closeRecap);
+recapEl.overlay.addEventListener('click', ev => { if (ev.target === recapEl.overlay) closeRecap(); });
+recapEl.tabs.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-view]');
+    if (b) recapView(b.dataset.view);
+});
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') closeRecap(); });
 document.getElementById('data-device').addEventListener('change', reloadActive);
 document.getElementById('data-range').addEventListener('change', reloadActive);
 // search inputs removed; no listeners needed here

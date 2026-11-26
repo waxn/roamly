@@ -30,7 +30,7 @@ body:has(.ask-app) { overflow: hidden; }
     color: var(--text-dim); text-transform: uppercase; padding: 0.8rem 0.45rem 0.35rem;
 }
 .ask-chat-row {
-    display: flex; align-items: center; gap: 0.25rem;
+    display: flex; align-items: center; gap: 0.1rem;
     border-radius: var(--radius-sm); padding: 0.1rem 0.15rem 0.1rem 0.5rem;
     cursor: pointer; color: var(--text-muted);
 }
@@ -44,14 +44,23 @@ body:has(.ask-app) { overflow: hidden; }
     width: 100%; font: inherit; color: var(--text); background: var(--bg-input);
     border: 1px solid var(--border-bright); border-radius: calc(4px * var(--rk, 1)); padding: 0.15rem 0.35rem;
 }
+/* Star / rename / delete: one stroke icon set, 16px glyphs in 28px targets.
+   Shown on hover, focus and the open chat; a starred chat keeps its filled
+   star visible so the state reads without hovering. */
 .ask-row-btn {
-    border: 0; background: none; color: var(--text-dim); cursor: pointer;
-    width: 26px; height: 26px; border-radius: calc(4px * var(--rk, 1)); display: none;
-    align-items: center; justify-content: center; font-size: 0.85rem; flex-shrink: 0;
+    border: 0; background: none; color: var(--text-dim); cursor: pointer; padding: 0;
+    width: 28px; height: 28px; border-radius: var(--r-1, 0); display: none;
+    align-items: center; justify-content: center; flex-shrink: 0;
+    transition: background 0.15s, color 0.15s;
 }
-.ask-chat-row:hover .ask-row-btn, .ask-chat-row.active .ask-row-btn { display: inline-flex; }
-.ask-row-btn:hover { background: var(--bg-glass); color: var(--text); }
-.ask-row-btn.danger:hover { color: var(--danger); }
+.ask-row-btn svg { width: 16px; height: 16px; display: block; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ask-chat-row:hover .ask-row-btn, .ask-chat-row.active .ask-row-btn, .ask-chat-row:focus-within .ask-row-btn,
+.ask-row-btn.on { display: inline-flex; }
+.ask-row-btn:hover { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
+.ask-row-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; color: var(--text); }
+.ask-row-btn.on, .ask-row-btn.on:hover { color: var(--primary); }
+.ask-row-btn.on svg { fill: currentColor; }
+.ask-row-btn.danger:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .ask-side-empty { color: var(--text-dim); font-size: 0.85rem; padding: 0.6rem 0.5rem; }
 .ask-side-foot {
     padding: 0.7rem 0.9rem; border-top: 1px solid var(--border);
@@ -137,7 +146,7 @@ body:has(.ask-app) { overflow: hidden; }
 .ask-prop-btn.ok:hover { background: var(--primary-hover); }
 .ask-prop-btn:disabled { opacity: 0.5; cursor: default; }
 .ask-card {
-    display: flex; align-items: center; gap: 0.6rem; max-width: 100%;
+    display: flex; align-items: center; gap: 0.6rem; max-width: 100%; min-width: 0;
     border: 1px solid var(--border); background: var(--bg-card); color: var(--text);
     border-radius: var(--radius); padding: 0.5rem 0.75rem 0.5rem 0.55rem; cursor: pointer;
     font: inherit; text-align: left; transition: border-color 0.15s, background 0.15s;
@@ -145,11 +154,13 @@ body:has(.ask-app) { overflow: hidden; }
 .ask-card:hover { border-color: var(--border-bright); }
 .ask-card.active { border-color: var(--primary); background: var(--primary-soft); }
 .ask-card-icon {
-    width: 30px; height: 30px; border-radius: calc(6px * var(--rk, 1)); flex-shrink: 0;
-    background: var(--bg-elevated); display: flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: var(--r-1, 0); flex-shrink: 0;
+    background: var(--bg-elevated); color: var(--primary); display: flex; align-items: center; justify-content: center;
 }
-.ask-card-title { font-size: 0.86rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
-.ask-card-sub { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); }
+.ask-card.active .ask-card-icon { background: var(--bg-card); }
+.ask-card-text { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.ask-card-title { display: block; font-size: 0.86rem; font-weight: 600; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.ask-card-sub { display: block; font-family: var(--font-mono); font-size: 0.72rem; line-height: 1.3; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ask-actions { display: flex; gap: 0.25rem; margin-top: 0.4rem; opacity: 0; transition: opacity 0.15s; }
 .ask-turn.assistant:hover .ask-actions, .ask-turn.assistant:last-child .ask-actions { opacity: 1; }
 .ask-act {
@@ -199,16 +210,22 @@ body:has(.ask-app) { overflow: hidden; }
     display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
     border-left: 1px solid var(--border); background: var(--bg-card);
 }
-.ask-map-head { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); }
-.ask-map-titles { flex: 1; min-width: 0; }
-.ask-map-title { font-weight: 600; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ask-map-meta { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); }
+/* Same height, padding, rule and type as .ask-topbar, so the two bars read as
+   one header across the split. */
+.ask-map-head { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+.ask-topbar, .ask-map-head { min-height: calc(32px + 1rem + 1px); }
+.ask-map-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.ask-map-title { font-size: 0.9rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ask-map-meta { font-family: var(--font-mono); font-size: 0.68rem; line-height: 1.3; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ask-map-meta:empty { display: none; }
 .ask-map-wrap { flex: 1; position: relative; min-height: 0; }
 #ask-map { position: absolute; inset: 0; }
 .ask-map-loading {
     position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
     background: color-mix(in srgb, var(--bg-card) 60%, transparent); z-index: 2; color: var(--text-muted); gap: 0.5rem;
+    font-family: var(--font-mono); font-size: 0.72rem;
 }
+.ask-map-loading .spinner { width: 16px; height: 16px; margin: 0; }
 .ask-map-loading.on { display: flex; }
 .ask-map-tabs { display: flex; gap: 0.35rem; overflow-x: auto; padding: 0.5rem 0.75rem; border-top: 1px solid var(--border); }
 .ask-map-tabs:empty { display: none; }
@@ -219,11 +236,15 @@ body:has(.ask-app) { overflow: hidden; }
 }
 .ask-map-tab.active { border-color: var(--primary); color: var(--text); background: var(--primary-soft); }
 .ask-icon-btn {
-    border: 0; background: none; color: var(--text-muted); cursor: pointer;
-    width: 32px; height: 32px; border-radius: calc(6px * var(--rk, 1)); display: inline-flex; align-items: center; justify-content: center;
+    border: 0; background: none; color: var(--text-muted); cursor: pointer; padding: 0;
+    width: 32px; height: 32px; border-radius: var(--r-2, 0); display: inline-flex; align-items: center; justify-content: center;
     flex-shrink: 0; text-decoration: none; font-size: 0.95rem;
+    transition: background 0.15s, color 0.15s;
 }
+.ask-icon-btn svg { width: 18px; height: 18px; display: block; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .ask-icon-btn:hover { background: var(--bg-elevated); color: var(--text); }
+.ask-icon-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.ask-icon-btn:disabled { opacity: 0.4; cursor: default; background: none; color: var(--text-muted); }
 
 @media (max-width: 1100px) {
     .ask-app, .ask-app.map-open { grid-template-columns: 220px minmax(0, 1fr) 0; }
@@ -344,22 +365,78 @@ body:has(.ask-app) #main-content + div { display: none; }
 }
 .ask-pin span { transform: rotate(45deg); color: #fff; font: 700 11px var(--font-mono); }
 .ask-pin.dot span { display: none; }
-.ask-popup { font-family: var(--font-body); color: #1a1612; max-width: 240px; }
-.ask-popup b { display: block; font-size: 0.9rem; margin-bottom: 0.15rem; }
-.ask-popup p { margin: 0; font-size: 0.8rem; line-height: 1.35; }
-.ask-map-legend { position: absolute; left: 10px; top: 10px; z-index: 1; display: flex; gap: 0.6rem;
-    font-size: 0.72rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: calc(6px * var(--rk, 1)); padding: 0.25rem 0.55rem; color: var(--text-muted); }
+/* ── What sits on the map: legend, ranking, values, popups, controls ──
+   Small plates in the chat's surfaces: card background, hairline border,
+   mono micro-labels, role radii. The ink/marker hexes stay (map accents are
+   hardcoded by convention); everything else is a token. */
+.ask-popup { font-family: var(--font-body); color: inherit; max-width: 240px; }
+.ask-popup b { display: block; font-size: 0.88rem; font-weight: 600; margin-bottom: 0.15rem; padding-right: 1rem; }
+.ask-popup p { margin: 0; font-family: var(--font-mono); font-size: 0.72rem; line-height: 1.4; color: var(--text-muted); }
+.ask-map-legend, .ask-map-rank {
+    position: absolute; left: 10px; z-index: 1; box-sizing: border-box;
+    background: var(--bg-card); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--r-2, 0); box-shadow: var(--clay-shadow-sm);
+}
+/* Top-left, clear of the zoom buttons on the right; wraps rather than overflowing. */
+.ask-map-legend {
+    top: 10px; max-width: calc(100% - 66px);
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem;
+    padding: 0.3rem 0.6rem; font-family: var(--font-mono); font-size: 0.68rem; line-height: 1.4; color: var(--text-muted);
+}
 .ask-map-legend:empty { display: none; }
-.ask-map-legend .ramp { display: inline-block; width: 90px; height: 8px; border-radius: 4px; margin: 0 0.35rem; vertical-align: -1px; background: linear-gradient(90deg, rgba(232,118,61,0.15), #e8763d); }
-.ask-map-rank { position: absolute; left: 10px; bottom: 28px; z-index: 1; max-width: min(260px, 70%); max-height: 45%; overflow: auto;
-    font-size: 0.74rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: calc(6px * var(--rk, 1)); padding: 0.3rem 0.55rem; color: var(--text); }
+.ask-map-legend > span { display: inline-flex; align-items: center; min-width: 0; }
+.ask-map-legend i { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; margin-right: 0.35rem; }
+.ask-map-legend .ramp { display: inline-block; flex: none; width: 72px; height: 6px; border-radius: var(--r-pill, 0); margin: 0 0.4rem; background: linear-gradient(90deg, rgba(232,118,61,0.15), #e8763d); }
+.ask-map-rank {
+    bottom: 10px; width: min(250px, calc(100% - 20px)); max-height: 45%; overflow: auto;
+    padding: 0 0 0.25rem; font-size: 0.78rem;
+}
 .ask-map-rank:empty { display: none; }
-.ask-map-rank ol { margin: 0; padding: 0; list-style: none; }
-.ask-map-rank li { display: flex; justify-content: space-between; gap: 0.8rem; padding: 0.1rem 0; }
-.ask-map-rank li span:last-child { font-family: var(--font-mono); color: var(--text-muted); white-space: nowrap; }
-.ask-val { font: 700 11px var(--font-mono); color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000; pointer-events: none; transform: translate(-50%, -50%); position: absolute; }
-.ask-road-label { font: 600 11px var(--font-body); color: #fff; background: rgba(26,22,18,0.8); border-radius: 4px; padding: 1px 5px; pointer-events: none; }
-.ask-map-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 0.3rem; vertical-align: -1px; }
+.ask-map-rank-head {
+    position: sticky; top: 0; background: var(--bg-card);
+    padding: 0.4rem 0.6rem 0.3rem; border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim);
+}
+.ask-map-rank ol { margin: 0; padding: 0.2rem 0 0; list-style: none; counter-reset: rank; }
+.ask-map-rank li { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.18rem 0.6rem; counter-increment: rank; }
+.ask-map-rank li::before { content: counter(rank); flex: none; width: 1.2em; font-family: var(--font-mono); font-size: 0.66rem; color: var(--text-dim); text-align: right; }
+.ask-map-rank li span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-map-rank li span:last-child { flex: none; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ask-val { font: 600 11px var(--font-mono); color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000; pointer-events: none; transform: translate(-50%, -50%); position: absolute; }
+/* MapLibre ships its popup and controls white. Every components facet already
+   draws popups and the zoom group, so these only give Field Journal (no
+   data-style) its look; the compact attribution had no look anywhere. */
+:root:not([data-style]) .ask-mappanel .maplibregl-popup-content {
+    background: var(--bg-card); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--r-2, 0); padding: 0.6rem 0.75rem; box-shadow: var(--clay-shadow-hover, 0 6px 18px rgba(0,0,0,0.3));
+}
+:root:not([data-style]) .ask-mappanel .maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+:root:not([data-style]) .ask-mappanel .maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+:root:not([data-style]) .ask-mappanel .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: var(--bg-card); }
+:root:not([data-style]) .ask-mappanel .maplibregl-popup-anchor-top .maplibregl-popup-tip,
+:root:not([data-style]) .ask-mappanel .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+:root:not([data-style]) .ask-mappanel .maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: var(--bg-card); }
+:root:not([data-style]) .ask-mappanel .maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--bg-card); }
+:root:not([data-style]) .ask-mappanel .maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--bg-card); }
+.ask-mappanel .maplibregl-popup-close-button {
+    color: var(--text-muted); width: 24px; height: 24px; line-height: 22px; font-size: 1.05rem;
+    top: 4px; right: 4px; border-radius: var(--r-1, 0); background: none;
+}
+.ask-mappanel .maplibregl-popup-close-button:hover { color: var(--text); background: var(--bg-elevated); }
+:root:not([data-style]) .ask-mappanel .maplibregl-ctrl-group {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-2, 0);
+    box-shadow: var(--clay-shadow-sm); overflow: hidden;
+}
+:root:not([data-style]) .ask-mappanel .maplibregl-ctrl-group button { width: 30px; height: 30px; }
+:root:not([data-style]) .ask-mappanel .maplibregl-ctrl-group button + button { border-top: 1px solid var(--border); }
+:root:not([data-style]) .ask-mappanel .maplibregl-ctrl-group button:not(:disabled):hover { background: var(--bg-elevated); }
+:root:not([data-style]):not([data-theme="light"]) .ask-mappanel .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(0.88); }
+.ask-mappanel .maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact {
+    background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted);
+}
+.ask-mappanel .maplibregl-ctrl-attrib.maplibregl-compact a { color: var(--text-muted); }
+.ask-mappanel .maplibregl-ctrl-attrib.maplibregl-compact a:hover { color: var(--text); }
+:root:not([data-theme="light"]) .ask-mappanel .maplibregl-ctrl-attrib-button { filter: invert(0.88); }
 @media (min-width: 861px) { .ask-topbar { padding: 0.5rem 1rem; } }
 @media (max-width: 860px) { .ask-topbar .ask-burger { display: inline-flex; } }
 {% endblock %}
@@ -370,7 +447,7 @@ body:has(.ask-app) #main-content + div { display: none; }
     <aside class="ask-side" id="ask-side" aria-label="Chats">
         <div class="ask-side-head">
             <button class="btn btn-primary ask-new" type="button" onclick="newChat()" title="New chat (Ctrl+Shift+O)">＋ New chat</button>
-            <button class="ask-icon-btn ask-side-close" type="button" onclick="toggleSide(false)" aria-label="Close chats">✕</button>
+            <button class="ask-icon-btn ask-side-close" type="button" onclick="toggleSide(false)" title="Close chats" aria-label="Close chats"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
         </div>
         <div class="ask-search"><input type="search" id="ask-search" placeholder="Search chats…" aria-label="Search chats" class="rly-native"></div>
         <div class="ask-chats" id="ask-chats"><div class="ask-side-empty">Loading…</div></div>
@@ -379,11 +456,11 @@ body:has(.ask-app) #main-content + div { display: none; }
 
     <section class="ask-main">
         <div class="ask-topbar">
-            <button class="ask-icon-btn ask-burger" type="button" onclick="toggleSide(true)" aria-label="Chats">☰</button>
+            <button class="ask-icon-btn ask-burger" type="button" onclick="toggleSide(true)" title="Chats" aria-label="Chats"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg></button>
             <div class="ask-topbar-title" id="ask-topbar-title">New chat</div>
             <span class="ask-mode-badge" id="ask-mode-badge"></span>
-            <button class="ask-icon-btn" type="button" id="ask-export" onclick="exportChat()" title="Download as Markdown" aria-label="Download as Markdown" disabled>⤓</button>
-            <button class="ask-icon-btn" type="button" onclick="newChat()" title="New chat" aria-label="New chat">＋</button>
+            <button class="ask-icon-btn" type="button" id="ask-export" onclick="exportChat()" title="Download as Markdown" aria-label="Download as Markdown" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+            <button class="ask-icon-btn" type="button" onclick="newChat()" title="New chat" aria-label="New chat"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
         </div>
         <div class="ask-scroll" id="ask-scroll">
             <div class="ask-thread" id="ask-thread"></div>
@@ -412,14 +489,14 @@ body:has(.ask-app) #main-content + div { display: none; }
                 <div class="ask-map-title" id="ask-map-title">Map</div>
                 <div class="ask-map-meta" id="ask-map-meta"></div>
             </div>
-            <a class="ask-icon-btn" id="ask-map-full" href="/map/" title="Open in the full map" aria-label="Open in the full map">↗</a>
-            <button class="ask-icon-btn" type="button" onclick="closeMap()" title="Close map" aria-label="Close map">✕</button>
+            <a class="ask-icon-btn" id="ask-map-full" href="/map/" title="Open in the full map" aria-label="Open in the full map"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>
+            <button class="ask-icon-btn" type="button" onclick="closeMap()" title="Close map" aria-label="Close map"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
         </div>
         <div class="ask-map-wrap">
             <div id="ask-map"></div>
             <div class="ask-map-legend" id="ask-map-legend"></div>
             <div class="ask-map-rank" id="ask-map-rank"></div>
-            <div class="ask-map-loading" id="ask-map-loading"><span class="spinner"></span> loading…</div>
+            <div class="ask-map-loading" id="ask-map-loading"><span class="spinner"></span> Loading map…</div>
         </div>
         <div class="ask-map-tabs" id="ask-map-tabs"></div>
     </aside>
@@ -618,6 +695,13 @@ function relDay(iso) {
     if (days < 30) return 'Previous 30 days';
     return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 }
+// Same stroke style as the rest of the app; the star fills when pinned (CSS).
+const ROW_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">';
+const ROW_ICONS = {
+    star: ROW_SVG + '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+    edit: ROW_SVG + '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+    trash: ROW_SVG + '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
+};
 function renderChats() {
     if (!chats.length) {
         elChats.innerHTML = `<div class="ask-side-empty">${$('ask-search').value.trim() ? 'No chats match.' : 'No saved chats yet.'}</div>`;
@@ -637,13 +721,13 @@ function renderChats() {
         const row = document.createElement('div');
         row.className = 'ask-chat-row' + (c.id === chatId ? ' active' : '');
         row.innerHTML = `<div class="ask-chat-title"></div>
-            <button class="ask-row-btn" type="button" data-a="pin"></button>
-            <button class="ask-row-btn" type="button" data-a="ren" title="Rename" aria-label="Rename">✎</button>
-            <button class="ask-row-btn danger" type="button" data-a="del" title="Delete" aria-label="Delete">🗑</button>`;
+            <button class="ask-row-btn${c.pinned ? ' on' : ''}" type="button" data-a="pin" aria-pressed="${c.pinned}">${ROW_ICONS.star}</button>
+            <button class="ask-row-btn" type="button" data-a="ren" title="Rename" aria-label="Rename chat">${ROW_ICONS.edit}</button>
+            <button class="ask-row-btn danger" type="button" data-a="del" title="Delete" aria-label="Delete chat">${ROW_ICONS.trash}</button>`;
         row.querySelector('.ask-chat-title').textContent = c.title;
         const pin = row.querySelector('[data-a="pin"]');
-        pin.textContent = c.pinned ? '★' : '☆';
-        pin.title = c.pinned ? 'Unpin' : 'Pin';
+        pin.title = c.pinned ? 'Unstar' : 'Star';
+        pin.setAttribute('aria-label', c.pinned ? 'Unstar chat' : 'Star chat');
         row.addEventListener('click', () => openChat(c.id));
         pin.addEventListener('click', e => { e.stopPropagation(); togglePin(c); });
         row.querySelector('[data-a="ren"]').addEventListener('click', e => { e.stopPropagation(); startRename(row, c); });
@@ -919,7 +1003,7 @@ function addCard(turn, card, autoOpen) {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'ask-card'; b.dataset.idx = idx;
     b.innerHTML = `<span class="ask-card-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${CARD_ICONS[card.kind || 'history'] || CARD_ICONS.history}</svg></span>
-        <span><span class="ask-card-title"></span><br><span class="ask-card-sub"></span></span>`;
+        <span class="ask-card-text"><span class="ask-card-title"></span><span class="ask-card-sub"></span></span>`;
     b.querySelector('.ask-card-title').textContent = card.title || 'Map';
     b.querySelector('.ask-card-sub').textContent = cardSub(card);
     b.addEventListener('click', () => showCard(idx));
@@ -1409,7 +1493,8 @@ async function paintChoropleth(m, geo, bits) {
     $('ask-map-legend').innerHTML = `<span>0<span class="ramp"></span>${esc(fmtVal({ value: max }, geo.unit))} ${esc(geo.unit)}</span>`;
     const top = geo.regions.slice(0, 10).map(r =>
         `<li><span>${esc(r.name)}</span><span>${esc(fmtVal(r, geo.unit))}${r.detail ? ' · ' + esc(r.detail) : ''}</span></li>`).join('');
-    $('ask-map-rank').innerHTML = `<ol>${top}</ol>`;
+    const shown = Math.min(10, geo.regions.length);
+    $('ask-map-rank').innerHTML = `<div class="ask-map-rank-head">Top ${shown}</div><ol>${top}</ol>`;
     bits.push(`${geo.regions.length} region${geo.regions.length === 1 ? '' : 's'}`);
     // Frame the regions that have values, not the whole country.
     const lit = feats.filter(f => f.properties.t >= 0), box = [180, 90, -180, -90];
@@ -1428,7 +1513,7 @@ function paintRoads(m, geo, bits) {
                 geometry: { type: 'LineString', coordinates: line } });
     m.getSource('ask-roads').setData({ type: 'FeatureCollection', features: feats });
     $('ask-map-legend').innerHTML = '<span><i style="background:#e8763d"></i>thicker = driven more</span>';
-    $('ask-map-rank').innerHTML = '<ol>' + geo.roads.slice(0, 10).map(r =>
+    $('ask-map-rank').innerHTML = '<div class="ask-map-rank-head">Most driven</div><ol>' + geo.roads.slice(0, 10).map(r =>
         `<li><span>${esc(r.name)}</span><span>${r.value}%</span></li>`).join('') + '</ol>';
     bits.push(`${geo.roads.length} roads`, 'share of sampled driving');
 }

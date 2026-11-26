@@ -81,10 +81,10 @@ html[data-style="blueprint"] {
         position: relative;
     }
     .navbar-nav a:hover, .navbar-nav-toggle:hover { color: var(--text); }
-    .navbar-nav a.active, .navbar-nav-toggle.active { color: var(--marker); border-bottom: none; }
-    .navbar-nav a.active::before, .navbar-nav a.active::after { position: absolute; top: 50%; transform: translateY(-50%); color: var(--marker); font-weight: 400; }
-    .navbar-nav a.active::before { content: '['; left: 0.1rem; }
-    .navbar-nav a.active::after { content: ']'; right: 0.1rem; }
+    .navbar-nav > li > a.active, .navbar-nav-toggle.active { color: var(--marker); border-bottom: none; }
+    .navbar-nav > li > a.active::before, .navbar-nav > li > a.active::after { position: absolute; top: 50%; transform: translateY(-50%); color: var(--marker); font-weight: 400; }
+    .navbar-nav > li > a.active::before { content: '['; left: 0.1rem; }
+    .navbar-nav > li > a.active::after { content: ']'; right: 0.1rem; }
     .navbar-user-toggle { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); border-radius: var(--r-3); }
     .navbar-user-toggle:hover { background: var(--line-faint); color: var(--text); }
     .notif-dot { background: var(--marker); box-shadow: 0 0 0 2px var(--bg); }

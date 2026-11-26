@@ -438,7 +438,7 @@ def _narrative(profile, period, label, summary, timeline=None, journey=None):
     return paras or fallback
 
 
-def _send_period(profile, period, allow_empty=False):
+def _send_period(profile, period, allow_empty=False, is_test=False):
     """Build and send one period's recap. Returns 'sent' | 'empty' | 'skip'."""
     from .models import Location
     from .views import _compute_overview_from_qs, _compute_distance_from_qs
@@ -499,8 +499,7 @@ def _send_period(profile, period, allow_empty=False):
     map_url = f"{settings.SITE_URL}/map/?{date_qs}"
     stats_url = f"{settings.SITE_URL}/stats/?{date_qs}"
 
-    email_utils.send_summary_email(
-        user.email,
+    subject, text, html = email_utils.build_summary_email(
         period_label=label,
         heading=f"Your {label} on Roamly",
         narrative_paras=narrative,
@@ -511,8 +510,38 @@ def _send_period(profile, period, allow_empty=False):
         stats_url=stats_url,
         unsubscribe_url=unsubscribe_url,
     )
-    logger.info("Summary (%s) email sent to user %s", period, user.id)
+    ok = email_utils._send(subject, text, html, user.email)
+    _record_sent(user, period, win_start.date(), (win_end - timedelta(days=1)).date(),
+                 subject, text, html, ok=ok, is_test=is_test)
+    logger.info("Summary (%s) email %s for user %s", period, 'sent' if ok else 'failed', user.id)
+    # 'sent' even when SMTP refused it: the cursor has always advanced on a
+    # failed send (one recap is not retried all day), and the log now shows it.
     return 'sent'
+
+
+def _record_sent(user, period, start_date, end_date, subject, text, html, *, ok, is_test=False):
+    """Keep a copy of one recap for the Raw data page. Never raises.
+
+    The send has already happened, so a logging failure is logged and dropped
+    rather than allowed to look like a failed send. Prunes the user's history
+    to ``SummaryEmailLog.RETENTION_DAYS`` and ``MAX_PER_USER`` on the way.
+    """
+    try:
+        from .models import SummaryEmailLog as L
+        L.objects.create(
+            user=user, period=period, period_start=start_date, period_end=end_date,
+            subject=(subject or '')[:200],
+            body_text=(text or '')[:L.MAX_BODY_CHARS],
+            body_html=html if html and len(html) <= L.MAX_BODY_CHARS else '',
+            status='sent' if ok else 'failed', is_test=bool(is_test),
+        )
+        mine = L.objects.filter(user=user)
+        mine.filter(sent_at__lt=timezone.now() - timedelta(days=L.RETENTION_DAYS)).delete()
+        keep = list(mine.order_by('-sent_at', '-id').values_list('id', flat=True)[:L.MAX_PER_USER])
+        if len(keep) == L.MAX_PER_USER:
+            mine.exclude(id__in=keep).delete()
+    except Exception:
+        logger.exception("Could not record summary email for user %s", getattr(user, 'id', None))
 
 
 # ── Per-user processing + scheduler ─────────────────────────────────────────
@@ -554,7 +583,7 @@ def _process_user(user_id, only_period=None, force=False, stamp=True, allow_empt
                     # boundary moved an hour later than the stamp.
                     if last is not None and last > cur_start - _SAME_PERIOD_TOLERANCE:
                         continue   # already delivered for the current period
-                result = _send_period(profile, period, allow_empty=allow_empty)
+                result = _send_period(profile, period, allow_empty=allow_empty, is_test=force)
                 if stamp and result in ('sent', 'empty'):
                     setattr(profile, f'summary_last_{period}', cur_start)
                     profile.save(update_fields=[f'summary_last_{period}'])

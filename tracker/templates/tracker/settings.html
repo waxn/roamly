@@ -225,10 +225,68 @@
         }
         .settings-side { min-width: 0; }
         .settings-side .page-header { margin-bottom: 1rem; }
-        .settings-side .page-header p {
-            margin: 0.35rem 0 0;
-            color: var(--text-muted);
-            max-width: 48rem;
+        /* Settings search: one field filters every page's cards at once. */
+        .settings-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 0.75rem 1rem;
+        }
+        .settings-search { position: relative; flex: 0 1 20rem; min-width: 0; }
+        @media (max-width: 559px) { .settings-search { flex-basis: 100%; } }
+        .settings-search-icon {
+            position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%);
+            width: 15px; height: 15px; color: var(--text-dim); pointer-events: none;
+        }
+        /* Higher specificity than the components layers' .form-control padding. */
+        .settings-head .settings-search input.form-control {
+            padding-left: 2.1rem;
+            padding-right: 2.3rem;
+        }
+        .settings-search input::-webkit-search-cancel-button,
+        .settings-search input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
+        .settings-search-kbd, .settings-search-clear {
+            position: absolute; right: 0.45rem; top: 50%; transform: translateY(-50%);
+        }
+        .settings-search-kbd {
+            font-family: var(--font-mono); font-size: 0.7rem; line-height: 1;
+            padding: 0.2rem 0.42rem; color: var(--text-dim); background: transparent;
+            border: 1px solid var(--border); border-radius: var(--r-auto, 0); pointer-events: none;
+        }
+        .settings-search input:focus ~ .settings-search-kbd,
+        .settings-search.has-query .settings-search-kbd { display: none; }
+        @media (hover: none) { .settings-search-kbd { display: none; } }
+        .settings-search-clear {
+            appearance: none; border: 0; padding: 0; background: transparent; cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 1.75rem; height: 1.75rem; font: inherit; font-size: 1.15rem; line-height: 1;
+            color: var(--text-muted); border-radius: var(--r-auto, 0);
+        }
+        .settings-search-clear:hover { color: var(--text); background: var(--bg-elevated); }
+        .settings-search-clear[hidden] { display: none; }
+        .settings-layout.is-searching .settings-nav button.active { color: var(--text-muted); background: transparent; }
+        .settings-layout.is-searching .settings-nav button.active::after { background: transparent; }
+        .settings-grid.is-searching > .settings-page-heading { order: -1; }
+        .settings-search-group {
+            grid-column: 1 / -1;
+            display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap;
+            gap: 0.25rem 1rem; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--border);
+        }
+        .settings-search-group[hidden] { display: none; }
+        .settings-search-group h3 {
+            margin: 0; font-family: var(--font-mono); font-size: 0.72rem; font-weight: 600;
+            letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);
+        }
+        .settings-search-group h3 span { color: var(--text-dim); margin-left: 0.4rem; }
+        .settings-search-open {
+            appearance: none; border: 0; background: none; padding: 0.15rem 0; cursor: pointer;
+            font: inherit; font-size: 0.8rem; color: var(--link);
+        }
+        .settings-search-open:hover { color: var(--link-hover); text-decoration: underline; }
+        mark.settings-search-mark {
+            background: var(--primary-soft); color: inherit; padding: 0 0.08em;
+            box-shadow: inset 0 -1px 0 var(--primary); border-radius: var(--r-auto, 0);
         }
         .settings-nav {
             display: flex;
@@ -267,9 +325,14 @@
     </style>
     <div class="settings-layout">
     <div class="settings-side">
-        <div class="page-header">
+        <div class="page-header settings-head">
             <h1>Settings</h1>
-            <p>Manage your account, maps, notifications, tracking data, and integrations.</p>
+            <div class="settings-search" role="search">
+                <svg class="settings-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.6-3.6"></path></svg>
+                <input type="search" id="settings-search" class="form-control" placeholder="Search settings" aria-label="Search settings" autocomplete="off" spellcheck="false" enterkeyhint="search">
+                <kbd class="settings-search-kbd" aria-hidden="true">/</kbd>
+                <button type="button" class="settings-search-clear" id="settings-search-clear" aria-label="Clear search" hidden>&times;</button>
+            </div>
         </div>
         <nav class="settings-nav" id="settings-nav" aria-label="Settings pages"></nav>
     </div>
@@ -4156,8 +4219,11 @@ loadHwTrackers();
         card.dataset.settingsPage = page ? page[0] : 'data';
     });
 
+    let currentKey = 'account';
     function showPage(key, updateUrl = true) {
         if (!pages[key]) key = 'account';
+        stopSearch();
+        currentKey = key;
         cards.forEach(card => { card.hidden = card.dataset.settingsPage !== key; });
         nav.querySelectorAll('button').forEach(button => {
             const active = button.dataset.page === key;
@@ -4168,6 +4234,160 @@ loadHwTrackers();
         if (updateUrl) history.replaceState(null, '', '#' + key);
     }
 
+    // ── Search ──────────────────────────────────────────────────────────
+    // Filters every page's cards at once. Cards are only shown/hidden and
+    // reordered with CSS `order` (never moved or re-rendered), so their forms
+    // and handlers keep working in place. The only DOM change inside a card is
+    // wrapping the header's title text node in a <span> with <mark>s, undone
+    // on every new query and when the search ends.
+    const layout = nav.closest('.settings-layout');
+    const grid = heading.closest('.settings-grid');
+    const input = document.getElementById('settings-search');
+    const clearBtn = document.getElementById('settings-search-clear');
+    const searchBox = input ? input.closest('.settings-search') : null;
+    const pageKeys = Object.keys(pages);
+    // Words people search for that a card doesn't literally say.
+    const keywords = {
+        'Profile Picture': 'avatar photo image',
+        'Two-Factor Authentication': '2fa mfa totp authenticator one-time code otp security',
+        'Devices & Sessions': 'sign out log out logout browser phone',
+        'Danger Zone': 'delete account remove close',
+        'Presets': 'theme look style',
+        'Mix and Match': 'theme dark light mode palette colour color font typography shape corners background extras motion size',
+        'Preview': 'style lab components',
+        'Location Sharing': 'share link live location pin',
+        'General Preferences': 'units metric imperial',
+        'Automatic Backups': 's3 restore export',
+        'API Keys': 'token credentials',
+        'AI Ask': 'llm model openai anthropic claude chat',
+    };
+    const fold = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ');
+    const SKIP_TAGS = new Set(['script', 'style', 'template', 'noscript', 'svg', 'canvas']);
+    const ATTRS = ['placeholder', 'aria-label', 'title', 'data-tooltip'];
+    const indexOf = new WeakMap();
+    const marks = new WeakMap();
+    const groups = {};
+    let searching = false;
+
+    // Text a person can see (or have read out) in a card. Skips elements that
+    // are hidden right now, so a collapsed sub-panel can't make a card match.
+    function collectText(node, out, card, shallow) {
+        node.childNodes.forEach(child => {
+            if (child.nodeType === Node.TEXT_NODE) { out.push(child.nodeValue); return; }
+            if (child.nodeType !== Node.ELEMENT_NODE || SKIP_TAGS.has(child.localName)) return;
+            if (child.hidden || child.style.display === 'none' || child.getAttribute('aria-hidden') === 'true') return;
+            if (child.classList.contains('badge') && child.closest('.card-header')) return;
+            if (shallow && node === card && !child.matches('.card-header, p')) return;
+            ATTRS.forEach(a => { const v = child.getAttribute(a); if (v) out.push(v); });
+            if (child.localName === 'input' && (child.type === 'button' || child.type === 'submit') && child.value) out.push(child.value);
+            collectText(child, out, card, shallow);
+        });
+    }
+    function buildIndex() {
+        cards.forEach(card => {
+            const out = [];
+            collectText(card, out, card, card.hasAttribute('data-search-shallow'));
+            const page = pages[card.dataset.settingsPage];
+            out.push(keywords[cardLabel(card)] || '', page ? page.label : '');
+            indexOf.set(card, fold(out.join(' ').replace(/&/g, '& and ')));
+        });
+    }
+    function titleNode(card) {
+        const header = card.querySelector('.card-header');
+        return header ? Array.from(header.childNodes).find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim()) : null;
+    }
+    function unmark(card) {
+        const m = marks.get(card);
+        if (!m) return;
+        if (m.span.isConnected) m.span.replaceWith(m.text);
+        marks.delete(card);
+    }
+    function mark(card, re) {
+        unmark(card);
+        const text = titleNode(card);
+        if (!text) return;
+        const value = text.nodeValue;
+        const found = Array.from(value.matchAll(re));
+        if (!found.length) return;
+        const span = document.createElement('span');
+        let last = 0;
+        found.forEach(m => {
+            span.append(value.slice(last, m.index));
+            const el = document.createElement('mark');
+            el.className = 'settings-search-mark';
+            el.textContent = m[0];
+            span.append(el);
+            last = m.index + m[0].length;
+        });
+        span.append(value.slice(last));
+        text.replaceWith(span);
+        marks.set(card, {span, text});
+    }
+    function renderHeading(title, line) {
+        const h2 = document.createElement('h2');
+        h2.textContent = title;
+        const p = document.createElement('p');
+        p.textContent = line;
+        heading.replaceChildren(h2, p);
+    }
+    // Ends search mode without touching the page view (showPage restores it).
+    function stopSearch() {
+        if (!searching) return;
+        searching = false;
+        if (input) input.value = '';
+        layout.classList.remove('is-searching');
+        grid.classList.remove('is-searching');
+        if (searchBox) searchBox.classList.remove('has-query');
+        if (clearBtn) clearBtn.hidden = true;
+        cards.forEach(card => { unmark(card); card.style.order = ''; });
+        pageKeys.forEach(key => { groups[key].el.hidden = true; });
+    }
+    function clearSearch() {
+        if (!searching) { if (input) input.value = ''; return; }
+        stopSearch();
+        showPage(currentKey, false);
+    }
+    function runSearch(raw) {
+        const query = fold(raw.trim());
+        if (!query) { clearSearch(); return; }
+        if (!searching) {
+            buildIndex();  // fresh each search session: picks up JS-rendered card content
+            searching = true;
+            layout.classList.add('is-searching');
+            grid.classList.add('is-searching');
+            searchBox.classList.add('has-query');
+            clearBtn.hidden = false;
+            // Results span every page, so no tab is the selected one meanwhile.
+            nav.querySelectorAll('button').forEach(b => b.setAttribute('aria-selected', 'false'));
+        }
+        const terms = Array.from(new Set(query.split(' ')));
+        const re = new RegExp(terms.slice().sort((a, b) => b.length - a.length)
+            .map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi');
+        const counts = {};
+        let total = 0;
+        cards.forEach((card, i) => {
+            const index = indexOf.get(card) || '';
+            const hit = terms.every(t => index.includes(t));
+            const key = card.dataset.settingsPage;
+            card.hidden = !hit;
+            card.style.order = hit ? String((pageKeys.indexOf(key) + 1) * 1000 + 1 + i) : '';
+            if (hit) { counts[key] = (counts[key] || 0) + 1; total++; mark(card, re); }
+            else unmark(card);
+        });
+        pageKeys.forEach(key => {
+            const g = groups[key];
+            g.el.hidden = !counts[key];
+            g.count.textContent = counts[key] ? String(counts[key]) : '';
+        });
+        const shown = raw.trim();
+        if (!total) {
+            renderHeading(`No settings match “${shown}”`, 'Check the spelling or try a broader word, like “map”, “email”, “backup” or “theme”.');
+        } else {
+            const pagesHit = Object.keys(counts).length;
+            renderHeading('Search results', `${total} setting${total === 1 ? '' : 's'} on ${pagesHit} page${pagesHit === 1 ? '' : 's'} match “${shown}”.`);
+        }
+    }
+
     Object.entries(pages).forEach(([key, page]) => {
         const button = document.createElement('button');
         button.type = 'button';
@@ -4176,11 +4396,57 @@ loadHwTrackers();
         button.textContent = page.label;
         button.addEventListener('click', () => showPage(key));
         nav.appendChild(button);
+
+        // Result group header for this page, shown only while searching.
+        const el = document.createElement('div');
+        el.className = 'settings-search-group';
+        el.hidden = true;
+        el.style.order = String((pageKeys.indexOf(key) + 1) * 1000);
+        const h3 = document.createElement('h3');
+        h3.textContent = page.label;
+        const count = document.createElement('span');
+        h3.appendChild(count);
+        const open = document.createElement('button');
+        open.type = 'button';
+        open.className = 'settings-search-open';
+        open.textContent = 'Open page';
+        open.setAttribute('aria-label', `Open ${page.label}`);
+        open.addEventListener('click', () => {
+            showPage(key);
+            layout.scrollIntoView({block: 'start', behavior: 'smooth'});
+        });
+        el.append(h3, open);
+        grid.appendChild(el);
+        groups[key] = {el, count};
     });
     nav.setAttribute('role', 'tablist');
     const initialPage = location.hash.slice(1);
     showPage(pages[initialPage] ? initialPage : 'account', false);
     window.addEventListener('hashchange', () => showPage(location.hash.slice(1), false));
+
+    if (input && clearBtn && searchBox) {
+        input.addEventListener('input', () => runSearch(input.value));
+        input.addEventListener('keydown', e => {
+            if (e.key !== 'Escape') return;
+            e.preventDefault();
+            if (input.value) clearSearch(); else input.blur();
+        });
+        clearBtn.addEventListener('click', () => { clearSearch(); input.focus(); });
+        const modalOpen = () => !!document.querySelector('.rly-dialog-overlay.open')
+            || ['device-chooser-modal', 'trip-lines-prereq-modal'].some(id => {
+                const el = document.getElementById(id);
+                return el && el.style.display && el.style.display !== 'none';
+            });
+        document.addEventListener('keydown', e => {
+            if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+            const t = e.target;
+            if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
+            if (modalOpen()) return;
+            e.preventDefault();
+            input.focus();
+            input.select();
+        });
+    }
 })();
 </script>
 {% endblock %}
