@@ -177,7 +177,7 @@ private fun RecordButton(recording: Boolean, onClick: () -> Unit) {
                 .clip(SquircleShape(50))
                 .background(
                     if (recording) Brush.linearGradient(listOf(c.danger, c.danger))
-                    else Brush.linearGradient(listOf(c.accent, c.accent))
+                    else Brush.linearGradient(listOf(c.record, c.record))
                 )
                 .tappable(feel = Feel.None, pressedScale = 0.85f, onClick = onClick)
                 .semantics { contentDescription = if (recording) "Recording — open" else "Record an activity" },
@@ -185,7 +185,7 @@ private fun RecordButton(recording: Boolean, onClick: () -> Unit) {
         ) {
             Icon(
                 if (recording) Icons.Rounded.RadioButtonChecked else Icons.Rounded.FiberManualRecord,
-                null, tint = c.onAccent, modifier = Modifier.size(24.dp),
+                null, tint = if (recording) androidx.compose.ui.graphics.Color.White else c.onRecord, modifier = Modifier.size(24.dp),
             )
         }
     }
