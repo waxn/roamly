@@ -439,6 +439,50 @@
         }
         .navbar-logout-mobile { display: none; }
 
+        /* ── A year ago today (header chip) ── */
+        .yago { position: relative; display: none; min-width: 0; }
+        .yago.show { display: flex; }
+        .yago-chip {
+            display: inline-flex; align-items: center; gap: 0.45rem;
+            max-width: 15rem; min-width: 0;
+            padding: 0.3rem 0.65rem 0.3rem 0.5rem;
+            background: var(--bg-elevated); border: 1px solid var(--border);
+            border-radius: var(--radius-clay-sm);
+            color: var(--text-muted); text-decoration: none;
+            transition: color 0.15s, border-color 0.15s, background 0.2s;
+        }
+        .yago-chip:hover, .yago:focus-within .yago-chip { color: var(--text); border-color: var(--border-bright); }
+        .yago-chip:focus-visible { outline: 2px solid var(--border-bright); outline-offset: 1px; }
+        .yago-icon { flex: none; fill: none; stroke: var(--primary); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .yago-tag {
+            flex: none; font-family: var(--font-mono); font-size: 0.62rem;
+            letter-spacing: 0.06em; text-transform: uppercase; color: var(--primary);
+        }
+        .yago-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.78rem; font-weight: 600; }
+        .yago-pop {
+            position: absolute; top: calc(100% + 0.5rem); right: 0; width: 20rem;
+            padding: 0.85rem 0.95rem;
+            background: var(--bg-elevated); border: 1px solid var(--border);
+            border-radius: var(--radius-clay-sm); box-shadow: var(--clay-shadow);
+            z-index: 1100; display: none;
+        }
+        .yago-pop::before { content: ''; position: absolute; left: 0; right: 0; top: -0.6rem; height: 0.6rem; }
+        .yago:focus-within .yago-pop { display: block; }
+        @media (hover: hover) and (pointer: fine) { .yago:hover .yago-pop { display: block; } }
+        .yago-date { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.3rem; }
+        .yago-title { font-size: 0.92rem; font-weight: 700; color: var(--text); margin-bottom: 0.4rem; line-height: 1.3; }
+        .yago-text { font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 0.65rem; }
+        .yago-facts { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.7rem; }
+        .yago-facts span {
+            font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-muted);
+            padding: 0.15rem 0.45rem; border: 1px solid var(--border); border-radius: var(--radius-clay-sm);
+        }
+        .yago-go { font-size: 0.78rem; font-weight: 700; color: var(--primary); text-decoration: none; }
+        .yago-go:hover { text-decoration: underline; }
+        /* The nav needs the room below this width; a phone has no header space at all. */
+        @media (max-width: 1280px) { .yago { display: none !important; } }
+        @media (max-width: 1500px) { .yago-tag { display: none; } .yago-chip { max-width: 11rem; } }
+
         /* ── Notification bell ── */
         .notif { position: relative; display: flex; }
         .notif-toggle {
@@ -1400,6 +1444,20 @@
             </ul>
         </div>
         <div class="navbar-end">
+            <div class="yago" id="yago">
+                <a class="yago-chip" id="yago-chip" href="#" aria-describedby="yago-pop">
+                    <svg class="yago-icon" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 9 8 9"/><polyline points="12 7 12 12 15 14"/></svg>
+                    <span class="yago-tag">1 year ago</span>
+                    <span class="yago-line" id="yago-line"></span>
+                </a>
+                <div class="yago-pop" id="yago-pop" role="tooltip">
+                    <div class="yago-date" id="yago-date"></div>
+                    <div class="yago-title" id="yago-title"></div>
+                    <div class="yago-text" id="yago-text"></div>
+                    <div class="yago-facts" id="yago-facts"></div>
+                    <a class="yago-go" id="yago-go" href="#">View that day →</a>
+                </div>
+            </div>
             <div class="notif" id="notif">
                 <button type="button" class="notif-toggle" id="notif-toggle" aria-haspopup="dialog" aria-expanded="false" aria-controls="notif-panel" aria-label="Notifications">
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
@@ -2607,6 +2665,68 @@
             document.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') closeAll(null);
             });
+        })();
+
+        // "A year ago today" chip. One POST a day per browser tab session at most:
+        // the server caches the AI line per account and day, and sessionStorage
+        // keeps a page-to-page navigation from even asking. Anything but a
+        // usable line leaves the chip hidden.
+        (function() {
+            const root = document.getElementById('yago');
+            if (!root) return;
+            let off = false;
+            try { off = localStorage.getItem('roamly_year_ago') === 'off'; } catch (e) {}
+            if (off || window.matchMedia('(max-width: 1280px)').matches) return;
+
+            const CSRF = '{{ csrf_token }}';
+            const d = new Date();
+            const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            const KEY = 'roamly_year_ago_cache';
+            const RETRY_MS = 30 * 60 * 1000;
+
+            function read() {
+                try {
+                    const c = JSON.parse(sessionStorage.getItem(KEY) || 'null');
+                    return c && c.today === today ? c : null;
+                } catch (e) { return null; }
+            }
+            function write(c) {
+                try { sessionStorage.setItem(KEY, JSON.stringify(Object.assign({today: today}, c))); } catch (e) {}
+            }
+            function render(r) {
+                const url = `/map/?date=${encodeURIComponent(r.date)}`;
+                const when = new Date(r.date + 'T12:00:00').toLocaleDateString(undefined,
+                    {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
+                document.getElementById('yago-line').textContent = r.headline;
+                document.getElementById('yago-date').textContent = when;
+                document.getElementById('yago-title').textContent = r.headline;
+                document.getElementById('yago-text').textContent = r.summary;
+                const facts = document.getElementById('yago-facts');
+                facts.textContent = '';
+                (r.distance ? [r.distance] : []).concat(r.places || []).forEach(t => {
+                    const s = document.createElement('span');
+                    s.textContent = t;
+                    facts.appendChild(s);
+                });
+                facts.hidden = !facts.childNodes.length;
+                document.getElementById('yago-chip').href = url;
+                document.getElementById('yago-chip').setAttribute('aria-label', `A year ago today, ${when}: ${r.headline}. View that day.`);
+                document.getElementById('yago-go').href = url;
+                root.classList.add('show');
+            }
+
+            const cached = read();
+            if (cached) {
+                if (cached.result && cached.result.status === 'ok') render(cached.result);
+                if (cached.result || Date.now() - cached.at < RETRY_MS) return;
+            }
+            fetch('/api/year-ago/', {method: 'POST', headers: {'X-CSRFToken': CSRF}, credentials: 'same-origin'})
+                .then(r => r.ok ? r.json() : null)
+                .then(r => {
+                    write({result: r, at: Date.now()});
+                    if (r && r.status === 'ok') render(r);
+                })
+                .catch(() => write({result: null, at: Date.now()}));
         })();
 
         // Notification bell. Items are derived server-side from state that needs a

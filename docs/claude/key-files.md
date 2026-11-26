@@ -36,6 +36,7 @@ _Read when: Locating which file owns a feature._
 | `tracker/ask_tools.py` | Read-only Ask tools (flights, adventures, stays, achievements, unvisited, search near) + flights/pins map cards |
 | `tracker/ask_map.py` | Ask history map cards: validation, the user's own points for a card, full-map link |
 | `tracker/ask_edits.py` | Ask proposals: the `propose_*` tools (draft only) and applying one on the user's Approve |
+| `tracker/year_ago.py` | The header's "a year ago today" chip: one cached AI line about the same date last year |
 | `tracker/journal_recap.py` | On-demand AI recap for the Journals side panel; nothing stored |
 | `tracker/alert_tasks.py` | "No data received" tracking alerts — 15-min scheduler + per-user send |
 | `tracker/log_writer.py` | Batched background writer for AccessLog/ActionLog |

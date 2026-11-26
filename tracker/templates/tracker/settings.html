@@ -520,6 +520,16 @@
                     </select>
                 </div>
 
+                <div class="pref-form-group">
+                    <label class="pref-label">
+                        A year ago today
+                        <div class="info-icon" data-tooltip="A one-line AI note about this date last year in the top bar (needs AI set up). Written once a day; shows nothing when you recorded nothing that day.">?</div>
+                    </label>
+                    <select id="year-ago-pref" class="form-control" onchange="savePref('roamly_year_ago', this.value)">
+                        <option value="on">Show in top bar</option>
+                        <option value="off">Hidden</option>
+                    </select>
+                </div>
 
                 <div class="pref-form-group">
                     <label class="pref-label">Distance Unit</label>
@@ -2947,6 +2957,7 @@ if (document.getElementById('cluster-radius'))
     document.getElementById('cluster-radius').value = localStorage.getItem('roamly_cluster_radius') || '50';
 
 // Map Display prefs
+document.getElementById('year-ago-pref').value = localStorage.getItem('roamly_year_ago') || 'on';
 document.getElementById('show-heatmap').value = localStorage.getItem('roamly_show_heatmap') || 'on';
 document.getElementById('heatmap-intensity').value = localStorage.getItem('roamly_heatmap_intensity') || 'medium';
 document.getElementById('dot-size').value = localStorage.getItem('roamly_dot_size') || 'medium';

@@ -17,6 +17,7 @@ All stored in `localStorage` with `roamly_` prefix:
 | `roamly_dwell_min_minutes` | 5 / 15 / 30 / 60 | 30 (minimum stay before it counts as a dwell blob) |
 | `roamly_dwell_min_points` | 0 / 100 / 250 / 500 | 0 = off (independent point-count floor, alongside duration) |
 | `roamly_dwell_radius_m` | 150 / 250 / 400 | 150 (how close points must be to count as the same stop) |
+| `roamly_year_ago` | on / off | on (the header's "a year ago today" chip; Settings → General Preferences. `off` stops the page from even asking the server) |
 | `roamly_show_heatmap` | on / off | on |
 | `roamly_heatmap_intensity` | low / medium / high | medium |
 | `roamly_dot_size` | small / medium / large | medium |

@@ -12661,6 +12661,7 @@ def _journal_compute_streaks(dates):
 
 
 _JOURNAL_RECAP_LIMIT = 12   # per account, per hour
+_YEAR_AGO_LIMIT = 20        # provider calls per account per hour; cache hits don't count
 
 
 @login_required
@@ -12793,6 +12794,38 @@ def journal_recap_api(request):
         logger.exception('journal_recap_api failed')
         return JsonResponse({'error': 'Something went wrong writing your recap.'}, status=500)
     response = JsonResponse(recap)
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@login_required
+@require_POST
+def year_ago_api(request):
+    """The header's "a year ago today" line.
+
+    POST because a cache miss spends the user's provider credits, so a prefetch
+    or link preview must not trigger one. The answer is cached per account and
+    day (``year_ago.build_year_ago``), so this costs at most one provider call a
+    day. AI not set up, or nothing recorded that day, is a quiet ``status`` (no
+    error), because the header just shows nothing in both cases."""
+    from . import ai_tasks, year_ago
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if not profile.ai_configured:
+        return _no_store(JsonResponse({'status': 'unavailable'}))
+    if _rate_limited(request, 'year_ago', _YEAR_AGO_LIMIT, 3600,
+                     identifier=str(request.user.id), include_ip=False):
+        return JsonResponse({'error': 'Too many requests.'}, status=429)
+    try:
+        result = year_ago.build_year_ago(profile)
+    except (ai_tasks.AIProviderError, year_ago.YearAgoError) as e:
+        return JsonResponse({'error': str(e)}, status=502)
+    except Exception:
+        logger.exception('year_ago_api failed')
+        return JsonResponse({'error': 'Something went wrong.'}, status=500)
+    return _no_store(JsonResponse(result))
+
+
+def _no_store(response):
     response['Cache-Control'] = 'no-store'
     return response
 
