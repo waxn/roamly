@@ -1,40 +1,36 @@
 package com.roamly.ui.settings
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import com.roamly.ui.theme.SquircleRadius
-import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.FilterList
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.DateRange
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Place
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.rounded.Smartphone
+import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.material.icons.rounded.TableRows
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -46,289 +42,181 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.data.api.LocationTableRow
+import com.roamly.ui.kit.AtlasDialog
+import com.roamly.ui.kit.AtlasSheet
+import com.roamly.ui.kit.EmptyState
+import com.roamly.ui.kit.Feel
+import com.roamly.ui.kit.IconAction
+import com.roamly.ui.kit.InfoPair
+import com.roamly.ui.kit.ListRow
+import com.roamly.ui.kit.Panel
+import com.roamly.ui.kit.PushedScreen
+import com.roamly.ui.kit.Tag
+import com.roamly.ui.kit.dockAwareBottom
+import com.roamly.ui.kit.tappable
+import com.roamly.ui.theme.Atlas
+import com.roamly.ui.theme.AtlasType
+import com.roamly.ui.theme.SquircleShape
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
 // Sort keys the server accepts, paired with a phone-friendly label.
 private val SORT_OPTIONS = listOf(
-    "timestamp" to "Time",
-    "device" to "Device",
-    "city" to "City",
-    "state" to "State",
-    "country_code" to "Country",
-    "poi_name" to "Place",
-    "speed" to "Speed",
-    "battery" to "Battery",
-    "lat" to "Latitude",
-    "lng" to "Longitude",
+    "timestamp" to "Time", "device" to "Device", "city" to "City", "state" to "State",
+    "country_code" to "Country", "poi_name" to "Place", "speed" to "Speed", "battery" to "Battery",
+    "lat" to "Latitude", "lng" to "Longitude",
 )
+private val RANGE_OPTIONS = listOf("24" to "Last 24h", "72" to "Last 3 days", "168" to "Last week", "720" to "Last 30 days", "all" to "All time")
 
-private val RANGE_OPTIONS = listOf(
-    "24" to "Last 24h",
-    "72" to "Last 3 days",
-    "168" to "Last week",
-    "720" to "Last 30 days",
-    "all" to "All time",
-)
+private enum class Picker { Range, Device, Sort }
 
+/** Every raw point, as the web's /data/ page: filter, sort, page, delete. */
 @Composable
 fun LocationTableScreen(
-    /** Null when hosted in the Data tab, which needs no back arrow. */
     onBack: (() -> Unit)? = null,
     viewModel: LocationTableViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val c = Atlas.colors
     val listState = rememberLazyListState()
     var confirmDelete by remember { mutableStateOf<LocationTableRow?>(null) }
+    var picker by remember { mutableStateOf<Picker?>(null) }
 
-    // Trigger loadMore when scrolled near the end.
     val nearEnd by remember {
-        derivedStateOf {
-            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            last >= state.rows.size - 8
-        }
+        derivedStateOf { (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= state.rows.size - 8 }
     }
-    LaunchedEffect(nearEnd, state.rows.size, state.hasMore) {
-        if (nearEnd && state.hasMore) viewModel.loadMore()
-    }
+    LaunchedEffect(nearEnd, state.rows.size, state.hasMore) { if (nearEnd && state.hasMore) viewModel.loadMore() }
 
-    Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-        // Top bar
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back") }
-            Text("Location Data", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
+    PushedScreen(title = "Location data", onBack = onBack) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Pill(Icons.Rounded.DateRange, RANGE_OPTIONS.firstOrNull { it.first == state.range }?.second ?: "Range", Modifier.weight(1f)) { picker = Picker.Range }
+            Pill(Icons.Rounded.Smartphone, state.deviceId?.let { state.devices[it] } ?: "All devices", Modifier.weight(1f)) { picker = Picker.Device }
+            Pill(if (state.sortDir == "asc") Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
+                SORT_OPTIONS.firstOrNull { it.first == state.sortKey }?.second ?: "Sort") { picker = Picker.Sort }
         }
-
-        // Filter / sort toolbar
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            PickerChip(
-                label = RANGE_OPTIONS.firstOrNull { it.first == state.range }?.second ?: "Range",
-                options = RANGE_OPTIONS,
-                onSelect = { viewModel.setRange(it) },
-                modifier = Modifier.weight(1f),
-            )
-            val deviceOptions = listOf<Pair<String?, String>>(null to "All devices") +
-                state.devices.map { (id, name) -> id as String? to name }
-            PickerChip(
-                label = state.deviceId?.let { state.devices[it] } ?: "All devices",
-                options = deviceOptions.map { (it.first ?: "") to it.second },
-                onSelect = { viewModel.setDevice(it.ifEmpty { null }) },
-                modifier = Modifier.weight(1f),
-            )
-            SortChip(
-                sortKey = state.sortKey,
-                sortDir = state.sortDir,
-                onSelect = { viewModel.setSort(it) },
-            )
-        }
-
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize()) {
             when {
-                state.isLoading && state.rows.isEmpty() ->
-                    CircularProgressIndicator(Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.primary)
-                state.rows.isEmpty() ->
-                    Text(
-                        state.error ?: "No points in this range",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.align(Alignment.Center).padding(24.dp),
-                    )
+                state.isLoading && state.rows.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = c.accent)
+                state.rows.isEmpty() -> EmptyState(Icons.Rounded.TableRows, state.error ?: "No points in this range", tint = c.lime)
                 else -> LazyColumn(
                     state = listState,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp, 0.dp, 12.dp, 24.dp),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = dockAwareBottom()),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(state.rows, key = { it.id }) { row ->
-                        LocationRowCard(row, onDelete = { confirmDelete = row })
+                    items(state.rows, key = { it.id }) { row -> Point(row) { confirmDelete = row } }
+                    if (state.isLoadingMore) item {
+                        Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = c.accent) }
                     }
-                    if (state.isLoadingMore) {
-                        item {
-                            Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+    }
+
+    picker?.let { p ->
+        val options: List<Pair<String, String>> = when (p) {
+            Picker.Range -> RANGE_OPTIONS
+            Picker.Device -> listOf("" to "All devices") + state.devices.map { (id, name) -> id to name }
+            Picker.Sort -> SORT_OPTIONS
+        }
+        val current = when (p) { Picker.Range -> state.range; Picker.Device -> state.deviceId.orEmpty(); Picker.Sort -> state.sortKey }
+        AtlasSheet(onDismiss = { picker = null }, title = when (p) { Picker.Range -> "Range"; Picker.Device -> "Device"; Picker.Sort -> "Sort by" }) {
+            LazyColumn(Modifier.heightIn(max = 460.dp)) {
+                items(options) { (value, label) ->
+                    ListRow(
+                        label,
+                        subtitle = if (p == Picker.Sort && value == current) (if (state.sortDir == "asc") "Ascending — tap to flip" else "Descending — tap to flip") else null,
+                        onClick = {
+                            when (p) {
+                                Picker.Range -> viewModel.setRange(value)
+                                Picker.Device -> viewModel.setDevice(value.ifEmpty { null })
+                                Picker.Sort -> viewModel.setSort(value)
                             }
-                        }
-                    }
+                            if (p != Picker.Sort || value != current) picker = null
+                        },
+                        showChevron = false,
+                        trailing = if (value == current) ({ Icon(Icons.Rounded.Check, null, tint = c.accent) }) else null,
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
                 }
             }
         }
     }
 
     confirmDelete?.let { row ->
-        AlertDialog(
-            onDismissRequest = { confirmDelete = null },
-            title = { Text("Delete point") },
-            text = { Text("Permanently delete this GPS point? This can't be undone.") },
-            confirmButton = {
-                TextButton(onClick = { viewModel.deleteRow(row.id); confirmDelete = null }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Cancel") } },
+        AtlasDialog(
+            title = "Delete this point?",
+            onDismiss = { confirmDelete = null },
+            confirmText = "Delete",
+            onConfirm = { viewModel.deleteRow(row.id); confirmDelete = null },
+            destructive = true,
+            icon = Icons.Rounded.DeleteOutline,
+            body = { Text("It's permanently removed from your history. This can't be undone.") },
         )
     }
 }
 
 @Composable
-private fun PickerChip(
-    label: String,
-    options: List<Pair<String, String>>,
-    onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    Box(modifier = modifier) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(SquircleShape(SquircleRadius.control))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                .clickable { expanded = true }
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { (value, text) ->
-                DropdownMenuItem(text = { Text(text) }, onClick = { expanded = false; onSelect(value) })
-            }
-        }
-    }
-}
-
-@Composable
-private fun SortChip(
-    sortKey: String,
-    sortDir: String,
-    onSelect: (String) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val label = SORT_OPTIONS.firstOrNull { it.first == sortKey }?.second ?: "Sort"
-    Box {
-        Row(
-            modifier = Modifier
-                .clip(SquircleShape(SquircleRadius.control))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                .clickable { expanded = true }
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Rounded.FilterList, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(6.dp))
-            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.width(4.dp))
-            Icon(
-                if (sortDir == "asc") Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
-                null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            SORT_OPTIONS.forEach { (key, text) ->
-                DropdownMenuItem(
-                    text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text)
-                            if (key == sortKey) {
-                                Spacer(Modifier.width(6.dp))
-                                Icon(
-                                    if (sortDir == "asc") Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
-                                    null, Modifier.size(14.dp),
-                                )
-                            }
-                        }
-                    },
-                    onClick = { expanded = false; onSelect(key) },
-                )
-            }
-        }
-    }
-}
-
-private val tsFormat = SimpleDateFormat("MMM d, yyyy · HH:mm:ss", Locale.getDefault())
-
-@Composable
-private fun LocationRowCard(row: LocationTableRow, onDelete: () -> Unit) {
-    val place = row.customPlace?.takeIf { it.isNotBlank() }
-        ?: row.poiName?.takeIf { it.isNotBlank() }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(SquircleShape(SquircleRadius.control))
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(14.dp),
+private fun Pill(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val c = Atlas.colors
+    Row(
+        modifier.clip(SquircleShape(50)).background(c.surfaceHigh).tappable(feel = Feel.Tick, pressedScale = 0.95f, onClick = onClick)
+            .heightIn(min = 40.dp).padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(row.device.ifBlank { "—" }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-            if (row.flag == "suspect") {
-                Text("suspect", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(8.dp))
-            }
-            IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Rounded.Delete, "Delete", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        Text(
-            formatTimestamp(row.timestamp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontFamily = FontFamily.Monospace,
-        )
-        Spacer(Modifier.height(8.dp))
+        Icon(icon, null, tint = c.accent, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        Icon(Icons.Rounded.ExpandMore, null, tint = c.textMuted, modifier = Modifier.size(16.dp))
+    }
+}
 
-        val locality = listOfNotNull(
-            row.city?.takeIf { it.isNotBlank() },
-            row.state?.takeIf { it.isNotBlank() },
-            row.countryCode?.takeIf { it.isNotBlank() },
-        ).joinToString(", ")
-        if (locality.isNotBlank()) {
-            Text(locality, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+@Composable
+private fun Point(row: LocationTableRow, onDelete: () -> Unit) {
+    val c = Atlas.colors
+    val place = row.customPlace?.takeIf { it.isNotBlank() } ?: row.poiName?.takeIf { it.isNotBlank() }
+    Panel(Modifier.fillMaxWidth(), padding = PaddingValues(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(formatTimestamp(row.timestamp), style = AtlasType.mono, color = c.textMuted)
+                val locality = listOfNotNull(row.city, row.state, row.countryCode).filter { it.isNotBlank() }.joinToString(", ")
+                Text(locality.ifBlank { row.device.ifBlank { "—" } }, style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (row.flag == "suspect") { Tag("Suspect", color = c.warning); Spacer(Modifier.width(4.dp)) }
+            IconAction(Icons.Rounded.DeleteOutline, "Delete", onDelete, container = null, tint = c.textMuted, size = 36.dp, iconSize = 18.dp)
         }
         place?.let {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Place, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                Icon(Icons.Rounded.Place, null, Modifier.size(13.dp), tint = c.accent)
                 Spacer(Modifier.width(4.dp))
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                Text(it, style = MaterialTheme.typography.bodySmall, color = c.accent)
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            MetaField("lat", fmt(row.lat, 5))
-            MetaField("lng", fmt(row.lng, 5))
-            row.speed?.let { MetaField("speed", "%.1f km/h".format(it * 3.6)) }
-            row.battery?.let { MetaField("batt", "${it.toInt()}%") }
+        Spacer(Modifier.size(10.dp))
+        Row(Modifier.fillMaxWidth().padding(end = 8.dp)) {
+            InfoPair("Lat", fmt(row.lat, 5), Modifier.weight(1f), mono = true)
+            InfoPair("Lng", fmt(row.lng, 5), Modifier.weight(1f), mono = true)
+            InfoPair("Speed", row.speed?.let { "%.1f".format(it * 3.6) } ?: "—", Modifier.weight(0.7f), mono = true)
+            InfoPair("Batt", row.battery?.let { "${it.toInt()}%" } ?: "—", Modifier.weight(0.6f), mono = true)
         }
-    }
-}
-
-@Composable
-private fun MetaField(label: String, value: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("$label ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, fontFamily = FontFamily.Monospace)
+        if (row.device.isNotBlank()) {
+            Spacer(Modifier.size(8.dp))
+            Text(row.device, style = MaterialTheme.typography.labelMedium, color = c.textFaint)
+        }
     }
 }
 
 private fun fmt(v: Double?, decimals: Int): String = v?.let { "%.${decimals}f".format(it) } ?: "—"
 
+private val tsFormat = SimpleDateFormat("d MMM yyyy · HH:mm:ss", Locale.getDefault())
 private fun formatTimestamp(iso: String): String = try {
-    // Server sends ISO-8601; parse the leading yyyy-MM-ddTHH:mm:ss portion.
+    // ISO-8601 from the server; parse the leading yyyy-MM-ddTHH:mm:ss as UTC.
     val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
     val clean = iso.substringBefore('.').substringBefore('+').removeSuffix("Z")
-    val d = parser.parse(clean)
-    if (d != null) tsFormat.format(d) else iso
-} catch (e: Exception) {
-    iso
-}
+    parser.parse(clean)?.let { tsFormat.format(it) } ?: iso
+} catch (_: Exception) { iso }

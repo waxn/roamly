@@ -7,1169 +7,420 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import com.roamly.ui.theme.SquircleRadius
-import com.roamly.ui.theme.SquircleShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Watch
-import androidx.compose.material.icons.rounded.*
-import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.BatteryChargingFull
+import androidx.compose.material.icons.rounded.CellTower
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.NetworkCell
+import androidx.compose.material.icons.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PhonelinkErase
+import androidx.compose.material.icons.rounded.PowerSettingsNew
+import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Smartphone
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.TouchApp
+import androidx.compose.material.icons.rounded.Vibration
+import androidx.compose.material.icons.rounded.ViewAgenda
+import androidx.compose.material.icons.rounded.Waves
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.TimePickerDefaults
+import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.tracking.CaptureStats
-import com.roamly.tracking.TrackingCoordinator
-import com.roamly.ui.theme.Clay
-import com.roamly.ui.theme.ClayButton
-import com.roamly.ui.theme.ClayCard
-import com.roamly.ui.theme.ClayIconBadge
-import com.roamly.ui.theme.ClaySectionHeader
-import java.text.SimpleDateFormat
-import java.util.*
+import com.roamly.ui.kit.AtlasButton
+import com.roamly.ui.kit.AtlasChip
+import com.roamly.ui.kit.AtlasDialog
+import com.roamly.ui.kit.ButtonKind
+import com.roamly.ui.kit.ChipRow
+import com.roamly.ui.kit.Feel
+import com.roamly.ui.kit.IconAction
+import com.roamly.ui.kit.ListRow
+import com.roamly.ui.kit.Panel
+import com.roamly.ui.kit.PushedScreen
+import com.roamly.ui.kit.RowDivider
+import com.roamly.ui.kit.RowGroup
+import com.roamly.ui.kit.SectionTitle
+import com.roamly.ui.kit.SegmentedSwitch
+import com.roamly.ui.kit.Tag
+import com.roamly.ui.kit.ToggleRow
+import com.roamly.ui.kit.dockAwareBottom
+import com.roamly.ui.kit.rememberHaptics
+import com.roamly.ui.theme.Atlas
+import com.roamly.ui.theme.AtlasType
+import com.roamly.ui.update.UpdateViewModel
+import java.util.Locale
 
+private val intervalOptions = listOf("5s" to 5, "10s" to 10, "15s" to 15, "30s" to 30, "1m" to 60, "2m" to 120)
+private val priorityOptions = listOf("Auto" to "auto", "High" to "high", "Balanced" to "balanced", "Low" to "low")
+private val accuracyOptions = listOf("20 m" to 20, "50 m" to 50, "100 m" to 100, "200 m" to 200)
+
+private enum class Edit { DeviceId, ApiKey, Interval, Accuracy }
+
+/** Every setting, grouped. Tracking on/off itself lives on the You tab. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
-    onLoggedOut: () -> Unit,
-    updateViewModel: com.roamly.ui.update.UpdateViewModel = hiltViewModel(),
+    updateViewModel: UpdateViewModel = hiltViewModel(),
+    onBack: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
 ) {
-    var showDiagnostics by remember { mutableStateOf(false) }
-    if (showDiagnostics) {
-        DiagnosticsScreen(viewModel = viewModel, onBack = { showDiagnostics = false })
-        return
-    }
-    var showTracker by remember { mutableStateOf(false) }
-    if (showTracker) {
-        com.roamly.ui.tracker.TrackerScreen(onBack = { showTracker = false })
-        return
-    }
-    var showFamily by remember { mutableStateOf(false) }
-    if (showFamily) {
-        com.roamly.ui.family.FamilyScreen(onBack = { showFamily = false })
-        return
-    }
     val state by viewModel.uiState.collectAsState()
-    val updateState by updateViewModel.state.collectAsState()
+    val update by updateViewModel.state.collectAsState()
     val context = LocalContext.current
-    val clay = Clay.colors
+    val haptics = rememberHaptics()
+    val c = Atlas.colors
     LaunchedEffect(Unit) { viewModel.refreshBatteryOptimizationState() }
 
-    // ── Permission handling ────────────────────────────────────────────────
-    var showBgLocationRationale by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<Edit?>(null) }
     var showReminderTime by remember { mutableStateOf(false) }
-    if (showReminderTime) {
-        ReminderTimeDialog(
-            minuteOfDay = state.noteReminderMinute,
-            onDismiss = { showReminderTime = false },
-            onConfirm = { minute ->
-                showReminderTime = false
-                viewModel.setNoteReminder(true, minute)
-            },
-        )
-    }
-    var showPhoneStateRationale by remember { mutableStateOf(false) }
-    // Held in state rather than re-checked inline: checkSelfPermission() is not
-    // a snapshot value, so a row reading it directly never updates when the
-    // permission is actually granted.
+    var showPhoneRationale by remember { mutableStateOf(false) }
+    // Held in state: checkSelfPermission() isn't observable, so a row reading it
+    // directly would never update once the permission is granted.
     var phoneStatePermitted by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE)
-                == PermissionChecker.PERMISSION_GRANTED
-        )
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PermissionChecker.PERMISSION_GRANTED)
     }
-    // Block-until-granted battery-exemption gate, shown before tracking actually starts.
-    var showExemptionGate by remember { mutableStateOf(false) }
-    // True while we're mid-flow waiting for the system exemption dialog to return, so
-    // granting it auto-continues into starting tracking.
-    var pendingStart by remember { mutableStateOf(false) }
-
-    // The exemption is the single make-or-break setting: without it Android throttles
-    // location to once every several minutes in Doze. So starting tracking is gated on it,
-    // with an explicit degraded escape hatch.
-    fun startTrackingGated() {
-        if (TrackingCoordinator.isIgnoringBatteryOptimizations(context)) viewModel.toggleTracking()
-        else showExemptionGate = true
-    }
-
-    val bgLocationLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { startTrackingGated() }
-
-    val fineLocationLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (!granted) return@rememberLauncherForActivityResult
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-                != PermissionChecker.PERMISSION_GRANTED
-        ) showBgLocationRationale = true else startTrackingGated()
-    }
-
-    val notifLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
-    // Declining leaves cell logging ON — scanning needs only ACCESS_FINE_LOCATION,
-    // which tracking already holds. This permission is purely the multi-SIM
-    // upgrade, so refusing it degrades the feature to the default SIM.
-    val phoneStateLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted -> phoneStatePermitted = granted }
-    val batteryOptLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
+    // Declining leaves cell logging on: scanning needs only fine location. This
+    // permission only tells the SIMs apart.
+    val phoneLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { phoneStatePermitted = it }
+    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val batteryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         viewModel.refreshBatteryOptimizationState()
-        // Returned from the system exemption dialog. If it's now granted and we were mid
-        // start-flow, dismiss the gate and continue into tracking automatically.
-        if (pendingStart && TrackingCoordinator.isIgnoringBatteryOptimizations(context)) {
-            pendingStart = false
-            showExemptionGate = false
-            viewModel.toggleTracking()
-        }
     }
-
-    // Fire the direct system exemption dialog; fall back to the battery-optimization
-    // settings list if the OEM blocks the direct intent.
-    fun requestBatteryExemption() {
-        val direct = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
-            .setData(Uri.parse("package:${context.packageName}"))
-        val ok = runCatching { batteryOptLauncher.launch(direct) }.isSuccess
-        if (!ok) runCatching {
-            batteryOptLauncher.launch(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-        }
+    fun requestExemption() {
+        for (intent in context.batteryExemptionIntents()) if (runCatching { batteryLauncher.launch(intent) }.isSuccess) return
     }
-
-    // Android 12+ only: there is no dialog for this one, the OS just opens its per-app
-    // "Alarms & reminders" screen.
+    // Android 12+: no dialog for exact alarms, only the per-app settings screen.
     fun requestExactAlarms() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-        runCatching {
-            context.startActivity(
-                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
-                    .setData(Uri.parse("package:${context.packageName}"))
-            )
-        }.onFailure {
-            runCatching { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                .setData(Uri.parse("package:${context.packageName}"))) }
-        }
+        val pkg = Uri.parse("package:${context.packageName}")
+        runCatching { context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).setData(pkg)) }
+            .onFailure { runCatching { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(pkg)) } }
     }
 
-    fun startTrackingWithPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-                != PermissionChecker.PERMISSION_GRANTED
-        ) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
-            != PermissionChecker.PERMISSION_GRANTED
-        ) fineLocationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-        else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-                != PermissionChecker.PERMISSION_GRANTED
-        ) showBgLocationRationale = true
-        else startTrackingGated()
-    }
-
-    if (showBgLocationRationale) {
-        AlertDialog(
-            onDismissRequest = { showBgLocationRationale = false; startTrackingGated() },
-            title = { Text("Background location") },
-            text = { Text("For tracking while the screen is off, choose \"Allow all the time\" on the next screen. You can skip it — tracking still works while the app is open.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showBgLocationRationale = false
-                    bgLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-                }) { Text("Open settings") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showBgLocationRationale = false; startTrackingGated() }) { Text("Skip") }
+    PushedScreen(title = "Settings", onBack = onBack) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                .padding(start = 20.dp, end = 20.dp, bottom = dockAwareBottom()),
+        ) {
+            // ── GPS ──────────────────────────────────────────────────────
+            SectionTitle("GPS & accuracy", Modifier.padding(top = 8.dp))
+            Panel(Modifier.fillMaxWidth(), padding = PaddingValues(vertical = 16.dp)) {
+                OptionLabel("Update interval", "How often to record a fix")
+                OptionChips(
+                    intervalOptions.map { it.first }, intervalOptions.indexOfFirst { it.second == state.trackingIntervalSecs },
+                    custom = "${state.trackingIntervalSecs}s".takeIf { intervalOptions.none { o -> o.second == state.trackingIntervalSecs } },
+                    onCustom = { editing = Edit.Interval },
+                ) { viewModel.setTrackingIntervalSecs(intervalOptions[it].second) }
+                Spacer(Modifier.height(18.dp))
+                OptionLabel("GPS priority", "Higher accuracy uses more battery")
+                OptionChips(priorityOptions.map { it.first }, priorityOptions.indexOfFirst { it.second == state.locationPriority }) {
+                    viewModel.setLocationPriority(priorityOptions[it].second)
+                }
+                Spacer(Modifier.height(18.dp))
+                OptionLabel("Discard fixes worse than", "Rejects low-accuracy readings")
+                OptionChips(
+                    accuracyOptions.map { it.first }, accuracyOptions.indexOfFirst { it.second == state.maxAccuracyM },
+                    custom = "${state.maxAccuracyM} m".takeIf { accuracyOptions.none { o -> o.second == state.maxAccuracyM } },
+                    onCustom = { editing = Edit.Accuracy },
+                ) { viewModel.setMaxAccuracyM(accuracyOptions[it].second) }
             }
-        )
-    }
-
-    if (showPhoneStateRationale) {
-        AlertDialog(
-            onDismissRequest = { showPhoneStateRationale = false },
-            title = { Text("Phone permission (optional)") },
-            text = {
-                Text(
-                    "Roamly uses this only to tell your SIMs apart when logging cell towers. " +
-                        "It never reads your phone number, IMEI, SIM serial number or call " +
-                        "history, and never places calls.\n\nIf you skip it, tower logging " +
-                        "still works — it just records your default SIM only."
+            Spacer(Modifier.height(12.dp))
+            RowGroup {
+                ToggleRow("Suppress stationary drift", state.suppressStationaryDrift, viewModel::setSuppressStationaryDrift,
+                    subtitle = "Pins you in place when parked instead of letting GPS wander", icon = Icons.Rounded.Waves, iconTint = c.cyan)
+                RowDivider()
+                ToggleRow("Slow down while still", state.slowWhenStill, viewModel::setSlowWhenStill,
+                    subtitle = "One fix a minute after 5 minutes in one spot", icon = Icons.Rounded.Schedule, iconTint = c.cyan)
+                RowDivider()
+                ToggleRow("Adaptive interval", state.adaptiveIntervalEnabled, viewModel::setAdaptiveIntervalEnabled,
+                    subtitle = "Every 1 min moving, 5 min still — instead of the interval above", icon = Icons.Rounded.Speed, iconTint = c.cyan)
+                RowDivider()
+                ToggleRow(
+                    "Log cell towers", state.cellLoggingEnabled,
+                    { on -> viewModel.setCellLoggingEnabled(on); if (on && !phoneStatePermitted) showPhoneRationale = true },
+                    subtitle = if (state.cellLoggingEnabled && !phoneStatePermitted) "Recording your default SIM only — tap below for both"
+                    else "Towers you connect to, with signal and band",
+                    icon = Icons.Rounded.CellTower, iconTint = c.cyan,
                 )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    showPhoneStateRationale = false
-                    phoneStateLauncher.launch(Manifest.permission.READ_PHONE_STATE)
-                }) { Text("Continue") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPhoneStateRationale = false }) { Text("Skip") }
+                if (state.cellLoggingEnabled && !phoneStatePermitted) {
+                    AtlasButton("Allow Phone permission for both SIMs", { showPhoneRationale = true },
+                        Modifier.padding(start = 66.dp, bottom = 10.dp), kind = ButtonKind.Ghost, compact = true)
+                }
             }
-        )
-    }
 
-    // Block-until-granted gate: tracking is throttled to multi-minute gaps in Doze without
-    // the battery-optimization exemption, so we require it before starting (with an explicit
-    // degraded escape hatch). The system grant dialog auto-continues into tracking.
-    if (showExemptionGate) {
-        AlertDialog(
-            onDismissRequest = { /* required choice — ignore outside taps */ },
-            title = { Text("Allow gap-free tracking") },
-            text = {
-                Text(
-                    "Android throttles Roamly's location to once every several minutes while the " +
-                        "screen is off unless it's exempt from battery optimization — the cause of " +
-                        "5–20 minute gaps. Grant the exemption for reliable 24/7 tracking."
+            // ── Sync ─────────────────────────────────────────────────────
+            SectionTitle("Sync", Modifier.padding(top = 22.dp))
+            RowGroup {
+                ToggleRow("Sync on mobile data", state.syncOnMobileData, viewModel::setSyncOnMobileData,
+                    subtitle = "Off uploads on Wi-Fi only", icon = Icons.Rounded.NetworkCell, iconTint = c.violet)
+                RowDivider()
+                ListRow(
+                    syncLine(state),
+                    subtitle = when (state.cachedPointCount) { 0 -> "All points uploaded"; 1 -> "1 point waiting"; else -> "%,d points waiting".format(state.cachedPointCount) },
+                    icon = Icons.Rounded.Sync, iconTint = c.violet,
+                    trailing = { AtlasButton("Sync now", { haptics.click(); viewModel.syncNow() }, loading = state.isSyncing, kind = ButtonKind.Secondary, compact = true, feel = Feel.None) },
                 )
-            },
-            confirmButton = {
-                TextButton(onClick = { pendingStart = true; requestBatteryExemption() }) {
-                    Text("Grant exemption")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showExemptionGate = false
-                    pendingStart = false
-                    viewModel.toggleTracking()
-                }) { Text("Track anyway (gaps)", color = MaterialTheme.colorScheme.error) }
             }
-        )
-    }
 
-    var showStopConfirm by remember { mutableStateOf(false) }
-    if (showStopConfirm) {
-        AlertDialog(
-            onDismissRequest = { showStopConfirm = false },
-            title = { Text("Stop tracking?") },
-            text = {
-                Text(
-                    "This turns location tracking completely off — including the background " +
-                        "keep-alive and starting on reboot. It stays off until you turn it back " +
-                        "on. Cached points still upload when you reconnect."
+            // ── Reliability ──────────────────────────────────────────────
+            SectionTitle("Reliability", Modifier.padding(top = 22.dp))
+            RowGroup {
+                ToggleRow("Start tracking on boot", state.autoStartTracking, viewModel::setAutoStartTracking,
+                    subtitle = "Turns tracking on after a reboot", icon = Icons.Rounded.PowerSettingsNew, iconTint = c.lime)
+                RowDivider()
+                ListRow(
+                    "Battery optimisation",
+                    subtitle = if (state.batteryOptimizationDisabled) "Roamly is exempt — no Doze gaps" else "On — tracking will pause in Doze",
+                    icon = Icons.Rounded.BatteryChargingFull, iconTint = if (state.batteryOptimizationDisabled) c.success else c.warning,
+                    trailing = if (state.batteryOptimizationDisabled) ({ Tag("OK", color = c.success) })
+                    else ({ AtlasButton("Fix", { requestExemption() }, compact = true) }),
                 )
-            },
-            confirmButton = {
-                TextButton(onClick = { showStopConfirm = false; viewModel.toggleTracking() }) {
-                    Text("Stop", color = MaterialTheme.colorScheme.error)
+                // The other permission that silently wrecks the Doze cadence: without it
+                // the OS fires our alarms every ~9–15 min instead of every interval.
+                if (CaptureStats.exactAlarmsDenied) {
+                    RowDivider()
+                    ListRow("Exact alarms", subtitle = "Denied — Doze cadence limited to ~15 min", icon = Icons.Rounded.Alarm, iconTint = c.danger,
+                        trailing = { AtlasButton("Allow", { requestExactAlarms() }, compact = true) })
                 }
-            },
-            dismissButton = { TextButton(onClick = { showStopConfirm = false }) { Text("Keep tracking") } }
-        )
-    }
-
-    var advancedGps by remember { mutableStateOf(false) }
-    var editTarget by remember { mutableStateOf<EditTarget?>(null) }
-
-    // Tracking needs an API key. When the user tries to start without one, offer to
-    // create the single durable key automatically or paste an existing one.
-    if (state.apiKeyRequired) {
-        AlertDialog(
-            onDismissRequest = { if (!state.apiKeyBusy) viewModel.dismissApiKeyRequired() },
-            title = { Text("Tracking needs an API key") },
-            text = {
-                Column {
-                    Text(
-                        "An API key authenticates your location uploads. Create one now — " +
-                            "it's a single key that works forever — or enter a key you already have."
-                    )
-                    if (state.apiKeyError != null) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(state.apiKeyError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { viewModel.createApiKey() }, enabled = !state.apiKeyBusy) {
-                    if (state.apiKeyBusy) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    Text("Create key")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.dismissApiKeyRequired()
-                        editTarget = EditTarget.ApiKey(state.apiKey, "API Key", "64-char hex key from Roamly → Settings → API Keys")
-                    },
-                    enabled = !state.apiKeyBusy,
-                ) { Text("Enter manually") }
-            },
-        )
-    }
-    editTarget?.let { target ->
-        EditDialog(
-            title = target.title,
-            initialValue = target.currentValue,
-            keyboardType = target.keyboardType,
-            hint = target.hint,
-            onConfirm = { value ->
-                when (target) {
-                    is EditTarget.DeviceId -> viewModel.setDeviceId(value)
-                    is EditTarget.ApiKey   -> viewModel.setApiKey(value)
-                    is EditTarget.Interval -> value.toIntOrNull()?.let { viewModel.setTrackingIntervalSecs(it) }
-                    is EditTarget.Accuracy -> value.toIntOrNull()?.let { viewModel.setMaxAccuracyM(it) }
-                }
-                editTarget = null
-            },
-            onDismiss = { editTarget = null }
-        )
-    }
-
-    PullToRefreshBox(
-        isRefreshing = state.isRefreshing,
-        onRefresh = viewModel::refresh,
-        modifier = Modifier.fillMaxSize(),
-    ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp)
-            .padding(top = 8.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        // Title
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-            ClayIconBadge(Icons.Rounded.Settings, gradient = clay.tertiaryGradient, size = 40.dp)
-            Spacer(Modifier.width(12.dp))
-            Text("Settings", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
-        }
-
-        // ── Tracking hero ────────────────────────────────────────────────
-        TrackingHero(
-            isTracking = state.isTracking,
-            onToggle = { if (state.isTracking) showStopConfirm = true else startTrackingWithPermissions() },
-        )
-
-        // Persistent make-or-break warning: while not exempt, tracking will have multi-minute
-        // gaps in Doze no matter what. Keep it loud and one tap from the fix.
-        if (!state.batteryOptimizationDisabled) {
-            ExemptionWarningBanner(onFix = { requestBatteryExemption() })
-        }
-
-        // ── GPS settings ─────────────────────────────────────────────────
-        ClayCard {
-            ClaySectionHeader("GPS & accuracy", Icons.Rounded.GpsFixed, gradient = clay.secondaryGradient)
-            Spacer(Modifier.height(14.dp))
-
-            SettingLabel("Update interval", "How often to record a fix")
-            Spacer(Modifier.height(8.dp))
-            ChipSelector(
-                options = intervalOptions.map { it.first },
-                selectedIndex = intervalOptions.indexOfFirst { it.second == state.trackingIntervalSecs }.let { if (it < 0) -1 else it },
-                onSelect = { viewModel.setTrackingIntervalSecs(intervalOptions[it].second) },
-                onLongEdit = { editTarget = EditTarget.Interval(state.trackingIntervalSecs.toString(), "Update interval", "Seconds between fixes (5–120)") },
-                customLabel = if (intervalOptions.none { it.second == state.trackingIntervalSecs }) "${state.trackingIntervalSecs}s" else null,
-            )
-
-            Spacer(Modifier.height(16.dp))
-            SettingLabel("GPS priority", "Higher accuracy uses more battery")
-            Spacer(Modifier.height(8.dp))
-            ChipSelector(
-                options = priorityOptions.map { it.first },
-                selectedIndex = priorityOptions.indexOfFirst { it.second == state.locationPriority },
-                onSelect = { viewModel.setLocationPriority(priorityOptions[it].second) },
-            )
-
-            Spacer(Modifier.height(16.dp))
-            SettingLabel("Discard fixes worse than", "Reject low-accuracy GPS readings")
-            Spacer(Modifier.height(8.dp))
-            ChipSelector(
-                options = accuracyOptions.map { it.first },
-                selectedIndex = accuracyOptions.indexOfFirst { it.second == state.maxAccuracyM },
-                onSelect = { viewModel.setMaxAccuracyM(accuracyOptions[it].second) },
-                onLongEdit = { editTarget = EditTarget.Accuracy(state.maxAccuracyM.toString(), "Min accuracy (m)", "Discard fixes worse than this many metres") },
-                customLabel = if (accuracyOptions.none { it.second == state.maxAccuracyM }) "${state.maxAccuracyM}m" else null,
-            )
-
-            Spacer(Modifier.height(16.dp))
-            ToggleRow(
-                title = "Suppress stationary drift",
-                subtitle = "Keeps you pinned in place when parked instead of letting GPS wander",
-                checked = state.suppressStationaryDrift,
-                onCheckedChange = viewModel::setSuppressStationaryDrift,
-            )
-
-            Spacer(Modifier.height(16.dp))
-            ToggleRow(
-                title = "Slow down while still",
-                subtitle = "Normal interval while moving; once a minute after 5 minutes in one spot",
-                checked = state.slowWhenStill,
-                onCheckedChange = viewModel::setSlowWhenStill,
-            )
-
-            Spacer(Modifier.height(16.dp))
-            ToggleRow(
-                title = "Adaptive interval",
-                subtitle = "Record every 1 min while moving, every 5 min while still — instead of the fixed interval above",
-                checked = state.adaptiveIntervalEnabled,
-                onCheckedChange = viewModel::setAdaptiveIntervalEnabled,
-            )
-
-            Spacer(Modifier.height(16.dp))
-            ToggleRow(
-                title = "Log cell towers",
-                subtitle = if (state.cellLoggingEnabled && !phoneStatePermitted)
-                    "Recording your default SIM only"
-                else "Record which towers you connect to, with signal strength and band",
-                checked = state.cellLoggingEnabled,
-                onCheckedChange = { enabled ->
-                    viewModel.setCellLoggingEnabled(enabled)
-                    if (enabled && !phoneStatePermitted) showPhoneStateRationale = true
-                },
-            )
-            // The subtitle above used to say "grant Phone permission" with
-            // nothing to press: the rationale fires once, on the way in, so
-            // anyone who skipped it had no route back. This is that route.
-            if (state.cellLoggingEnabled && !phoneStatePermitted) {
-                TextButton(onClick = { showPhoneStateRationale = true }) {
-                    Text("Grant Phone permission to log both SIMs")
-                }
+                RowDivider()
+                // OEM killers: no API to opt out, only per-maker steps (dontkillmyapp.com).
+                ListRow(
+                    "Keep Roamly alive on ${Build.MANUFACTURER.replaceFirstChar { it.titlecase() }}",
+                    subtitle = "Some makers kill background apps — here's how to stop it",
+                    icon = Icons.Rounded.PhonelinkErase, iconTint = c.amber,
+                    trailing = { IconAction(Icons.Rounded.OpenInNew, null, {
+                        val mfr = Build.MANUFACTURER.lowercase(Locale.ROOT).trim()
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://dontkillmyapp.com/$mfr"))) }
+                    }, size = 36.dp, iconSize = 16.dp) },
+                )
             }
 
-            Spacer(Modifier.height(16.dp))
-            ToggleRow(
-                title = "Advanced",
-                subtitle = "Type exact values for each setting",
-                checked = advancedGps,
-                onCheckedChange = { advancedGps = it },
-            )
-            if (advancedGps) {
+            // ── Appearance ───────────────────────────────────────────────
+            SectionTitle("Appearance & feel", Modifier.padding(top = 22.dp))
+            Panel(Modifier.fillMaxWidth(), padding = PaddingValues(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    com.roamly.ui.kit.IconTile(Icons.Rounded.DarkMode, tint = c.violet, size = 36.dp, iconSize = 18.dp)
+                    Spacer(Modifier.width(14.dp))
+                    Text("Theme", style = MaterialTheme.typography.bodyLarge, color = c.text)
+                }
                 Spacer(Modifier.height(12.dp))
-                AdvancedNumberField("Interval (seconds)", state.trackingIntervalSecs, "5–120") { viewModel.setTrackingIntervalSecs(it) }
-                Spacer(Modifier.height(10.dp))
-                AdvancedNumberField("Max accuracy (metres)", state.maxAccuracyM, "discard worse fixes") { viewModel.setMaxAccuracyM(it) }
+                val themeIndex = when (state.darkModeOverride) { null -> 0; true -> 1; false -> 2 }
+                SegmentedSwitch(listOf("System", "Night", "Day"), themeIndex, { i ->
+                    viewModel.setThemeOverride(when (i) { 0 -> null; 1 -> true; else -> false })
+                }, Modifier.fillMaxWidth())
             }
-        }
-
-        // ── Sync ─────────────────────────────────────────────────────────
-        ClayCard {
-            ClaySectionHeader("Sync", Icons.Rounded.CloudSync, gradient = clay.secondaryGradient)
             Spacer(Modifier.height(12.dp))
-
-            ToggleRow(
-                title = "Sync on mobile data",
-                subtitle = "Off = upload only on Wi-Fi",
-                checked = state.syncOnMobileData,
-                onCheckedChange = viewModel::setSyncOnMobileData,
-            )
-
-            Spacer(Modifier.height(12.dp))
-            val syncColor = when {
-                state.lastSyncTime == 0L -> MaterialTheme.colorScheme.onSurfaceVariant
-                state.lastSyncSuccess    -> clay.success
-                else                     -> MaterialTheme.colorScheme.error
-            }
-            val syncText = when {
-                state.lastSyncTime == 0L -> "Never synced yet"
-                state.lastSyncSuccess    -> {
-                    val pts = when (state.lastSyncCount) {
-                        0 -> "nothing to send"; 1 -> "1 point sent"; else -> "${state.lastSyncCount} points sent"
-                    }
-                    "Last sync ${relativeTime(state.lastSyncTime)} · $pts"
-                }
-                else -> "Last sync failed ${relativeTime(state.lastSyncTime)}" +
-                        if (state.lastSyncError.isNotBlank()) " — ${state.lastSyncError}" else ""
-            }
-            Text(syncText, style = MaterialTheme.typography.bodySmall, color = syncColor)
-
-            Spacer(Modifier.height(6.dp))
-            val cached = state.cachedPointCount
-            Text(
-                when (cached) {
-                    0 -> "All points uploaded"
-                    1 -> "1 point waiting to upload"
-                    else -> "$cached points waiting to upload"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = if (cached == 0) clay.success else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(Modifier.height(12.dp))
-            ClayButton(
-                onClick = viewModel::syncNow,
-                enabled = !state.isSyncing,
-                gradient = clay.secondaryGradient,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                if (state.isSyncing) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Syncing…", fontWeight = FontWeight.Bold)
-                } else {
-                    Icon(Icons.Rounded.CloudUpload, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Sync now", fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-
-        // ── Reliability ──────────────────────────────────────────────────
-        ClayCard {
-            ClaySectionHeader("Reliability", Icons.Rounded.Bolt)
-            Spacer(Modifier.height(12.dp))
-            ToggleRow(
-                title = "Start tracking on boot",
-                subtitle = "Turn tracking on automatically after a reboot — works even while tracking is off",
-                checked = state.autoStartTracking,
-                onCheckedChange = viewModel::setAutoStartTracking,
-            )
-            Spacer(Modifier.height(8.dp))
-            InfoRow(
-                Icons.Rounded.BatteryFull,
-                "Battery optimization",
-                if (state.batteryOptimizationDisabled) "Disabled for Roamly ✓" else "Enabled (may pause tracking)",
-                valueColor = if (state.batteryOptimizationDisabled) clay.success else MaterialTheme.colorScheme.error,
-            )
-            if (!state.batteryOptimizationDisabled) {
-                Spacer(Modifier.height(10.dp))
-                ClayButton(
-                    onClick = { requestBatteryExemption() },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Rounded.Bolt, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Disable battery optimization", fontWeight = FontWeight.Bold)
-                }
+            RowGroup {
+                ToggleRow("Haptic feedback", state.hapticsEnabled, { on ->
+                    viewModel.setHapticsEnabled(on)
+                    if (on) haptics.confirm()
+                }, subtitle = "Subtle taps as you press, switch and swipe", icon = Icons.Rounded.Vibration, iconTint = c.accent)
+                RowDivider()
+                ToggleRow("Simple Mode", state.simpleModeEnabled, viewModel::setSimpleModeEnabled,
+                    subtitle = "Just the map and You — for someone who only needs Family Circle", icon = Icons.Rounded.ViewAgenda, iconTint = c.accent)
             }
 
-            // The other permission that silently wrecks the Doze cadence. Without it the OS
-            // downgrades our allow-while-idle alarms to inexact ones and fires them roughly
-            // every 9–15 min instead of every interval — indistinguishable from bad signal.
-            if (CaptureStats.exactAlarmsDenied) {
-                Spacer(Modifier.height(10.dp))
-                InfoRow(
-                    Icons.Rounded.Alarm,
-                    "Exact alarms",
-                    "Denied — Doze cadence limited to ~15 min",
-                    valueColor = MaterialTheme.colorScheme.error,
-                )
-                Spacer(Modifier.height(10.dp))
-                ClayButton(
-                    onClick = { requestExactAlarms() },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Rounded.Alarm, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Allow exact alarms", fontWeight = FontWeight.Bold)
-                }
-            }
-
-            // OEM-killer onboarding. Xiaomi/Samsung/Huawei/Oppo etc. kill background
-            // apps aggressively with no API to opt out — the only real fix is guiding
-            // the user to the per-OEM settings catalogued at dontkillmyapp.com.
-            Spacer(Modifier.height(10.dp))
-            NoteRow(
-                Icons.Rounded.PhonelinkErase,
-                "Aggressive OEM battery killers",
-                "Xiaomi, Samsung, Huawei & others need a manual allowlist step",
-            )
-            Spacer(Modifier.height(10.dp))
-            ClayButton(
-                onClick = {
-                    val mfr = Build.MANUFACTURER.lowercase(Locale.ROOT).trim()
-                    val url = "https://dontkillmyapp.com/${if (mfr.isBlank()) "" else mfr}"
-                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Rounded.OpenInNew, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("How to keep Roamly alive on ${Build.MANUFACTURER}", fontWeight = FontWeight.Bold)
-            }
-        }
-
-        // ── Connection ───────────────────────────────────────────────────
-        ClayCard {
-            ClaySectionHeader("Connection", Icons.Rounded.Link, gradient = clay.tertiaryGradient)
-            Spacer(Modifier.height(12.dp))
-            InfoRow(Icons.Rounded.Cloud, "Server", state.serverUrl.ifBlank { "Not set" })
-            Spacer(Modifier.height(8.dp))
-            InfoRow(Icons.Rounded.Person, "Username", state.username.ifBlank { "Not set" })
-            Spacer(Modifier.height(8.dp))
-            EditableRow(
-                Icons.Rounded.Smartphone, "Device ID", state.deviceId.ifBlank { "Tap to set" }, mono = true,
-                onClick = { editTarget = EditTarget.DeviceId(state.deviceId, "Device ID", "Identifies this device on the map") },
-            )
-            Spacer(Modifier.height(8.dp))
-            EditableRow(
-                Icons.Rounded.Key, "API key",
-                if (state.apiKey.isBlank()) "Tap to set" else "••••${state.apiKey.takeLast(6)}", mono = true,
-                onClick = { editTarget = EditTarget.ApiKey(state.apiKey, "API Key", "64-char hex key from Roamly → Settings → API Keys") },
-            )
-            Spacer(Modifier.height(8.dp))
-            InfoRow(Icons.Rounded.Save, "CSV export", state.csvPath.ifBlank { "Preparing…" })
-        }
-
-        // ── Appearance ───────────────────────────────────────────────────
-        ClayCard {
-            ClaySectionHeader("Appearance", Icons.Rounded.Palette, gradient = clay.tertiaryGradient)
-            Spacer(Modifier.height(12.dp))
-            ToggleRow(
-                title = "Dark mode",
-                subtitle = "Switch between the night and day clay themes",
-                // Until the user picks explicitly, mirror the system theme so the
-                // switch matches what's actually on screen.
-                checked = state.darkModeOverride ?: androidx.compose.foundation.isSystemInDarkTheme(),
-                onCheckedChange = viewModel::setDarkMode,
-            )
-        }
-
-        // ── Daily note ───────────────────────────────────────────────────
-        ClayCard {
-            ClaySectionHeader("Daily note", Icons.Rounded.EditNote, gradient = clay.secondaryGradient)
-            Spacer(Modifier.height(12.dp))
-            ToggleRow(
-                title = "Evening reminder",
-                subtitle = "A nudge to jot down what you did. Skipped on days you already have.",
-                checked = state.noteReminderEnabled,
-                onCheckedChange = { on ->
+            // ── Daily note ───────────────────────────────────────────────
+            SectionTitle("Daily note", Modifier.padding(top = 22.dp))
+            RowGroup {
+                ToggleRow("Evening reminder", state.noteReminderEnabled, { on ->
                     if (on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-                            != PermissionChecker.PERMISSION_GRANTED
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PermissionChecker.PERMISSION_GRANTED
                     ) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     viewModel.setNoteReminder(on, state.noteReminderMinute)
-                },
-            )
-            if (state.noteReminderEnabled) {
-                Spacer(Modifier.height(8.dp))
-                EditableRow(Icons.Rounded.Schedule, "Remind me at", formatMinuteOfDay(context, state.noteReminderMinute)) {
-                    showReminderTime = true
+                }, subtitle = "A nudge to jot down your day. Skipped when you already have.", icon = Icons.Rounded.EditNote, iconTint = c.amber)
+                if (state.noteReminderEnabled) {
+                    RowDivider()
+                    ListRow("Remind me at", subtitle = formatMinuteOfDay(context, state.noteReminderMinute),
+                        icon = Icons.Rounded.Schedule, iconTint = c.amber) { showReminderTime = true }
                 }
             }
-        }
 
-        // ── About ────────────────────────────────────────────────────────
-        ClayCard {
-            ClaySectionHeader("About", Icons.Rounded.Info, gradient = clay.secondaryGradient)
-            Spacer(Modifier.height(12.dp))
-            InfoRow(Icons.Rounded.Explore, "App", "Roamly for Android")
-            Spacer(Modifier.height(8.dp))
-            val appVersion = remember {
-                runCatching {
-                    context.packageManager.getPackageInfo(context.packageName, 0).versionName
-                }.getOrNull() ?: "—"
+            // ── Connection ───────────────────────────────────────────────
+            SectionTitle("Connection", Modifier.padding(top = 22.dp))
+            RowGroup {
+                ValueRow(Icons.Rounded.Cloud, "Server", state.serverUrl.ifBlank { "Not set" })
+                RowDivider()
+                ValueRow(Icons.Rounded.Person, "Username", state.username.ifBlank { "Not set" })
+                RowDivider()
+                ValueRow(Icons.Rounded.Smartphone, "Device ID", state.deviceId.ifBlank { "Tap to set" }, mono = true) { editing = Edit.DeviceId }
+                RowDivider()
+                ValueRow(Icons.Rounded.Key, "API key", if (state.apiKey.isBlank()) "Tap to set" else "••••${state.apiKey.takeLast(6)}", mono = true) { editing = Edit.ApiKey }
+                RowDivider()
+                ValueRow(Icons.Rounded.Save, "CSV log", state.csvPath.ifBlank { "Preparing…" }, mono = true)
             }
-            InfoRow(Icons.Rounded.Tag, "Version", appVersion)
-            Spacer(Modifier.height(12.dp))
 
-            // ── Updates ───────────────────────────────────────────────
-            val update = updateState
-            when {
-                update.available != null -> {
-                    Text(
-                        "Update available: Roamly ${update.available!!.versionName}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    if (update.needsInstallPermission) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Allow \"install unknown apps\" for Roamly, then tap Update again.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
+            // ── About ────────────────────────────────────────────────────
+            SectionTitle("About", Modifier.padding(top = 22.dp))
+            RowGroup {
+                val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "—" }
+                ListRow(
+                    when {
+                        update.available != null -> "Update to ${update.available!!.versionName}"
+                        update.upToDate -> "You're up to date"
+                        else -> "Check for updates"
+                    },
+                    subtitle = when {
+                        update.downloading -> "Downloading… ${update.progress}%"
+                        update.needsInstallPermission -> "Allow “install unknown apps” for Roamly, then tap again"
+                        update.error != null -> update.error
+                        else -> "Roamly $version"
+                    },
+                    icon = Icons.Rounded.SystemUpdate, iconTint = c.cyan,
+                    trailing = {
+                        AtlasButton(
+                            if (update.available != null) "Update" else "Check",
+                            { if (update.available != null) updateViewModel.downloadAndInstall() else updateViewModel.checkNow() },
+                            loading = update.checking || update.downloading,
+                            kind = if (update.available != null) ButtonKind.Primary else ButtonKind.Secondary, compact = true,
                         )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    ClayButton(
-                        onClick = { updateViewModel.downloadAndInstall() },
-                        gradient = clay.secondaryGradient,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !update.downloading,
-                    ) {
-                        if (update.downloading) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Downloading ${update.progress}%", fontWeight = FontWeight.Bold)
-                        } else {
-                            Icon(Icons.Rounded.SystemUpdate, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Update now", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-                else -> {
-                    ClayButton(
-                        onClick = { updateViewModel.checkNow() },
-                        gradient = clay.secondaryGradient,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !update.checking,
-                    ) {
-                        if (update.checking) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Checking…", fontWeight = FontWeight.Bold)
-                        } else {
-                            Icon(Icons.Rounded.SystemUpdate, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Check for updates", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    if (update.upToDate) {
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "You're on the latest version.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    update.error?.let {
-                        Spacer(Modifier.height(6.dp))
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    }
-                }
+                    },
+                )
+                RowDivider()
+                ListRow("Diagnostics", subtitle = "Coverage, gaps, the capture log", icon = Icons.Rounded.TouchApp, iconTint = c.textMuted, onClick = onOpenDiagnostics)
             }
-
             Spacer(Modifier.height(12.dp))
-            ClayButton(
-                onClick = { showDiagnostics = true },
-                gradient = clay.secondaryGradient,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Rounded.BugReport, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Diagnostics", fontWeight = FontWeight.Bold)
-            }
-        }
-
-        // ── Roamly Tracker (BLE) ────────────────────────────────────────────
-        ClayCard {
-            ClaySectionHeader("Roamly Tracker", Icons.Rounded.Watch, gradient = clay.secondaryGradient)
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "Pair your Roamly Tracker over Bluetooth to manage it from here. While they're together only one of them records; once paired it gets its own tab.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(14.dp))
-            ClayButton(
-                onClick = { showTracker = true },
-                gradient = clay.secondaryGradient,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Rounded.Watch, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Roamly Tracker", fontWeight = FontWeight.Bold)
-            }
-        }
-
-        // ── Family Circle / Simple Mode ─────────────────────────────────────
-        ClayCard {
-            ClaySectionHeader("Family Circle", Icons.Rounded.People, gradient = clay.secondaryGradient)
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "See where family members are and get notified when someone arrives at or leaves a place.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(14.dp))
-            ClayButton(
-                onClick = { showFamily = true },
-                gradient = clay.secondaryGradient,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Rounded.People, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Family Circle", fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.height(14.dp))
-            ToggleRow(
-                title = "Simple Mode",
-                subtitle = "Show just Map and Settings — hides Trips, Search and Data. Family Circle stays here. Switch back any time, right here.",
-                checked = state.simpleModeEnabled,
-                onCheckedChange = viewModel::setSimpleModeEnabled,
-            )
-        }
-
-        ClayButton(
-            onClick = { viewModel.logout(onLoggedOut) },
-            gradient = listOf(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.error),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(Icons.Rounded.Logout, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Sign out", fontWeight = FontWeight.Bold)
         }
     }
+
+    // ── Dialogs ──────────────────────────────────────────────────────────
+    when (editing) {
+        Edit.DeviceId -> ValueDialog("Device ID", state.deviceId, "Identifies this phone on the map", { editing = null }, { viewModel.setDeviceId(it); editing = null })
+        Edit.ApiKey -> ValueDialog("API key", state.apiKey, "64-character key from Roamly → Settings → API keys", { editing = null }, { viewModel.setApiKey(it); editing = null }, secret = true)
+        Edit.Interval -> ValueDialog("Update interval", state.trackingIntervalSecs.toString(), "Seconds between fixes (5–120)", { editing = null },
+            { it.toIntOrNull()?.let(viewModel::setTrackingIntervalSecs); editing = null }, numeric = true)
+        Edit.Accuracy -> ValueDialog("Max accuracy", state.maxAccuracyM.toString(), "Discard fixes worse than this many metres", { editing = null },
+            { it.toIntOrNull()?.let(viewModel::setMaxAccuracyM); editing = null }, numeric = true)
+        null -> Unit
     }
-}
-
-// ── Tracking hero ────────────────────────────────────────────────────────────
-
-@Composable
-private fun TrackingHero(isTracking: Boolean, onToggle: () -> Unit) {
-    val clay = Clay.colors
-    ClayCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ClayIconBadge(
-                if (isTracking) Icons.Rounded.MyLocation else Icons.Rounded.LocationDisabled,
-                gradient = if (isTracking) clay.secondaryGradient else listOf(MaterialTheme.colorScheme.onSurfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant),
-                size = 52.dp,
-                cornerRadius = SquircleRadius.panel,
-            )
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    if (isTracking) "Tracking is on" else "Tracking is off",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-                Text(
-                    if (isTracking) "Recording your location in the background"
-                    else "Tap start to begin recording your journey",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Spacer(Modifier.height(14.dp))
-        ClayButton(
-            onClick = onToggle,
-            gradient = if (isTracking) listOf(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.error) else clay.secondaryGradient,
-            contentColor = if (isTracking) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSecondaryContainer,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(if (isTracking) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, null, Modifier.size(20.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(if (isTracking) "Stop tracking" else "Start tracking", fontWeight = FontWeight.Bold)
-        }
+    if (showPhoneRationale) {
+        AtlasDialog(
+            title = "Phone permission (optional)",
+            onDismiss = { showPhoneRationale = false },
+            confirmText = "Continue",
+            onConfirm = { showPhoneRationale = false; phoneLauncher.launch(Manifest.permission.READ_PHONE_STATE) },
+            dismissText = "Skip",
+            icon = Icons.Rounded.CellTower,
+            body = {
+                Text("Roamly uses this only to tell your SIMs apart when logging towers. It never reads your number, IMEI, SIM serial or call history, and never places calls.\n\nSkip it and tower logging still works — for your default SIM only.")
+            },
+        )
     }
-}
-
-// ── Battery-exemption warning banner ───────────────────────────────────────────
-
-/** Loud, persistent warning shown whenever Roamly isn't exempt from battery optimization —
- *  the single setting that, if missing, guarantees multi-minute Doze gaps. One tap to fix. */
-@Composable
-private fun ExemptionWarningBanner(onFix: () -> Unit) {
-    val warn = MaterialTheme.colorScheme.error
-    ClayCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.Warning, null, tint = warn, modifier = Modifier.size(28.dp))
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "Tracking will have gaps",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = warn,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    "Android pauses location in Doze unless Roamly is exempt from battery optimization.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        ClayButton(
-            onClick = onFix,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(Icons.Rounded.Bolt, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Fix it — disable battery optimization", fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-// ── Reusable rows ──────────────────────────────────────────────────────────────
-
-@Composable
-private fun SettingLabel(title: String, subtitle: String) {
-    Column {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground)
-        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (showReminderTime) {
+        val picker = rememberTimePickerState(
+            initialHour = state.noteReminderMinute / 60,
+            initialMinute = state.noteReminderMinute % 60,
+            is24Hour = android.text.format.DateFormat.is24HourFormat(context),
+        )
+        AtlasDialog(
+            title = "Remind me at",
+            onDismiss = { showReminderTime = false },
+            confirmText = "Set",
+            onConfirm = { showReminderTime = false; viewModel.setNoteReminder(true, picker.hour * 60 + picker.minute) },
+            body = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    TimePicker(state = picker, colors = TimePickerDefaults.colors(
+                        clockDialColor = c.surfaceHigh, selectorColor = c.accent,
+                        timeSelectorSelectedContainerColor = c.accentSoft, timeSelectorSelectedContentColor = c.accent,
+                        timeSelectorUnselectedContainerColor = c.surfaceHigh,
+                        periodSelectorSelectedContainerColor = c.accentSoft, periodSelectorSelectedContentColor = c.accent,
+                    ))
+                    Text("Early evening works best: late enough that the day has happened, early enough that you're still up for it.",
+                        style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                }
+            },
+        )
     }
 }
 
 @Composable
-private fun ChipSelector(
+private fun OptionLabel(title: String, subtitle: String) {
+    Column(Modifier.padding(horizontal = 18.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = Atlas.colors.text)
+        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Atlas.colors.textMuted)
+    }
+    Spacer(Modifier.height(10.dp))
+}
+
+@Composable
+private fun OptionChips(
     options: List<String>,
-    selectedIndex: Int,
+    selected: Int,
+    custom: String? = null,
+    onCustom: (() -> Unit)? = null,
     onSelect: (Int) -> Unit,
-    onLongEdit: (() -> Unit)? = null,
-    customLabel: String? = null,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        options.forEachIndexed { i, label ->
-            val selected = i == selectedIndex
-            Box(
-                modifier = Modifier
-                    .clip(SquircleShape(SquircleRadius.control))
-                    .background(
-                        if (selected) MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    )
-                    .clickable { onSelect(i) }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-            ) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        if (customLabel != null && onLongEdit != null) {
-            Box(
-                modifier = Modifier
-                    .clip(SquircleShape(SquircleRadius.control))
-                    .background(MaterialTheme.colorScheme.primaryContainer)
-                    .clickable { onLongEdit() }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-            ) {
-                Text(customLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-            }
-        }
-        if (onLongEdit != null) {
-            Box(
-                modifier = Modifier
-                    .clip(SquircleShape(SquircleRadius.control))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    .clickable { onLongEdit() }
-                    .padding(10.dp),
-            ) {
-                Icon(Icons.Rounded.Edit, "Custom value", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+    ChipRow(contentPadding = PaddingValues(horizontal = 18.dp)) {
+        options.forEachIndexed { i, label -> AtlasChip(label, i == selected, { onSelect(i) }) }
+        if (custom != null && onCustom != null) AtlasChip(custom, true, onCustom)
+        if (onCustom != null) AtlasChip("Custom", false, onCustom, icon = Icons.Rounded.Edit)
     }
 }
 
+/** A label/value row; tappable to edit when [onClick] is given. */
 @Composable
-private fun AdvancedNumberField(label: String, value: Int, hint: String, onApply: (Int) -> Unit) {
-    // Seed from the current value but let the user type freely; apply valid numbers.
-    var text by remember(value) { mutableStateOf(value.toString()) }
-    OutlinedTextField(
-        value = text,
-        onValueChange = {
-            text = it.filter { c -> c.isDigit() }
-            text.toIntOrNull()?.let(onApply)
+private fun ValueRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, mono: Boolean = false, onClick: (() -> Unit)? = null) {
+    val c = Atlas.colors
+    ListRow(
+        label,
+        icon = icon, iconTint = c.textMuted,
+        onClick = onClick, showChevron = false,
+        trailing = {
+            Text(
+                value,
+                style = if (mono) AtlasType.mono else MaterialTheme.typography.bodySmall,
+                color = if (onClick != null) c.accent else c.textMuted,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 190.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+            )
         },
-        label = { Text(label) },
-        supportingText = { Text(hint) },
-        singleLine = true,
-        shape = SquircleShape(SquircleRadius.control),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        modifier = Modifier.fillMaxWidth(),
     )
 }
 
 private fun formatMinuteOfDay(context: android.content.Context, minuteOfDay: Int): String {
     val time = java.time.LocalTime.of(minuteOfDay / 60, minuteOfDay % 60)
     val pattern = if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm" else "h:mm a"
-    return time.format(java.time.format.DateTimeFormatter.ofPattern(pattern, java.util.Locale.getDefault()))
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ReminderTimeDialog(minuteOfDay: Int, onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
-    val context = LocalContext.current
-    val picker = rememberTimePickerState(
-        initialHour = minuteOfDay / 60,
-        initialMinute = minuteOfDay % 60,
-        is24Hour = android.text.format.DateFormat.is24HourFormat(context),
-    )
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Remind me at") },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                TimePicker(state = picker)
-                Text(
-                    "Early evening works best: late enough that the day has happened, early enough that you're still up for it.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = { TextButton(onClick = { onConfirm(picker.hour * 60 + picker.minute) }) { Text("Set") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-@Composable
-private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onBackground)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
-@Composable
-private fun InfoRow(icon: ImageVector, label: String, value: String, valueColor: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(12.dp))
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f))
-        Spacer(Modifier.width(8.dp))
-        // Cap the value at half the row and let it wrap. Without a weight an
-        // overflowing value (e.g. a long URL or sentence) is measured first and
-        // steals the whole row, collapsing the weighted label to ~1 char wide so
-        // it stacks vertically. fill=false keeps short values compact + right-hugged.
-        Text(
-            value,
-            style = MaterialTheme.typography.bodySmall,
-            color = valueColor,
-            textAlign = TextAlign.End,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-    }
-}
-
-/** Like InfoRow but for a label + a longer descriptive sentence that should
- *  wrap as a left-aligned subtitle (not be squeezed into a right-hand value). */
-@Composable
-private fun NoteRow(icon: ImageVector, title: String, subtitle: String) {
-    Row(verticalAlignment = Alignment.Top) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun EditableRow(icon: ImageVector, label: String, value: String, mono: Boolean = false, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier.clip(SquircleShape(SquircleRadius.control)).clickable(onClick = onClick).padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(12.dp))
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f))
-        Text(
-            value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
-            fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default,
-        )
-        Spacer(Modifier.width(6.dp))
-        Icon(Icons.Rounded.Edit, "Edit", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-// ── Edit dialog ────────────────────────────────────────────────────────────
-
-@Composable
-private fun EditDialog(
-    title: String,
-    initialValue: String,
-    keyboardType: KeyboardType = KeyboardType.Text,
-    hint: String = "",
-    onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var value by remember(initialValue) { mutableStateOf(initialValue) }
-    var showKey by remember { mutableStateOf(false) }
-    val isApiKey = title.contains("API", ignoreCase = true)
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                    visualTransformation = if (isApiKey && !showKey) PasswordVisualTransformation() else VisualTransformation.None,
-                    trailingIcon = if (isApiKey) {
-                        {
-                            IconButton(onClick = { showKey = !showKey }) {
-                                Icon(if (showKey) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, null)
-                            }
-                        }
-                    } else null,
-                    label = { Text(title) },
-                )
-                if (hint.isNotBlank()) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { onConfirm(value) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
-}
-
-private sealed class EditTarget(
-    val currentValue: String,
-    val title: String,
-    val hint: String,
-    val keyboardType: KeyboardType = KeyboardType.Text,
-) {
-    class DeviceId(currentValue: String, title: String, hint: String) : EditTarget(currentValue, title, hint, KeyboardType.Text)
-    class ApiKey(currentValue: String, title: String, hint: String) : EditTarget(currentValue, title, hint, KeyboardType.Text)
-    class Interval(currentValue: String, title: String, hint: String) : EditTarget(currentValue, title, hint, KeyboardType.Number)
-    class Accuracy(currentValue: String, title: String, hint: String) : EditTarget(currentValue, title, hint, KeyboardType.Number)
-}
-
-// ── Option tables ──────────────────────────────────────────────────────────────
-
-private val intervalOptions = listOf(
-    "5s" to 5, "10s" to 10, "15s" to 15, "30s" to 30, "1m" to 60, "2m" to 120,
-)
-private val priorityOptions = listOf(
-    "Auto" to "auto", "High" to "high", "Balanced" to "balanced", "Low" to "low",
-)
-private val accuracyOptions = listOf(
-    "20m" to 20, "50m" to 50, "100m" to 100, "200m" to 200,
-)
-
-private fun relativeTime(epochMs: Long): String {
-    val diff = System.currentTimeMillis() - epochMs
-    return when {
-        diff < 60_000L     -> "just now"
-        diff < 3_600_000L  -> "${diff / 60_000}m ago"
-        diff < 86_400_000L -> "${diff / 3_600_000}h ago"
-        else               -> SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(epochMs))
-    }
+    return time.format(java.time.format.DateTimeFormatter.ofPattern(pattern, Locale.getDefault()))
 }
