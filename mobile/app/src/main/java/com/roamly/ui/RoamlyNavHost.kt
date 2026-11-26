@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -60,6 +61,8 @@ import com.roamly.ui.groups.GroupsScreen
 import com.roamly.ui.health.HealthScreen
 import com.roamly.ui.journals.JournalsScreen
 import com.roamly.ui.journals.JournalsViewModel
+import com.roamly.ui.kit.LocalScreenBack
+import com.roamly.ui.kit.MapSheetPeek
 import com.roamly.ui.kit.ProvideDockPadding
 import com.roamly.ui.map.MapScreen
 import com.roamly.ui.map.MapViewModel
@@ -113,7 +116,10 @@ object Routes {
     const val FAMILY = "family"
 }
 
-private val tabRoutes = Tab.entries.map { it.route }.toSet()
+/** Only the map is a root destination now; Trips, Ask and You are pushed from its sheet. */
+private val tabRoutes = setOf(Tab.Map.route)
+
+private val formerTabRoutes = setOf(Tab.Trips.route, Tab.Ask.route, Tab.You.route)
 
 private fun NavBackStackEntry.isTab() = destination.route in tabRoutes
 
@@ -155,10 +161,6 @@ fun RoamlyNavHost() {
     val featuredTripName by authViewModel.featuredTripName.collectAsState()
     val recording by authViewModel.recordingActive.collectAsState()
     val username by authViewModel.username.collectAsState()
-
-    // Simple Mode: a non-technical family member gets the map and You (where
-    // Family Circle and the switch back live) and nothing else.
-    val tabs = if (simpleMode) listOf(Tab.Map, Tab.You) else Tab.entries.toList()
 
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn == true) {
@@ -204,9 +206,10 @@ fun RoamlyNavHost() {
         navController.navigate("flights/scan?uri=" + android.net.Uri.encode(uri.toString()))
     }
 
-    val showDock = isLoggedIn == true && currentRoute in tabRoutes
+    val onMap = isLoggedIn == true && currentRoute in tabRoutes
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val dockSpace = DOCK_HEIGHT + DOCK_MARGIN + navBottom
+    // The map's sheet peeks over the bottom; the update banner sits above it.
+    val sheetSpace = MapSheetPeek + navBottom
     val toMap = { navController.toTab(Tab.Map.route) }
     val toMapDate = { date: String -> mapViewModel.navigateToDate(date); toMap() }
     val open = { route: String -> navController.navigate(route) }
@@ -214,7 +217,8 @@ fun RoamlyNavHost() {
     val updateState by updateViewModel.state.collectAsState()
 
     Box(Modifier.fillMaxSize().background(Atlas.colors.bg)) {
-        ProvideDockPadding(if (showDock) dockSpace else navBottom) {
+        ProvideDockPadding(navBottom) {
+          CompositionLocalProvider(LocalScreenBack provides if (currentRoute in formerTabRoutes) back else null) {
             NavHost(
                 navController = navController,
                 startDestination = initialRoute,
@@ -238,8 +242,13 @@ fun RoamlyNavHost() {
                     MapScreen(
                         viewModel = mapViewModel,
                         notesViewModel = quickNotesViewModel,
+                        recording = recording,
+                        simpleMode = simpleMode,
+                        username = username,
+                        onOpen = open,
                     )
                 }
+                // Trips, Ask and You are pushed from the map sheet; each draws a back button.
                 composable(Tab.Trips.route) {
                     val vm = hiltViewModel<TripsViewModel>(activityOwner)
                     // The ViewModel outlives the tab, so refresh per visit (it
@@ -358,37 +367,24 @@ fun RoamlyNavHost() {
                     DiagnosticsScreen(viewModel = hiltViewModel(), onBack = back)
                 }
             }
+          }
         }
 
         // Tabs other than the map scroll under the status bar: give it a ground
         // so content never runs into the clock.
-        if (showDock && currentRoute != Tab.Map.route) {
+        if (isLoggedIn == true && currentRoute in formerTabRoutes) {
             Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(Atlas.colors.bg.copy(alpha = 0.94f)))
         }
 
-        if (showDock) {
+        if (onMap) {
             UpdateBanner(
                 state = updateState,
                 onUpdate = updateViewModel::downloadAndInstall,
                 onDismiss = updateViewModel::dismissBanner,
                 modifier = Modifier.align(Alignment.BottomCenter),
-                bottomOffset = dockSpace,
+                bottomOffset = sheetSpace,
             )
         }
-
-        Dock(
-            visible = showDock,
-            tabs = tabs,
-            selected = Tab.entries.firstOrNull { it.route == currentRoute },
-            showRecord = !simpleMode,
-            recording = recording,
-            onSelect = { tab ->
-                if (tab.route == currentRoute) return@Dock
-                navController.toTab(tab.route)
-            },
-            onRecord = { open(Routes.RECORD) },
-            modifier = Modifier.align(Alignment.BottomCenter),
-        )
     }
 }
 
@@ -428,5 +424,3 @@ private fun android.content.Context.findActivity(): android.app.Activity? {
     return null
 }
 
-internal val DOCK_HEIGHT = 68.dp
-internal val DOCK_MARGIN = 14.dp

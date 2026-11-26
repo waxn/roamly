@@ -30,6 +30,20 @@ enum class TimePeriod(val label: String) {
     H6("6h"), H24("24h"), D7("7d"), D30("30d"), D90("90d"), ALL("All"), CUSTOM("Custom")
 }
 
+/** The sheet's quick ranges. Today is a one-day custom range; the rest are the stock periods. */
+enum class Lens(val label: String) {
+    Today("Today"), Week("7 days"), Month("30 days"), Quarter("90 days"), All("All time");
+
+    fun isSelected(s: MapUiState): Boolean = when (this) {
+        Today -> s.timePeriod == TimePeriod.CUSTOM &&
+            s.customDateRange?.let { it.start == it.end && it.start == LocalDate.now() } == true
+        Week -> s.timePeriod == TimePeriod.D7
+        Month -> s.timePeriod == TimePeriod.D30
+        Quarter -> s.timePeriod == TimePeriod.D90
+        All -> s.timePeriod == TimePeriod.ALL
+    }
+}
+
 data class DateRange(val start: LocalDate, val end: LocalDate) {
     val label: String get() {
         val thisYear = LocalDate.now().year
@@ -350,6 +364,16 @@ class MapViewModel @Inject constructor(
             return
         }
         applyCustomRange(DateRange(newStart, newEnd))
+    }
+
+    fun applyLens(lens: Lens) {
+        when (lens) {
+            Lens.Today -> navigateToDate(LocalDate.now().toString())
+            Lens.Week -> setTimePeriod(TimePeriod.D7)
+            Lens.Month -> setTimePeriod(TimePeriod.D30)
+            Lens.Quarter -> setTimePeriod(TimePeriod.D90)
+            Lens.All -> setTimePeriod(TimePeriod.ALL)
+        }
     }
 
     fun setTimePeriod(period: TimePeriod) {

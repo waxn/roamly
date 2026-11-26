@@ -6,6 +6,23 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.FiberManualRecord
+import androidx.compose.material.icons.rounded.Flight
+import androidx.compose.material.icons.rounded.Insights
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.RadioButtonChecked
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.TableRows
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -71,6 +88,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -101,7 +119,14 @@ import com.roamly.ui.kit.Foldout
 import com.roamly.ui.kit.IconAction
 import com.roamly.ui.kit.IconTile
 import com.roamly.ui.kit.InfoPair
+import com.roamly.ui.kit.ListRow
 import com.roamly.ui.kit.LocalDockPadding
+import com.roamly.ui.kit.MapSheet
+import com.roamly.ui.kit.MapSheetPeek
+import com.roamly.ui.kit.RowDivider
+import com.roamly.ui.kit.RowGroup
+import com.roamly.ui.Routes
+import com.roamly.ui.Tab
 import com.roamly.ui.kit.Panel
 import com.roamly.ui.kit.PanelTone
 import com.roamly.ui.kit.SectionTitle
@@ -137,6 +162,13 @@ fun MapScreen(
     viewModel: MapViewModel = hiltViewModel(),
     /** "What I did today". Null hides the notes pill (e.g. in a preview). */
     notesViewModel: QuickNotesViewModel? = null,
+    /** Red-dot state of the Record button (an activity session is live). */
+    recording: Boolean = false,
+    /** Simple Mode: no Record, no Search, and a sheet with only the way to You. */
+    simpleMode: Boolean = false,
+    username: String = "",
+    /** Pushes a route (see `Routes` / `Tab`). */
+    onOpen: (String) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -144,6 +176,7 @@ fun MapScreen(
     val dark = Atlas.colors.isDark
     var showOptions by remember { mutableStateOf(false) }
     var showNotes by remember { mutableStateOf(false) }
+    var sheetOpen by rememberSaveable { mutableStateOf(false) }
     var focusNoteComposer by remember { mutableStateOf(false) }
     val notesState = notesViewModel?.uiState?.collectAsState()?.value
 
@@ -307,7 +340,8 @@ fun MapScreen(
     }
 
     val c = Atlas.colors
-    val dock = LocalDockPadding.current
+    // The sheet's peek sits over the bottom: controls and toasts clear it.
+    val sheetBottom = LocalDockPadding.current + MapSheetPeek
 
     Box(Modifier.fillMaxSize()) {
         AndroidView(
@@ -323,17 +357,27 @@ fun MapScreen(
 
         // ── Top ─────────────────────────────────────────────────────────
         Column(
-            Modifier.align(Alignment.TopStart).statusBarsPadding().padding(start = 14.dp, top = 10.dp, end = 120.dp),
+            Modifier.align(Alignment.TopStart).fillMaxWidth().statusBarsPadding().padding(start = 14.dp, top = 10.dp, end = 14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            RangePill(
-                label = state.periodLabel,
-                custom = state.timePeriod == TimePeriod.CUSTOM,
-                canBack = state.canStepBack,
-                canForward = state.canStepForward,
-                onStep = { dir -> haptics.tick(); viewModel.stepRange(dir) },
-                onOpen = { showOptions = true },
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (simpleMode) Spacer(Modifier.weight(1f))
+                else SearchPill(Modifier.weight(1f)) { haptics.click(); onOpen(Tab.Ask.route) }
+                AvatarButton(username) { haptics.click(); onOpen(Tab.You.route) }
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                RangePill(
+                    label = state.periodLabel,
+                    custom = state.timePeriod == TimePeriod.CUSTOM,
+                    canBack = state.canStepBack,
+                    canForward = state.canStepForward,
+                    onStep = { dir -> haptics.tick(); viewModel.stepRange(dir) },
+                    onOpen = { showOptions = true },
+                )
+                Spacer(Modifier.weight(1f))
+                GlassButton(Icons.Rounded.Refresh, "Refresh map", busy = state.isRefreshing, enabled = !state.isRefreshing) { viewModel.refresh() }
+                GlassButton(Icons.Rounded.Tune, "Map options") { showOptions = true }
+            }
             if (notesState != null && !notesState.hidden) {
                 QuickNotePill(state = notesState, onClick = {
                     notesViewModel?.refreshToday()
@@ -341,13 +385,6 @@ fun MapScreen(
                     showNotes = true
                 })
             }
-        }
-        Row(
-            Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 10.dp, end = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            GlassButton(Icons.Rounded.Refresh, "Refresh map", busy = state.isRefreshing, enabled = !state.isRefreshing) { viewModel.refresh() }
-            GlassButton(Icons.Rounded.Tune, "Map options") { showOptions = true }
         }
 
         // Thin progress line while the period loads, and a chip while detail streams in.
@@ -359,7 +396,7 @@ fun MapScreen(
         }
         AnimatedVisibility(
             state.isLoadingMore,
-            Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp),
+            Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 118.dp),
             enter = fadeIn() + slideInVertically { -it }, exit = fadeOut() + slideOutVertically { -it },
         ) {
             GlassChip {
@@ -369,7 +406,7 @@ fun MapScreen(
             }
         }
         state.error?.let { msg ->
-            Box(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 110.dp, start = 16.dp, end = 16.dp)) {
+            Box(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 164.dp, start = 16.dp, end = 16.dp)) {
                 GlassChip { Dot(c.danger); Spacer(Modifier.width(8.dp)); Text(msg, style = MaterialTheme.typography.bodySmall, color = c.text) }
             }
         }
@@ -381,31 +418,39 @@ fun MapScreen(
             onOut = { haptics.tick(); mapView.controller.zoomOut() },
         )
 
-        // ── Bottom: been-here + stats, above the dock ───────────────────
+        // ── Bottom: record + been-here, above the sheet's peek ──────────
         Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = dock + 10.dp),
+            Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = sheetBottom + 12.dp),
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            if (!simpleMode) RecordFab(recording) { haptics.thud(); onOpen(Routes.RECORD) }
             BeenHereButton(checking = checkingHere, onClick = askBeenHere)
-            AnimatedVisibility(state.stats != null, enter = fadeIn() + slideInVertically { it / 2 }, exit = fadeOut()) {
-                state.stats?.let { stats ->
-                    StatsCard(
-                        label = state.periodLabel,
-                        points = stats.totalPoints,
-                        cities = stats.cities,
-                        countries = stats.countries,
-                    )
-                }
-            }
         }
 
         nearHereError?.let { msg ->
             LaunchedEffect(msg) { kotlinx.coroutines.delay(3500); nearHereError = null }
-            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = dock + 150.dp, start = 16.dp, end = 16.dp)) {
+            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = sheetBottom + 130.dp, start = 16.dp, end = 16.dp)) {
                 GlassChip { Dot(c.danger); Spacer(Modifier.width(8.dp)); Text(msg, style = MaterialTheme.typography.bodySmall, color = c.text) }
             }
         }
+
+        MapSheet(
+            expanded = sheetOpen,
+            onExpandedChange = { sheetOpen = it },
+            peekHeight = sheetBottom,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            peek = { SheetPeek(state, recording) },
+            body = {
+                SheetBody(
+                    state = state,
+                    simpleMode = simpleMode,
+                    onLens = { lens -> haptics.select(); viewModel.applyLens(lens) },
+                    onOptions = { sheetOpen = false; showOptions = true },
+                    onOpen = { route -> sheetOpen = false; onOpen(route) },
+                )
+            },
+        )
     }
 
     if (state.showDateRangePicker) {
@@ -565,15 +610,120 @@ private fun BeenHereButton(checking: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StatsCard(label: String, points: Int, cities: Int, countries: Int) {
+private fun SearchPill(modifier: Modifier, onClick: () -> Unit) {
     val c = Atlas.colors
-    Panel(Modifier.fillMaxWidth(), tone = PanelTone.Glass, padding = PaddingValues(horizontal = 20.dp, vertical = 14.dp)) {
-        Eyebrow(label, color = c.textMuted)
+    Row(
+        modifier.then(glassModifier(SquircleShape(50))).height(46.dp).tappable(pressedScale = 0.97f, onClick = onClick).padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.Search, null, tint = c.textMuted, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(10.dp))
+        Text("Search or ask", style = MaterialTheme.typography.bodyLarge, color = c.textMuted, maxLines = 1)
+    }
+}
+
+@Composable
+private fun AvatarButton(username: String, onClick: () -> Unit) {
+    val c = Atlas.colors
+    Box(
+        glassModifier(SquircleShape(50)).size(46.dp).tappable(pressedScale = 0.9f, onClick = onClick)
+            .semantics { contentDescription = "You and settings" },
+        contentAlignment = Alignment.Center,
+    ) {
+        val initial = username.trim().firstOrNull()?.uppercase()
+        if (initial != null) Text(initial, style = MaterialTheme.typography.titleSmall, color = c.accent)
+        else Icon(Icons.Rounded.Person, null, tint = c.text, modifier = Modifier.size(21.dp))
+    }
+}
+
+/** The one coral thing on the map: Record, red with a pulse while a session is live. */
+@Composable
+private fun RecordFab(recording: Boolean, onClick: () -> Unit) {
+    val c = Atlas.colors
+    val pulse = rememberInfiniteTransition(label = "rec")
+    val ring by pulse.animateFloat(
+        initialValue = 1f, targetValue = if (recording) 1.28f else 1f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "ring",
+    )
+    Box(Modifier.size(58.dp), contentAlignment = Alignment.Center) {
+        if (recording) {
+            Box(
+                Modifier.size(52.dp).graphicsLayer { scaleX = ring; scaleY = ring; alpha = 2f - ring * 1.3f }
+                    .clip(SquircleShape(50)).background(c.danger.copy(alpha = 0.35f))
+            )
+        }
+        Box(
+            Modifier.size(52.dp)
+                .shadow(6.dp, SquircleShape(50), ambientColor = c.shadow, spotColor = c.shadow)
+                .clip(SquircleShape(50))
+                .background(if (recording) c.danger else c.record)
+                .tappable(feel = Feel.None, pressedScale = 0.88f, onClick = onClick)
+                .semantics { contentDescription = if (recording) "Recording — open" else "Record an activity" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                if (recording) Icons.Rounded.RadioButtonChecked else Icons.Rounded.FiberManualRecord,
+                null, tint = if (recording) Color.White else c.onRecord, modifier = Modifier.size(24.dp),
+            )
+        }
+    }
+}
+
+/** What stays visible when the sheet is collapsed: the range and its three figures. */
+@Composable
+private fun SheetPeek(state: MapUiState, recording: Boolean) {
+    val c = Atlas.colors
+    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(state.periodLabel, style = MaterialTheme.typography.titleSmall, color = c.text, modifier = Modifier.weight(1f))
+            if (recording) {
+                Dot(c.record, pulse = true)
+                Spacer(Modifier.width(6.dp))
+                Text("Recording", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
+            }
+        }
         Spacer(Modifier.height(8.dp))
+        val stats = state.stats
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            CountUp(points, "points", c.text)
-            CountUp(cities, "cities", c.text)
-            CountUp(countries, "countries", c.accent)
+            CountUp(stats?.totalPoints ?: 0, "points", c.text)
+            CountUp(stats?.cities ?: 0, "cities", c.text)
+            CountUp(stats?.countries ?: 0, "countries", c.accent)
+        }
+    }
+}
+
+/** What the sheet holds when pulled up: range lenses, then one tap to anything else. */
+@Composable
+private fun SheetBody(
+    state: MapUiState,
+    simpleMode: Boolean,
+    onLens: (Lens) -> Unit,
+    onOptions: () -> Unit,
+    onOpen: (String) -> Unit,
+) {
+    val c = Atlas.colors
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        if (!simpleMode) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Lens.entries.forEach { lens -> AtlasChip(lens.label, lens.isSelected(state), { onLens(lens) }) }
+            }
+        }
+        RowGroup {
+            ListRow("Map options", subtitle = "Layers, basemap and filters", icon = Icons.Rounded.Layers, iconTint = c.accent) { onOptions() }
+            if (!simpleMode) {
+                RowDivider()
+                ListRow("Trips and journal", icon = Icons.Rounded.Explore, iconTint = c.violet) { onOpen(Tab.Trips.route) }
+                RowDivider()
+                ListRow("Stats", icon = Icons.Rounded.Insights, iconTint = c.cyan) { onOpen(Routes.STATS) }
+                RowDivider()
+                ListRow("Flights", icon = Icons.Rounded.Flight, iconTint = c.sky) { onOpen(Routes.FLIGHTS) }
+                RowDivider()
+                ListRow("Health", icon = Icons.Rounded.FavoriteBorder, iconTint = c.rose) { onOpen(Routes.HEALTH) }
+                RowDivider()
+                ListRow("Location data", icon = Icons.Rounded.TableRows, iconTint = c.lime) { onOpen(Routes.LOCATIONS) }
+            }
+            RowDivider()
+            ListRow("You", subtitle = "Tracking, Family Circle and settings", icon = Icons.Rounded.Person, iconTint = c.textMuted) { onOpen(Tab.You.route) }
         }
     }
 }
