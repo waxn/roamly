@@ -64,6 +64,13 @@ import com.roamly.ui.theme.SquircleShape
  */
 val LocalDockPadding = staticCompositionLocalOf { 0.dp }
 
+/**
+ * Set by the shell on the screens that used to be tabs (Trips, Ask, You) and are
+ * now pushed from the map's sheet: [ScreenHeader] draws a back button when it is
+ * non-null. Null (the default) draws none.
+ */
+val LocalScreenBack = staticCompositionLocalOf<(() -> Unit)?> { null }
+
 /** Room under content for the dock (or the nav bar when there's no dock). */
 @Composable
 fun dockAwareBottom(extra: Dp = 24.dp): Dp = LocalDockPadding.current + extra
@@ -94,6 +101,9 @@ fun ScreenHeader(
             .padding(start = 20.dp, end = 12.dp, top = 14.dp, bottom = 8.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
+        LocalScreenBack.current?.let { back ->
+            IconAction(Icons.Rounded.ArrowBack, "Back", back, container = Atlas.colors.surfaceHigh, modifier = Modifier.padding(end = 12.dp))
+        }
         Column(Modifier.weight(1f)) {
             if (eyebrow != null) {
                 Eyebrow(eyebrow)
