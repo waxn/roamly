@@ -53,6 +53,13 @@ class MainActivity : ComponentActivity() {
             com.roamly.ui.kit.HapticSettings.enabled = haptics
             val systemDark = isSystemInDarkTheme()
             val darkMode = prefDarkMode ?: systemDark
+            // Bar icons follow the app's theme, not the phone's: forcing Day on a
+            // phone in dark mode would otherwise leave white icons on a light page.
+            androidx.compose.runtime.LaunchedEffect(darkMode) {
+                val style = if (darkMode) androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                else androidx.activity.SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+            }
             RoamlyTheme(darkTheme = darkMode) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     RoamlyNavHost()
