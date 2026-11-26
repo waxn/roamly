@@ -84,6 +84,8 @@ fun HealthScreen(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = dockAwareBottom()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                HealthDataSection()
+                SectionTitle("Sync from this phone", Modifier.padding(top = 10.dp))
                 when (state.availability) {
                     HealthConnectManager.Availability.UNAVAILABLE -> EmptyState(
                         Icons.Rounded.MonitorHeart, "Health Connect isn't here",

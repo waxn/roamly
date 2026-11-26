@@ -1188,3 +1188,47 @@ data class MapPlace(
     @SerializedName("radius_m") val radiusM: Double = 150.0,
     val color: String = "",
 )
+
+// --- Health data views (the web Health page, on the phone) ---
+
+data class HealthBucket(
+    val key: String = "",
+    val start: String = "",
+    val end: String = "",
+    val days: Int = 1,
+    val steps: Double = 0.0,
+    val distance: Double = 0.0,
+    @SerializedName("calories_active") val caloriesActive: Double = 0.0,
+)
+
+data class HealthTotals(
+    val steps: Double = 0.0,
+    @SerializedName("distance_m") val distanceM: Double = 0.0,
+    @SerializedName("calories_active") val caloriesActive: Double = 0.0,
+    @SerializedName("active_days") val activeDays: Int = 0,
+    @SerializedName("avg_steps") val avgSteps: Double = 0.0,
+)
+
+data class HealthDailyResponse(
+    val granularity: String = "day",
+    val buckets: List<HealthBucket> = emptyList(),
+    val totals: HealthTotals = HealthTotals(),
+)
+
+data class HealthWorkoutRow(
+    val id: Int = 0,
+    val title: String = "",
+    @SerializedName("exercise_slug") val exerciseSlug: String = "",
+    val start: String = "",
+    @SerializedName("duration_s") val durationS: Int? = null,
+    @SerializedName("distance_m") val distanceM: Double? = null,
+    @SerializedName("calories_kcal") val caloriesKcal: Double? = null,
+    @SerializedName("avg_heart_rate") val avgHeartRate: Double? = null,
+)
+
+data class HealthDayResponse(
+    val date: String = "",
+    val hourly: Map<String, List<Double>> = emptyMap(),
+    val totals: Map<String, Double> = emptyMap(),
+    val workouts: List<HealthWorkoutRow> = emptyList(),
+)

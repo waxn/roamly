@@ -434,6 +434,19 @@ interface RoamlyApi {
     @POST("api/health/workouts/{id}/delete/")
     suspend fun deleteHealthWorkout(@Path("id") id: Int): Response<ResponseBody>
 
+    @GET("api/health/daily/")
+    suspend fun getHealthDaily(
+        @Query("start_date") startDate: String? = null,
+        @Query("end_date") endDate: String? = null,
+        @Query("tz_offset") tzOffset: Int? = null,
+    ): Response<HealthDailyResponse>
+
+    @GET("api/health/day/{date}/")
+    suspend fun getHealthDay(
+        @Path("date") date: String,
+        @Query("tz_offset") tzOffset: Int? = null,
+    ): Response<HealthDayResponse>
+
     @GET("api/health/status/")
     suspend fun getHealthStatus(): Response<HealthStatusResponse>
 
