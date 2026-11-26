@@ -100,47 +100,30 @@ fun YouScreen(
                 FeaturedBlogCard(featuredBlogName, { onOpen(Routes.TRIP_BLOG) })
             }
 
-            if (!simpleMode) {
-                SectionTitle("Your data", Modifier.padding(top = 22.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    HubTile(Icons.Rounded.Insights, "Stats", "Distance, places, years", c.violet, Modifier.weight(1f)) { onOpen(Routes.STATS) }
-                    HubTile(Icons.Rounded.Flight, "Flights", "Log, map, scan a pass", c.cyan, Modifier.weight(1f)) { onOpen(Routes.FLIGHTS) }
+            // Everything lives in one grid of panels: one tap to anywhere.
+            val tiles = buildList<Hub> {
+                if (!simpleMode) {
+                    add(Hub(Icons.Rounded.Insights, "Stats", "Distance, places, years", c.violet) { onOpen(Routes.STATS) })
+                    add(Hub(Icons.Rounded.Flight, "Flights", "Log, map, scan a pass", c.cyan) { onOpen(Routes.FLIGHTS) })
+                    add(Hub(Icons.Rounded.FavoriteBorder, "Health", "Steps, sleep, workouts", c.rose) { onOpen(Routes.HEALTH) })
+                    add(Hub(Icons.Rounded.TableRows, "Location data", "Every raw point", c.lime) { onOpen(Routes.LOCATIONS) })
                 }
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    HubTile(Icons.Rounded.FavoriteBorder, "Health", "Steps and workouts", c.rose, Modifier.weight(1f)) { onOpen(Routes.HEALTH) }
-                    HubTile(Icons.Rounded.TableRows, "Location data", "Every raw point", c.lime, Modifier.weight(1f)) { onOpen(Routes.LOCATIONS) }
-                }
-            }
-
-            SectionTitle("Circle & devices", Modifier.padding(top = 22.dp))
-            RowGroup {
-                ListRow("Family Circle", subtitle = "See your people, get arrival alerts", icon = Icons.Rounded.Groups, iconTint = c.amber) { onOpen(Routes.FAMILY) }
-                RowDivider()
-                ListRow(
-                    "Roamly Tracker",
-                    subtitle = if (trackerPaired) "Paired — manage it here" else "Pair a hardware tracker over Bluetooth",
-                    icon = Icons.Rounded.Watch, iconTint = c.sky,
-                    trailing = if (trackerPaired) ({ Tag("Paired", color = c.success) }) else null,
-                    onClick = { onOpen(Routes.TRACKER) },
-                )
-            }
-
-            SectionTitle("App", Modifier.padding(top = 22.dp))
-            RowGroup {
+                add(Hub(Icons.Rounded.Groups, "Family Circle", "Your people and alerts", c.amber) { onOpen(Routes.FAMILY) })
+                add(Hub(Icons.Rounded.Watch, "Tracker", if (trackerPaired) "Paired" else "Pair over Bluetooth", c.sky) { onOpen(Routes.TRACKER) })
                 updateState.available?.let { info ->
-                    ListRow(
-                        "Update to ${info.versionName}",
-                        subtitle = if (updateState.downloading) "Downloading… ${updateState.progress}%" else "A new version of Roamly is ready",
-                        icon = Icons.Rounded.SystemUpdate, iconTint = c.cyan,
-                        trailing = { Tag("New", color = c.cyan, solid = true) },
-                        onClick = onUpdate,
-                    )
-                    RowDivider()
+                    add(Hub(Icons.Rounded.SystemUpdate, "Update", if (updateState.downloading) "Downloading… ${updateState.progress}%" else "Version ${info.versionName}", c.cyan, onUpdate))
                 }
-                ListRow("Settings", subtitle = "Tracking, sync, appearance, haptics", icon = Icons.Rounded.Settings, iconTint = c.textMuted) { onOpen(Routes.SETTINGS) }
-                RowDivider()
-                ListRow("Diagnostics", subtitle = "Coverage, gaps and the capture log", icon = Icons.Rounded.BugReport, iconTint = c.textMuted) { onOpen(Routes.DIAGNOSTICS) }
+                add(Hub(Icons.Rounded.Settings, "Settings", "Tracking, sync, look", c.textMuted) { onOpen(Routes.SETTINGS) })
+                add(Hub(Icons.Rounded.BugReport, "Diagnostics", "Coverage and capture log", c.textMuted) { onOpen(Routes.DIAGNOSTICS) })
+            }
+            Spacer(Modifier.height(16.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                tiles.chunked(2).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        row.forEach { h -> HubTile(h.icon, h.title, h.subtitle, h.tint, Modifier.weight(1f), h.onClick) }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
             }
 
             Spacer(Modifier.height(28.dp))
@@ -166,6 +149,8 @@ fun YouScreen(
         )
     }
 }
+
+private data class Hub(val icon: ImageVector, val title: String, val subtitle: String, val tint: Color, val onClick: () -> Unit)
 
 @Composable
 private fun HubTile(icon: ImageVector, title: String, subtitle: String, tint: Color, modifier: Modifier, onClick: () -> Unit) {
