@@ -1,7 +1,6 @@
 package com.roamly.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
-import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -9,231 +8,220 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// ── Field Journal palette — ported from tracker/templates/tracker/base.html.
-// Same hexes as the web app's :root (dark, default) and [data-theme="light"].
-private object FieldJournalDark {
-    val bg = Color(0xFF14160F)
-    val bgCard = Color(0xFF1B1E15)
-    val bgElevated = Color(0xFF23271C)
-    val border = Color(0xFF30352A)
-    val borderStrong = Color(0xFF474D3B)
-    val text = Color(0xFFE9E5D8)
-    val textMuted = Color(0xFFA9A794)
-    val primary = Color(0xFFE8763D)
-    val rust = Color(0xFFD0694A)
-    val moss = Color(0xFF7F9B6D)
-    val ochre = Color(0xFFCF9A44)
-    val mauve = Color(0xFFA888A0)
-    val mapBlue = Color(0xFF7BA3B8)
-    val danger = Color(0xFFD4553F)
-    val success = Color(0xFF7BA05B)
-    val warning = Color(0xFFCF9A44)
-}
-
-private object FieldJournalLight {
-    val bg = Color(0xFFF2EFE4)
-    val bgCard = Color(0xFFFAF8F0)
-    val bgElevated = Color(0xFFF5F2E7)
-    val border = Color(0xFFD9D3C2)
-    val borderStrong = Color(0xFFC2BBA6)
-    val text = Color(0xFF262319)
-    val textMuted = Color(0xFF5C5847)
-    val primary = Color(0xFFC85F2A)
-    val rust = Color(0xFFB8532F)
-    val moss = Color(0xFF5F7A4F)
-    val ochre = Color(0xFFA97B1F)
-    val mauve = Color(0xFF86657E)
-    val mapBlue = Color(0xFF4F7D94)
-    val danger = Color(0xFFBD4634)
-    val success = Color(0xFF5F8A3F)
-    val warning = Color(0xFFA97B1F)
-}
-
-private val DarkColors = darkColorScheme(
-    primary              = FieldJournalDark.primary,
-    onPrimary            = Color.White,
-    secondary            = FieldJournalDark.mapBlue,
-    onSecondary          = Color(0xFF0B2530),
-    tertiary             = FieldJournalDark.mauve,
-    onTertiary           = Color(0xFF2A1A26),
-    error                = FieldJournalDark.danger,
-    onError              = Color.White,
-    errorContainer       = Color(0xFF3A1712),
-    onErrorContainer     = Color(0xFFFFB4A8),
-    background           = FieldJournalDark.bg,
-    onBackground         = FieldJournalDark.text,
-    surface              = FieldJournalDark.bgCard,
-    onSurface            = FieldJournalDark.text,
-    surfaceVariant       = FieldJournalDark.bgElevated,
-    onSurfaceVariant     = FieldJournalDark.textMuted,
-    outline              = FieldJournalDark.border,
-    outlineVariant       = FieldJournalDark.borderStrong,
-    primaryContainer     = Color(0xFF3A2A1A),
-    onPrimaryContainer   = Color(0xFFFFCDA3),
-    secondaryContainer   = Color(0xFF16323B),
-    onSecondaryContainer = Color(0xFFBFE3EE),
-    tertiaryContainer    = Color(0xFF2E222C),
-    onTertiaryContainer  = Color(0xFFE8D3E2),
-)
-
-private val LightColors = lightColorScheme(
-    primary              = FieldJournalLight.primary,
-    onPrimary            = Color.White,
-    secondary            = FieldJournalLight.mapBlue,
-    onSecondary          = Color.White,
-    tertiary             = FieldJournalLight.mauve,
-    onTertiary           = Color.White,
-    error                = FieldJournalLight.danger,
-    onError              = Color.White,
-    errorContainer       = Color(0xFFFFDAD4),
-    onErrorContainer     = Color(0xFF73342A),
-    background           = FieldJournalLight.bg,
-    onBackground         = FieldJournalLight.text,
-    surface              = FieldJournalLight.bgCard,
-    onSurface            = FieldJournalLight.text,
-    surfaceVariant       = FieldJournalLight.bgElevated,
-    onSurfaceVariant     = FieldJournalLight.textMuted,
-    outline              = FieldJournalLight.border,
-    outlineVariant       = FieldJournalLight.borderStrong,
-    primaryContainer     = Color(0xFFFFE0C8),
-    onPrimaryContainer   = Color(0xFF6B3212),
-    secondaryContainer   = Color(0xFFD7ECF2),
-    onSecondaryContainer = Color(0xFF143842),
-    tertiaryContainer    = Color(0xFFF2E3EE),
-    onTertiaryContainer  = Color(0xFF4A2F46),
-)
-
-// Corners — the web's default Squircle shape: superellipse corners at its
-// radius roles (SquircleRadius), so app and site read as one design.
-private val RoamlyShapes = Shapes(
-    extraSmall = SquircleShape(SquircleRadius.tag),      // text fields, menus
-    small      = SquircleShape(SquircleRadius.tag),      // chips (the web's tags)
-    medium     = SquircleShape(SquircleRadius.panel),    // cards (the web's panels)
-    large      = SquircleShape(SquircleRadius.panel),
-    extraLarge = SquircleShape(SquircleRadius.dialog),   // dialogs, bottom sheets
-)
-
-private val RoamlyTypography = Typography().run {
-    copy(
-        displayLarge   = displayLarge.copy(fontFamily = FrauncesFamily, fontWeight = FontWeight.Bold),
-        displayMedium  = displayMedium.copy(fontFamily = FrauncesFamily, fontWeight = FontWeight.Bold),
-        displaySmall   = displaySmall.copy(fontFamily = FrauncesFamily, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp),
-        headlineLarge  = headlineLarge.copy(fontFamily = FrauncesFamily, fontWeight = FontWeight.Bold),
-        headlineMedium = headlineMedium.copy(fontFamily = FrauncesFamily, fontWeight = FontWeight.Bold),
-        headlineSmall  = headlineSmall.copy(fontFamily = FrauncesFamily, fontWeight = FontWeight.Bold),
-        titleLarge     = titleLarge.copy(fontFamily = FrauncesFamily, fontWeight = FontWeight.SemiBold),
-        // titleMedium/titleSmall back nearly every section header in the app (ClaySectionHeader,
-        // TripSections.SectionHeader, StatsScreen.SectionHeader, MapScreen.ResultHeader) — Fraunces
-        // here is what makes those read as editorial headings rather than body copy.
-        titleMedium    = titleMedium.copy(fontFamily = FrauncesFamily, fontWeight = FontWeight.SemiBold),
-        titleSmall     = titleSmall.copy(fontFamily = FrauncesFamily, fontWeight = FontWeight.SemiBold),
-        bodyLarge      = bodyLarge.copy(fontFamily = PlexSansFamily),
-        bodyMedium     = bodyMedium.copy(fontFamily = PlexSansFamily),
-        bodySmall      = bodySmall.copy(fontFamily = PlexSansFamily),
-        labelLarge     = labelLarge.copy(fontFamily = PlexSansFamily, fontWeight = FontWeight.SemiBold),
-        labelMedium    = labelMedium.copy(fontFamily = PlexSansFamily, fontWeight = FontWeight.Medium),
-        labelSmall     = labelSmall.copy(fontFamily = PlexSansFamily, fontWeight = FontWeight.Medium),
-    )
-}
-
 /**
- * Extra Field Journal values M3's ColorScheme has no role for: the earthy
- * categorical accents (moss/rust/ochre/mauve/mapBlue, matching the web's
- * clay-mint/coral/amber/lavender/sky tokens) plus success/warning status
- * colors. Read via [Clay.colors] instead of importing raw Color constants,
- * so every consumer stays theme- (and light/dark-) aware.
+ * Night Atlas — the app's own design system (see docs/claude/mobile-app.md).
+ *
+ * Map-first and dark-first: a deep ink ground, frosted panels that float over
+ * the map, one vivid Roamly-orange accent, and big tabular numerals for the
+ * figures the app is about (distance, days, places). Light mode ("Day Atlas")
+ * keeps the same structure on a cool paper ground.
+ *
+ * Read colours through [Atlas.colors]; never hardcode a hex in a screen.
  */
-data class ClayColors(
+@Immutable
+data class AtlasColors(
     val isDark: Boolean,
-    // Kept for backward compat and hero / cover gradients — not used for cards/buttons.
-    val surfaceTop: Color,
-    val surfaceBottom: Color,
-    val shadowDark: Color,
-    val shadowLight: Color,
-    val backgroundBrush: Brush,
-    val primaryGradient: List<Color>,
-    val secondaryGradient: List<Color>,
-    val tertiaryGradient: List<Color>,
-    val moss: Color,
-    val rust: Color,
-    val ochre: Color,
-    val mauve: Color,
-    val mapBlue: Color,
+    /** The page ground. */
+    val bg: Color,
+    /** Cards and sheets. */
+    val surface: Color,
+    /** Raised controls on a card: fields, segmented tracks, list wells. */
+    val surfaceHigh: Color,
+    /** The highest step: pressed states, a selected segment's track. */
+    val surfaceHighest: Color,
+    /** Frosted panels floating over the map (already translucent). */
+    val glass: Color,
+    /** Hairlines. */
+    val line: Color,
+    val lineStrong: Color,
+    val text: Color,
+    val textMuted: Color,
+    val textFaint: Color,
+    val accent: Color,
+    val onAccent: Color,
+    /** The accent at low alpha, for selected chips and tinted wells. */
+    val accentSoft: Color,
+    // Categorical accents for charts, badges and icon tiles.
+    val cyan: Color,
+    val lime: Color,
+    val violet: Color,
+    val rose: Color,
+    val amber: Color,
+    val sky: Color,
     val success: Color,
     val warning: Color,
-)
-
-val LocalClayColors: ProvidableCompositionLocal<ClayColors> = staticCompositionLocalOf {
-    error("ClayColors not provided")
+    val danger: Color,
+    val dangerSoft: Color,
+    /** Shadow tint for floating panels. */
+    val shadow: Color,
+) {
+    /** The categorical ramp, in the order charts and member tracks use it. */
+    val ramp: List<Color> get() = listOf(accent, cyan, lime, violet, rose, amber, sky)
 }
 
-object Clay {
-    val colors: ClayColors
-        @Composable get() = LocalClayColors.current
-}
-
-private val DarkClay = ClayColors(
+private val NightAtlas = AtlasColors(
     isDark = true,
-    // Flat — surfaceTop == surfaceBottom so any verticalGradient call renders solid
-    surfaceTop = FieldJournalDark.bgCard,
-    surfaceBottom = FieldJournalDark.bgCard,
-    shadowDark = Color.Transparent,
-    shadowLight = Color.Transparent,
-    backgroundBrush = Brush.linearGradient(listOf(FieldJournalDark.bg, FieldJournalDark.bg)),
-    primaryGradient = listOf(FieldJournalDark.primary, FieldJournalDark.rust),
-    secondaryGradient = listOf(FieldJournalDark.mapBlue, FieldJournalDark.moss),
-    tertiaryGradient = listOf(FieldJournalDark.mauve, FieldJournalDark.ochre),
-    moss = FieldJournalDark.moss,
-    rust = FieldJournalDark.rust,
-    ochre = FieldJournalDark.ochre,
-    mauve = FieldJournalDark.mauve,
-    mapBlue = FieldJournalDark.mapBlue,
-    success = FieldJournalDark.success,
-    warning = FieldJournalDark.warning,
+    bg = Color(0xFF07090D),
+    surface = Color(0xFF10131A),
+    surfaceHigh = Color(0xFF181C25),
+    surfaceHighest = Color(0xFF222733),
+    glass = Color(0xD9121620),
+    line = Color(0x14FFFFFF),
+    lineStrong = Color(0x29FFFFFF),
+    text = Color(0xFFF3F4F7),
+    textMuted = Color(0xFF9199A8),
+    textFaint = Color(0xFF5C6370),
+    accent = Color(0xFFFF7A3D),
+    onAccent = Color(0xFF1A0A02),
+    accentSoft = Color(0x29FF7A3D),
+    cyan = Color(0xFF4CD3F0),
+    lime = Color(0xFFB4E05A),
+    violet = Color(0xFFA990FF),
+    rose = Color(0xFFFF6F8E),
+    amber = Color(0xFFFFC14D),
+    sky = Color(0xFF6EA8FF),
+    success = Color(0xFF3DDC97),
+    warning = Color(0xFFFFC14D),
+    danger = Color(0xFFFF5D5D),
+    dangerSoft = Color(0x26FF5D5D),
+    shadow = Color(0xFF000000),
 )
 
-private val LightClay = ClayColors(
+private val DayAtlas = AtlasColors(
     isDark = false,
-    surfaceTop = FieldJournalLight.bgCard,
-    surfaceBottom = FieldJournalLight.bgCard,
-    shadowDark = Color.Transparent,
-    shadowLight = Color.Transparent,
-    backgroundBrush = Brush.linearGradient(listOf(FieldJournalLight.bg, FieldJournalLight.bg)),
-    primaryGradient = listOf(FieldJournalLight.primary, FieldJournalLight.rust),
-    secondaryGradient = listOf(FieldJournalLight.mapBlue, FieldJournalLight.moss),
-    tertiaryGradient = listOf(FieldJournalLight.mauve, FieldJournalLight.ochre),
-    moss = FieldJournalLight.moss,
-    rust = FieldJournalLight.rust,
-    ochre = FieldJournalLight.ochre,
-    mauve = FieldJournalLight.mauve,
-    mapBlue = FieldJournalLight.mapBlue,
-    success = FieldJournalLight.success,
-    warning = FieldJournalLight.warning,
+    bg = Color(0xFFF3F4F6),
+    surface = Color(0xFFFFFFFF),
+    surfaceHigh = Color(0xFFEDEFF2),
+    surfaceHighest = Color(0xFFE2E5EA),
+    glass = Color(0xE6FFFFFF),
+    line = Color(0x140B1220),
+    lineStrong = Color(0x290B1220),
+    text = Color(0xFF0D1117),
+    textMuted = Color(0xFF5A6372),
+    textFaint = Color(0xFF959DAA),
+    accent = Color(0xFFF2621E),
+    onAccent = Color(0xFFFFFFFF),
+    accentSoft = Color(0x1FF2621E),
+    cyan = Color(0xFF0A9EC2),
+    lime = Color(0xFF5E9A12),
+    violet = Color(0xFF6E52E0),
+    rose = Color(0xFFE0365F),
+    amber = Color(0xFFC98A00),
+    sky = Color(0xFF2F6FE0),
+    success = Color(0xFF14A06A),
+    warning = Color(0xFFC98A00),
+    danger = Color(0xFFE03A3A),
+    dangerSoft = Color(0x1FE03A3A),
+    shadow = Color(0xFF0B1220),
 )
+
+private fun AtlasColors.toScheme() = if (isDark) darkColorScheme(
+    primary = accent, onPrimary = onAccent,
+    primaryContainer = accentSoft, onPrimaryContainer = accent,
+    secondary = cyan, onSecondary = Color(0xFF00222B),
+    secondaryContainer = surfaceHighest, onSecondaryContainer = text,
+    tertiary = violet, onTertiary = Color(0xFF1B1140),
+    tertiaryContainer = surfaceHigh, onTertiaryContainer = text,
+    error = danger, onError = Color.White,
+    errorContainer = dangerSoft, onErrorContainer = danger,
+    background = bg, onBackground = text,
+    surface = surface, onSurface = text,
+    surfaceVariant = surfaceHigh, onSurfaceVariant = textMuted,
+    surfaceTint = Color.Transparent,
+    surfaceDim = bg, surfaceBright = surfaceHighest,
+    surfaceContainerLowest = bg, surfaceContainerLow = surface,
+    surfaceContainer = surface, surfaceContainerHigh = surfaceHigh,
+    surfaceContainerHighest = surfaceHighest,
+    inverseSurface = text, inverseOnSurface = bg, inversePrimary = accent,
+    outline = lineStrong, outlineVariant = line, scrim = Color(0xCC000000),
+) else lightColorScheme(
+    primary = accent, onPrimary = onAccent,
+    primaryContainer = accentSoft, onPrimaryContainer = accent,
+    secondary = cyan, onSecondary = Color.White,
+    secondaryContainer = surfaceHighest, onSecondaryContainer = text,
+    tertiary = violet, onTertiary = Color.White,
+    tertiaryContainer = surfaceHigh, onTertiaryContainer = text,
+    error = danger, onError = Color.White,
+    errorContainer = dangerSoft, onErrorContainer = danger,
+    background = bg, onBackground = text,
+    surface = surface, onSurface = text,
+    surfaceVariant = surfaceHigh, onSurfaceVariant = textMuted,
+    surfaceTint = Color.Transparent,
+    surfaceDim = surfaceHighest, surfaceBright = surface,
+    surfaceContainerLowest = surface, surfaceContainerLow = surface,
+    surfaceContainer = surface, surfaceContainerHigh = surfaceHigh,
+    surfaceContainerHighest = surfaceHighest,
+    inverseSurface = text, inverseOnSurface = bg, inversePrimary = accent,
+    outline = lineStrong, outlineVariant = line, scrim = Color(0x990B1220),
+)
+
+private const val TNUM = "tnum"
+
+private val AtlasTypography = Typography(
+    displayLarge = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.Bold, fontSize = 56.sp, lineHeight = 58.sp, letterSpacing = (-2).sp, fontFeatureSettings = TNUM),
+    displayMedium = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.Bold, fontSize = 44.sp, lineHeight = 48.sp, letterSpacing = (-1.5).sp, fontFeatureSettings = TNUM),
+    displaySmall = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.Bold, fontSize = 36.sp, lineHeight = 40.sp, letterSpacing = (-1.1).sp, fontFeatureSettings = TNUM),
+    headlineLarge = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.Bold, fontSize = 32.sp, lineHeight = 36.sp, letterSpacing = (-0.9).sp),
+    headlineMedium = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.Bold, fontSize = 28.sp, lineHeight = 32.sp, letterSpacing = (-0.7).sp),
+    headlineSmall = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 28.sp, letterSpacing = (-0.5).sp),
+    titleLarge = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.SemiBold, fontSize = 20.sp, lineHeight = 26.sp, letterSpacing = (-0.3).sp),
+    titleMedium = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, lineHeight = 22.sp, letterSpacing = (-0.2).sp),
+    titleSmall = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, lineHeight = 20.sp, letterSpacing = (-0.1).sp),
+    bodyLarge = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.Normal, fontSize = 16.sp, lineHeight = 23.sp),
+    bodyMedium = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp),
+    bodySmall = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.Normal, fontSize = 12.5.sp, lineHeight = 17.sp),
+    labelLarge = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 18.sp, letterSpacing = 0.sp),
+    labelMedium = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, lineHeight = 16.sp, letterSpacing = 0.1.sp),
+    labelSmall = TextStyle(fontFamily = PlexMonoFamily, fontWeight = FontWeight.SemiBold, fontSize = 10.5.sp, lineHeight = 14.sp, letterSpacing = 1.2.sp),
+)
+
+/** Extra type roles M3 has no slot for. */
+object AtlasType {
+    /** A large figure: distance, a count. Tabular so it doesn't jitter as it counts. */
+    val figure = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.Bold, fontSize = 30.sp, lineHeight = 32.sp, letterSpacing = (-1).sp, fontFeatureSettings = TNUM)
+    val figureSmall = TextStyle(fontFamily = PlexSansFamily, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 22.sp, letterSpacing = (-0.5).sp, fontFeatureSettings = TNUM)
+    /** Coordinates, timestamps, ids. */
+    val mono = TextStyle(fontFamily = PlexMonoFamily, fontWeight = FontWeight.Normal, fontSize = 12.sp, lineHeight = 16.sp, fontFeatureSettings = TNUM)
+}
+
+private val AtlasShapes = Shapes(
+    extraSmall = SquircleShape(SquircleRadius.tag),
+    small = SquircleShape(SquircleRadius.tag),
+    medium = SquircleShape(SquircleRadius.control),
+    large = SquircleShape(SquircleRadius.panel),
+    extraLarge = SquircleShape(SquircleRadius.dialog),
+)
+
+val LocalAtlasColors = staticCompositionLocalOf { NightAtlas }
+
+object Atlas {
+    val colors: AtlasColors
+        @Composable get() = LocalAtlasColors.current
+}
 
 /**
- * Field Journal is a fixed brand palette (matching the web app exactly),
- * not per-device Material You — dynamic color is deliberately not used.
+ * The app theme. Night Atlas is a fixed brand palette — dynamic (Material You)
+ * colour is deliberately not used.
  */
 @Composable
 fun RoamlyTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
-    CompositionLocalProvider(LocalClayColors provides if (darkTheme) DarkClay else LightClay) {
+    val colors = if (darkTheme) NightAtlas else DayAtlas
+    CompositionLocalProvider(LocalAtlasColors provides colors) {
         MaterialTheme(
-            colorScheme = if (darkTheme) DarkColors else LightColors,
-            shapes = RoamlyShapes,
-            typography = RoamlyTypography,
-            content = content
+            colorScheme = colors.toScheme(),
+            shapes = AtlasShapes,
+            typography = AtlasTypography,
+            content = content,
         )
     }
 }

@@ -28,6 +28,7 @@ data class SettingsUiState(
     val apiKey: String = "",
     /** null = follow system; the switch falls back to the system theme for display. */
     val darkModeOverride: Boolean? = null,
+    val hapticsEnabled: Boolean = true,
     // Evening "what did you do today?" reminder
     val noteReminderEnabled: Boolean = true,
     val noteReminderMinute: Int = com.roamly.notes.QuickNoteReminder.DEFAULT_MINUTE_OF_DAY,
@@ -81,6 +82,7 @@ class SettingsViewModel @Inject constructor(
         collect(prefs.deviceId)              { v -> _state.update { it.copy(deviceId = v ?: "") } }
         collect(prefs.apiKey)                { v -> _state.update { it.copy(apiKey = v ?: "") } }
         collect(prefs.darkMode)              { v -> _state.update { it.copy(darkModeOverride = v) } }
+        collect(prefs.hapticsEnabled)        { v -> _state.update { it.copy(hapticsEnabled = v) } }
         collect(prefs.isTrackingActive)      { v -> _state.update { it.copy(isTracking = v) } }
         collect(prefs.trackingIntervalSecs)  { v -> _state.update { it.copy(trackingIntervalSecs = v) } }
         collect(prefs.maxAccuracyM)          { v -> _state.update { it.copy(maxAccuracyM = v) } }
@@ -272,6 +274,16 @@ class SettingsViewModel @Inject constructor(
         _state.update {
             it.copy(batteryOptimizationDisabled = TrackingCoordinator.isIgnoringBatteryOptimizations(context))
         }
+    }
+
+    fun setHapticsEnabled(enabled: Boolean) {
+        com.roamly.ui.kit.HapticSettings.enabled = enabled
+        viewModelScope.launch { prefs.setHapticsEnabled(enabled) }
+    }
+
+    /** null = follow the system; true/false = always dark/light. */
+    fun setThemeOverride(dark: Boolean?) {
+        viewModelScope.launch { if (dark == null) prefs.clearDarkMode() else prefs.setDarkMode(dark) }
     }
 
     fun setDarkMode(enabled: Boolean) {

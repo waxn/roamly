@@ -14,9 +14,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.roamly.ui.theme.ClayButton
-import com.roamly.ui.theme.ClayCard
-import com.roamly.ui.theme.ClaySectionHeader
+import com.roamly.ui.kit.AtlasButton
+import com.roamly.ui.kit.IconTile
+import com.roamly.ui.kit.Panel
+import com.roamly.ui.theme.Atlas
 import com.roamly.ui.theme.RoamlyTheme
 
 /**
@@ -40,13 +41,16 @@ private fun RationaleScreen(onClose: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .systemBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Spacer(Modifier.height(24.dp))
-            ClayCard {
-                ClaySectionHeader(title = "Health data in Roamly", icon = Icons.Rounded.MonitorHeart)
+            Panel(Modifier.fillMaxWidth()) {
+                IconTile(Icons.Rounded.MonitorHeart, tint = Atlas.colors.rose, size = 48.dp, iconSize = 24.dp)
+                Spacer(Modifier.height(14.dp))
+                Text("Health data in Roamly", style = MaterialTheme.typography.titleLarge, color = Atlas.colors.text)
                 Spacer(Modifier.height(12.dp))
                 Text(
                     "Roamly reads your steps, distance and calories so you can see them " +
@@ -66,7 +70,7 @@ private fun RationaleScreen(onClose: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(16.dp))
-                ClayButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) { Text("Got it") }
+                AtlasButton("Got it", onClose, Modifier.fillMaxWidth())
             }
         }
     }

@@ -9,10 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +49,8 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) com.roamly.flights.IncomingShare.offer(intent)
         setContent {
             val prefDarkMode by prefs.darkMode.collectAsState(initial = null)
+            val haptics by prefs.hapticsEnabled.collectAsState(initial = true)
+            com.roamly.ui.kit.HapticSettings.enabled = haptics
             val systemDark = isSystemInDarkTheme()
             val darkMode = prefDarkMode ?: systemDark
             RoamlyTheme(darkTheme = darkMode) {
@@ -59,27 +58,25 @@ class MainActivity : ComponentActivity() {
                     RoamlyNavHost()
 
                     if (confirmStop.value) {
-                        AlertDialog(
-                            onDismissRequest = { confirmStop.value = false },
-                            title = { Text("Stop tracking?") },
-                            text = {
+                        com.roamly.ui.kit.AtlasDialog(
+                            title = "Stop tracking?",
+                            onDismiss = { confirmStop.value = false },
+                            confirmText = "Stop",
+                            onConfirm = {
+                                confirmStop.value = false
+                                lifecycleScope.launch {
+                                    TrackingCoordinator.stopCompletely(applicationContext, prefs)
+                                }
+                            },
+                            dismissText = "Keep tracking",
+                            destructive = true,
+                            body = {
                                 Text(
                                     "This turns location tracking completely off — including the " +
                                         "background keep-alive and starting on reboot. It stays off " +
                                         "until you turn it back on. Cached points still upload."
                                 )
                             },
-                            confirmButton = {
-                                TextButton(onClick = {
-                                    confirmStop.value = false
-                                    lifecycleScope.launch {
-                                        TrackingCoordinator.stopCompletely(applicationContext, prefs)
-                                    }
-                                }) { Text("Stop", color = MaterialTheme.colorScheme.error) }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { confirmStop.value = false }) { Text("Keep tracking") }
-                            }
                         )
                     }
                 }

@@ -36,6 +36,9 @@ class UserPreferences @Inject constructor(
         private val KEY_DEVICE_ID  = stringPreferencesKey("device_id")
         private val KEY_DEVICE_COOKIE = stringPreferencesKey("device_cookie")  // roamly_device trust token
         private val KEY_DARK_MODE  = booleanPreferencesKey("dark_mode")
+        // In-app haptic feedback (on by default). The system's own touch-feedback
+        // switch still applies on top of this.
+        private val KEY_HAPTICS    = booleanPreferencesKey("haptics_enabled")
         // Optional Mapbox token, mirrored from the server so the map can use the
         // same Mapbox basemap the user configured on the web. Cached here so the
         // map still gets it offline / before the refresh completes.
@@ -132,8 +135,9 @@ class UserPreferences @Inject constructor(
     val deviceId:   Flow<String?>  = context.dataStore.data.map { it[KEY_DEVICE_ID] }
     val deviceCookie: Flow<String?> = context.dataStore.data.map { it[KEY_DEVICE_COOKIE] }
     val darkMode:   Flow<Boolean?> = context.dataStore.data.map { it[KEY_DARK_MODE] }
+    val hapticsEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_HAPTICS] ?: true }
     val mapboxToken: Flow<String>  = context.dataStore.data.map { it[KEY_MAPBOX_TOKEN] ?: "" }
-    val mapBasemap:  Flow<String>  = context.dataStore.data.map { it[KEY_MAP_BASEMAP] ?: "Streets" }
+    val mapBasemap:  Flow<String>  = context.dataStore.data.map { it[KEY_MAP_BASEMAP] ?: "Auto" }
     val mapLayers:   Flow<MapLayers> = context.dataStore.data.map { MapLayers.decode(it[KEY_MAP_LAYERS]) }
     val askEnabled:  Flow<Boolean> = context.dataStore.data.map { it[KEY_ASK_ENABLED] ?: false }
 
@@ -269,6 +273,15 @@ class UserPreferences @Inject constructor(
             it[KEY_NOTE_REMINDER_ENABLED] = enabled
             it[KEY_NOTE_REMINDER_MINUTE] = minuteOfDay.coerceIn(0, 24 * 60 - 1)
         }
+    }
+
+    suspend fun setHapticsEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_HAPTICS] = enabled }
+    }
+
+    /** Back to following the system theme. */
+    suspend fun clearDarkMode() {
+        context.dataStore.edit { it.remove(KEY_DARK_MODE) }
     }
 
     suspend fun setDarkMode(enabled: Boolean) {

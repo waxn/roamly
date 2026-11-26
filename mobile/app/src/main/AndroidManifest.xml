@@ -4,6 +4,8 @@
 
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Patterned haptics (VibrationEffect.Composition) for the in-app feedback. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Boarding-pass scanning. Optional hardware: without a camera the
          scanner still reads screenshots, photos and shared .pkpass files. -->
     <uses-permission android:name="android.permission.CAMERA" />
