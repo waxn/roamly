@@ -21,6 +21,8 @@ from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 from .summary_email_tasks import (
+    _JOURNEY_RULES,
+    _journey,
     _format_distance, _local_midnight, _period_visits, _stay_timeline, _top_cities, _top_places,
 )
 from .tz_utils import aware_local
@@ -51,7 +53,7 @@ JOURNAL_RECAP_SYSTEM_PROMPT = (
     "bullet points or markdown. Use only the places, times, figures and "
     "journal details you were given; never invent any. Today is still in "
     "progress, so do not treat it as finished. If the days were quiet, say "
-    "so briefly and kindly."
+    "so briefly and kindly." + _JOURNEY_RULES
 )
 _COMPARE_PROMPT = (
     " Then, after a blank line, write a second short paragraph, 1-3 sentences, "
@@ -115,17 +117,17 @@ def _day_rows(profile, visits, stats, days):
         per_day[timezone.localtime(v.start_time).date()].append(v)
     rows = []
     for d in days:
-        stays = per_day.get(d, [])
-        if len(stays) > MAX_STAYS_PER_DAY:
-            longest = sorted(stays, key=lambda v: v.end_time - v.start_time, reverse=True)[:MAX_STAYS_PER_DAY]
-            stays = sorted(longest, key=lambda v: v.start_time)
+        day_visits = per_day.get(d, [])
+        journey = _journey(day_visits)
         km = stats['daily_distance'].get(d.isoformat(), 0)
         rows.append({
             'date': d.isoformat(),
             'weekday': d.strftime('%A'),
             'distance': round(_format_distance(km, profile.distance_unit)[0], 1),
-            'stays': _stay_timeline(stays),
+            'stays': _stay_timeline(day_visits)[:MAX_STAYS_PER_DAY],
         })
+        if journey:
+            rows[-1]['journey'] = journey
     return rows
 
 

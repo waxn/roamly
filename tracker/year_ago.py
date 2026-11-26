@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from .journal_recap import _journal_rows
 from .summary_email_tasks import (
-    _format_distance, _local_midnight, _period_visits, _stay_timeline, _top_cities, _top_places,
+    _JOURNEY_RULES, _format_distance, _journey, _local_midnight, _period_visits, _stay_timeline, _top_cities, _top_places,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ SYSTEM_PROMPT = (
     "or restaurant over its town, never mention towns that were only passed "
     "through, and do not recite statistics. Use only the places, times and "
     "details you were given; never invent any. Plain text only: no markdown, "
-    "quotes, emoji or lists. If the day was quiet, say so briefly and kindly."
+    "quotes, emoji or lists. If the day was quiet, say so briefly and kindly." + _JOURNEY_RULES
 )
 
 
@@ -111,9 +111,6 @@ def build_year_ago(profile):
         result = {'status': 'none', 'date': day.isoformat()}
     else:
         visits = _period_visits(profile.user, start, end)
-        if len(visits) > MAX_STAYS:
-            longest = sorted(visits, key=lambda v: v.end_time - v.start_time, reverse=True)[:MAX_STAYS]
-            visits = sorted(longest, key=lambda v: v.start_time)
         km = _compute_distance_from_qs(qs, 'daily')['total_km']
         value, unit = _format_distance(km, profile.distance_unit)
         payload = {
@@ -121,10 +118,13 @@ def build_year_ago(profile):
             'weekday': day.strftime('%A'),
             'distance': round(value, 1),
             'distance_unit': unit,
-            'stays': _stay_timeline(visits),
+            'stays': _stay_timeline(visits)[:MAX_STAYS],
             'top_places': [{'name': n, 'time': t} for n, t in _top_places(visits, limit=3)],
             'top_towns': [{'name': n, 'time': t} for n, t in _top_cities(profile.user, start, end, limit=3)],
         }
+        journey = _journey(visits)
+        if journey:
+            payload['journey'] = journey
         if journals:
             payload['journal_entry'] = journals[0]
         data = ai_tasks._provider_chat(profile, [

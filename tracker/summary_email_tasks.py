@@ -191,20 +191,66 @@ def _stay_label(v):
     return town or place or 'Unknown location'
 
 
+_TRAVEL_DAY_KM = 100           # first-to-last stay farther apart than this = a travel day
+_TRAVEL_MIN_STAY_SECONDS = 1800   # on a travel day only real stops (30 min+) are worth naming
+
+
+def _km_between(a, b):
+    from math import asin, cos, radians, sin, sqrt
+    la1, lo1, la2, lo2 = map(radians, (a.latitude, a.longitude, b.latitude, b.longitude))
+    h = sin((la2 - la1) / 2) ** 2 + cos(la1) * cos(la2) * sin((lo2 - lo1) / 2) ** 2
+    return 6371 * 2 * asin(sqrt(h))
+
+
+def _journey(visits):
+    """Describe a travel day (waking up far from where the day ends), else None.
+
+    The stay list alone reads as a pile of errands — fuel, fast food, a scale —
+    so the model is told outright that this was a journey, where it started and
+    ended, and which states it crossed, and to treat roadside stops as colour.
+    """
+    real = [v for v in visits if (v.end_time - v.start_time).total_seconds() >= _MIN_STAY_SECONDS]
+    if len(real) < 2:
+        return None
+    first, last = real[0], real[-1]
+    km = _km_between(first, last)
+    if km < _TRAVEL_DAY_KM:
+        return None
+    states = []
+    for v in real:
+        if v.state and v.state not in states:
+            states.append(v.state)
+    return {
+        'travel_day': True,
+        'started_in': _stay_label(first),
+        'ended_in': _stay_label(last),
+        'start_to_end_km': round(km),
+        'states_passed_through': states,
+    }
+
+
 def _stay_timeline(visits):
     """Ordered ``"HH:MM–HH:MM (part of day, duration) place"`` lines for the
     narrative prompts — the chronological story an AI can narrate.
 
     Pass-through stops (a few minutes in a town the user only drove through)
     are dropped, since mentioning them is what made recaps read like "a quick
-    stop in Lincoln"; consecutive stays at the same place are merged.
+    stop in Lincoln"; consecutive stays at the same place are merged. On a
+    travel day (see ``_journey``) only 30-minute-plus stays and the day's first
+    and last survive: the fuel, scale and fast-food stops aren't the story.
     """
-    merged = []
-    for v in visits:
+    visits = list(visits)
+    travel = _journey(visits) is not None
+    keep = []
+    for i, v in enumerate(visits):
         seconds = (v.end_time - v.start_time).total_seconds()
         floor = _MIN_POI_STAY_SECONDS if (v.poi_id or v.place_name) else _MIN_STAY_SECONDS
-        if seconds < floor:
-            continue
+        if travel:
+            floor = _TRAVEL_MIN_STAY_SECONDS
+        if seconds >= floor or (travel and seconds >= _MIN_STAY_SECONDS and i in (0, len(visits) - 1)):
+            keep.append(v)
+    merged = []
+    for v in keep:
         label = _stay_label(v)
         if merged and merged[-1]['label'] == label:
             merged[-1]['end'] = v.end_time
@@ -227,6 +273,15 @@ def _stay_timeline(visits):
 # they're grounded in the top-cities/top-places breakdown instead and write
 # thematically. Both demand something short and concrete over the previous
 # generic multi-paragraph recap.
+_JOURNEY_RULES = (
+    " Understand the purpose of the day: where the data has a `journey` with "
+    "travel_day, it was a trip, so tell it as one (where it started, where it "
+    "ended, the states crossed, where you slept) and treat gas, food, scales "
+    "and chain-store stops as passing colour, one or two at most, never the "
+    "point of the day. Do not guess why someone visited a place (a truck "
+    "scale on a road trip is not why you were in a state) and never list "
+    "every stop."
+)
 _STYLE_RULES = (
     " Write like a warm friend recounting the day, not a report: flowing, "
     "natural prose in the second person (\"you\"), with parts of the day "
@@ -235,7 +290,7 @@ _STYLE_RULES = (
     "town it is in) and say where they are. Lead with where most of the time "
     "was spent. Never mention towns you merely passed through or travelled "
     "between, never say \"a quick stop\", and never list coordinates, raw "
-    "times or stats mechanically. Only use places, times and figures that "
+    "times or stats mechanically." + _JOURNEY_RULES + " Only use places, times and figures that "
     "were given; never invent any. Plain text only: no headings, bullet "
     "points or markdown."
 )
@@ -340,7 +395,7 @@ def _user_email_lock(user_id):
 
 # ── One period → one email ──────────────────────────────────────────────────
 
-def _narrative(profile, period, label, summary, timeline=None):
+def _narrative(profile, period, label, summary, timeline=None, journey=None):
     """Ask the user's LLM for a recap; returns a list of paragraph strings.
 
     ``daily`` gets the chronological ``timeline`` (a list of "HH:MM–HH:MM
@@ -357,6 +412,7 @@ def _narrative(profile, period, label, summary, timeline=None):
         user_content = (
             f"My chronological stay timeline for {summary['from']} (24h local time):\n"
             + "\n".join(timeline)
+            + (f"\n\nJourney: {json.dumps(journey)}" if journey else "")
             + f"\n\nHeadline stats: {json.dumps(summary)}\n\nWrite my recap."
         )
     else:
@@ -433,7 +489,8 @@ def _send_period(profile, period, allow_empty=False):
         stat_rows.append(("States / regions", str(overview['states'])))
 
     timeline = _stay_timeline(visits) if period == 'daily' else None
-    narrative = _narrative(profile, period, label, summary, timeline=timeline)
+    narrative = _narrative(profile, period, label, summary, timeline=timeline,
+                           journey=_journey(visits) if period == 'daily' else None)
 
     token = email_utils._ensure_unsub_token(profile)
     unsubscribe_url = f"{settings.SITE_URL}/email/unsubscribe/{token}/?period={period}"
