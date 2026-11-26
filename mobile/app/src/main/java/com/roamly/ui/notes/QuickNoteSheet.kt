@@ -1,35 +1,29 @@
 package com.roamly.ui.notes
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import com.roamly.ui.theme.SquircleRadius
-import com.roamly.ui.theme.SquircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.EditNote
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,13 +35,25 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.roamly.data.api.QuickNote
+import com.roamly.ui.kit.AtlasButton
+import com.roamly.ui.kit.AtlasSheet
+import com.roamly.ui.kit.ButtonKind
+import com.roamly.ui.kit.Feel
+import com.roamly.ui.kit.SectionTitle
+import com.roamly.ui.kit.rememberHaptics
+import com.roamly.ui.kit.tappable
+import com.roamly.ui.theme.Atlas
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -61,46 +67,35 @@ import java.util.Locale
  */
 @Composable
 fun QuickNotePill(state: QuickNotesUiState, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier.clickable(onClick = onClick),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-        shape = SquircleShape(SquircleRadius.control),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+    val c = Atlas.colors
+    val shape = SquircleShape(50)
+    Row(
+        modifier = modifier
+            .shadow(14.dp, shape, ambientColor = c.shadow, spotColor = c.shadow)
+            .clip(shape)
+            .background(c.glass)
+            .border(1.dp, c.lineStrong, shape)
+            .tappable(pressedScale = 0.95f, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Rounded.EditNote, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(6.dp))
-            val day = state.day
-            val note = state.dayNote.trim().substringBefore('\n')
-            when {
-                day != null && note.isNotEmpty() -> {
-                    Text("${dayLabel(day, state.today)} · ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    Text(
-                        note,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                }
-                day != null -> Text(
-                    "What did you do ${askDay(day, state.today)}?",
+        Icon(Icons.Rounded.EditNote, null, tint = c.accent, modifier = Modifier.size(17.dp))
+        Spacer(Modifier.width(7.dp))
+        val day = state.day
+        val note = state.dayNote.trim().substringBefore('\n')
+        when {
+            day != null && note.isNotEmpty() -> {
+                Text("${dayLabel(day, state.today)} · ", style = MaterialTheme.typography.labelLarge, color = c.accent)
+                Text(note, style = MaterialTheme.typography.labelLarge, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            }
+            day != null -> Text("What did you do ${askDay(day, state.today)}?", style = MaterialTheme.typography.labelLarge, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            else -> {
+                val n = state.notes.size
+                Text(
+                    when (n) { 0 -> "No daily notes"; 1 -> "1 daily note"; else -> "$n daily notes" },
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (n > 0) c.text else c.textMuted,
                 )
-                else -> {
-                    val n = state.notes.size
-                    Text(
-                        when (n) { 0 -> "No daily notes"; 1 -> "1 daily note"; else -> "$n daily notes" },
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = if (n > 0) FontWeight.SemiBold else null,
-                        color = if (n > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
         }
     }
@@ -122,6 +117,8 @@ fun QuickNoteSheet(
     onShowDay: (LocalDate) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val c = Atlas.colors
+    val haptics = rememberHaptics()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val focus = remember { FocusRequester() }
@@ -135,44 +132,51 @@ fun QuickNoteSheet(
             runCatching { focus.requestFocus() }
         }
     }
+    // A save landed: a confirming tap (or a refusal), once per save.
+    var wasSaving by remember { mutableStateOf(false) }
+    LaunchedEffect(state.saving) {
+        if (wasSaving && !state.saving) { if (state.statusIsError) haptics.reject() else haptics.confirm() }
+        wasSaving = state.saving
+    }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    AtlasSheet(onDismiss = onDismiss, sheetState = sheetState) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         if (editingToday) "What did you do today?" else dayLabel(state.editing, state.today, long = true),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.headlineSmall, color = c.text,
                     )
+                    Spacer(Modifier.height(2.dp))
                     Text(
-                        if (editingToday) "A line is plenty. It shows on the map and in Journals."
-                        else "Editing an earlier day",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        if (editingToday) "A line is plenty. It shows on the map and in your journal." else "Editing an earlier day",
+                        style = MaterialTheme.typography.bodySmall, color = c.textMuted,
                     )
                 }
-                if (state.editing != state.focus) TextButton(onClick = { onEdit(state.focus) }) {
-                    Text(if (state.focus == state.today) "Back to today" else "Back to ${dayLabel(state.focus, state.today)}")
+                if (state.editing != state.focus) {
+                    AtlasButton(
+                        if (state.focus == state.today) "Today" else dayLabel(state.focus, state.today),
+                        { onEdit(state.focus) }, kind = ButtonKind.Ghost, compact = true,
+                    )
                 }
             }
 
             OutlinedTextField(
                 value = state.draft,
                 onValueChange = onDraftChange,
-                placeholder = { Text("Coffee with Sam, long walk by the river…") },
-                minLines = 2,
-                maxLines = 6,
+                placeholder = { Text("Coffee with Sam, long walk by the river…", color = c.textFaint) },
+                minLines = 3,
+                maxLines = 8,
+                textStyle = MaterialTheme.typography.bodyLarge,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                shape = SquircleShape(SquircleRadius.panel),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = c.surfaceHigh, unfocusedContainerColor = c.surfaceHigh,
+                    focusedBorderColor = c.accent, unfocusedBorderColor = Color.Transparent, cursorColor = c.accent,
+                ),
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
             )
 
@@ -180,33 +184,32 @@ fun QuickNoteSheet(
                 Text(
                     state.status.orEmpty(),
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (state.statusIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (state.statusIsError) c.danger else c.textMuted,
                     modifier = Modifier.weight(1f),
                 )
                 val removing = state.draft.isBlank() && state.saved.isNotBlank()
-                Button(onClick = onSave, enabled = state.dirty && !state.saving) {
-                    Text(if (state.saving) "Saving…" else if (removing) "Remove" else "Save")
-                }
+                AtlasButton(
+                    if (removing) "Remove" else "Save",
+                    onSave,
+                    enabled = state.dirty,
+                    loading = state.saving,
+                    kind = if (removing) ButtonKind.Danger else ButtonKind.Primary,
+                    compact = true,
+                    feel = Feel.None,
+                )
             }
 
-            HorizontalDivider(Modifier.padding(vertical = 4.dp))
-
-            Text(
-                rangeLabel(state.range, state.today),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            SectionTitle(rangeLabel(state.range, state.today), Modifier.padding(top = 8.dp))
             if (state.notes.isEmpty()) {
                 Text(
-                    if (state.range != null) "No notes for these days yet. Step the time range back with ‹ to look further."
+                    if (state.range != null) "No notes for these days yet. Step the map's range back with ‹ to look further."
                     else "No notes yet.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall, color = c.textMuted,
                 )
             }
             val single = state.range != null && state.range.first == state.range.second
             state.notes.take(60).forEach { n ->
-                NoteRow(
+                NoteCard(
                     note = n,
                     today = state.today,
                     isEditing = n.date == state.editing.toString(),
@@ -215,12 +218,13 @@ fun QuickNoteSheet(
                     onShowDay = { parseDay(n.date)?.let(onShowDay) },
                 )
             }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
 
 @Composable
-private fun NoteRow(
+private fun NoteCard(
     note: QuickNote,
     today: LocalDate,
     isEditing: Boolean,
@@ -228,32 +232,31 @@ private fun NoteRow(
     onEdit: () -> Unit,
     onShowDay: () -> Unit,
 ) {
+    val c = Atlas.colors
     var expanded by rememberSaveable(note.date) { mutableStateOf(false) }
-    Surface(
-        color = if (isEditing) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
-        shape = SquircleShape(SquircleRadius.control),
-        border = BorderStroke(1.dp, if (isEditing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
-        modifier = Modifier.fillMaxWidth().animateContentSize().clickable { expanded = !expanded },
+    val shape = SquircleShape(SquircleRadius.control)
+    Column(
+        Modifier.fillMaxWidth().clip(shape)
+            .background(if (isEditing) c.accentSoft else c.surfaceHigh)
+            .border(1.dp, if (isEditing) c.accent.copy(alpha = 0.5f) else Color.Transparent, shape)
+            .animateContentSize()
+            .tappable(feel = Feel.Tick, pressedScale = 0.99f) { expanded = !expanded }
+            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 12.dp),
     ) {
-        Column(Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    parseDay(note.date)?.let { dayLabel(it, today, long = true) } ?: note.date,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                if (showDay) TextButton(onClick = onShowDay) { Text("Show day") }
-                if (!isEditing) TextButton(onClick = onEdit) { Text("Edit") }
-            }
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                note.note,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = if (expanded) Int.MAX_VALUE else 3,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(end = 8.dp),
+                parseDay(note.date)?.let { dayLabel(it, today, long = true) } ?: note.date,
+                style = MaterialTheme.typography.labelMedium, color = c.textMuted, modifier = Modifier.weight(1f),
             )
+            if (showDay) AtlasButton("Map", onShowDay, kind = ButtonKind.Ghost, compact = true)
+            if (!isEditing) AtlasButton("Edit", onEdit, kind = ButtonKind.Ghost, compact = true)
         }
+        Text(
+            note.note,
+            style = MaterialTheme.typography.bodyMedium, color = c.text,
+            maxLines = if (expanded) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(end = 8.dp),
+        )
     }
 }
 

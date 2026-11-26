@@ -1,43 +1,31 @@
 package com.roamly.ui.map
 
-import com.roamly.notes.QuickNoteLaunch
-import com.roamly.ui.notes.QuickNotePill
-import com.roamly.ui.notes.QuickNoteSheet
-import com.roamly.ui.notes.QuickNotesViewModel
-import androidx.compose.material.icons.rounded.ChevronLeft
 import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
-import com.roamly.data.prefs.MapLayers
-import androidx.compose.ui.draw.rotate
-import androidx.compose.material3.Switch
-import androidx.compose.material.icons.rounded.Timeline
-import androidx.compose.material.icons.rounded.Place
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -45,39 +33,34 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import com.roamly.ui.theme.SquircleRadius
-import com.roamly.ui.theme.SquircleShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.FiberManualRecord
-import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.DateRange
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.Timeline
+import androidx.compose.material.icons.rounded.TravelExplore
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -92,49 +75,72 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.data.api.LocationPoint
-import com.roamly.tracking.FixAccuracy
-import com.roamly.tracking.LocationSource
+import com.roamly.data.prefs.MapLayers
+import com.roamly.notes.QuickNoteLaunch
+import com.roamly.ui.kit.AtlasButton
+import com.roamly.ui.kit.AtlasChip
+import com.roamly.ui.kit.AtlasSheet
+import com.roamly.ui.kit.ButtonKind
+import com.roamly.ui.kit.Dot
+import com.roamly.ui.kit.Eyebrow
+import com.roamly.ui.kit.Feel
+import com.roamly.ui.kit.Foldout
+import com.roamly.ui.kit.IconAction
+import com.roamly.ui.kit.IconTile
+import com.roamly.ui.kit.InfoPair
+import com.roamly.ui.kit.LocalDockPadding
+import com.roamly.ui.kit.Panel
+import com.roamly.ui.kit.PanelTone
+import com.roamly.ui.kit.SectionTitle
+import com.roamly.ui.kit.ToggleRow
+import com.roamly.ui.kit.rememberHaptics
+import com.roamly.ui.kit.tappable
+import com.roamly.ui.notes.QuickNotePill
+import com.roamly.ui.notes.QuickNoteSheet
+import com.roamly.ui.notes.QuickNotesViewModel
+import com.roamly.ui.theme.Atlas
+import com.roamly.ui.theme.AtlasType
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
-import org.osmdroid.views.Projection
-import org.osmdroid.views.overlay.Overlay
 import java.time.Instant
 import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeParseException
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.sin
-import kotlin.math.sqrt
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The map: full-bleed, with frosted controls floating over it.
+ *
+ * Top: the time range (‹ label ›) and, under it, the day's note pill; on the
+ * right, map options and refresh. Right edge: zoom. Bottom: a stats card and
+ * "Been here?", both clearing the dock.
+ */
 @Composable
 fun MapScreen(
     viewModel: MapViewModel = hiltViewModel(),
-    onNavigateToDate: ((String) -> Unit)? = null,
-    /** Open the activity recorder. Null hides the button (e.g. in a preview). */
-    onRecord: (() -> Unit)? = null,
     /** "What I did today". Null hides the notes pill (e.g. in a preview). */
     notesViewModel: QuickNotesViewModel? = null,
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val haptics = rememberHaptics()
+    val dark = Atlas.colors.isDark
     var showOptions by remember { mutableStateOf(false) }
     var showNotes by remember { mutableStateOf(false) }
     var focusNoteComposer by remember { mutableStateOf(false) }
@@ -156,6 +162,7 @@ fun MapScreen(
         }
     }
 
+    // One MapView for the app's lifetime, retained on the (activity-scoped) ViewModel.
     val holder = remember(viewModel) {
         viewModel.mapHolder ?: run {
             val appContext = context.applicationContext
@@ -171,9 +178,10 @@ fun MapScreen(
             val places = PlacesOverlay(density).apply { isEnabled = false }
             val mv = MapView(appContext).apply {
                 setDestroyMode(false)
-                setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
+                setTileSource(basemapTileSource("Auto", "", dark))
                 setMultiTouchControls(true)
-                // Hide osmdroid's built-in +/- overlay — we draw our own zoom FABs.
+                isTilesScaledToDpi = true
+                // We draw our own zoom controls.
                 zoomController.setVisibility(org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER)
                 controller.setZoom(10.0)
                 controller.setCenter(GeoPoint(20.0, 0.0))
@@ -188,13 +196,9 @@ fun MapScreen(
         }
     }
     val mapView = holder.mapView
-    val heatmapOverlay = holder.heatmap
-    val pointsOverlay = holder.points
 
-    // Map options layers: data and on/off follow the view model's state.
     LaunchedEffect(holder, state.fogCells, state.fogPerDeg) {
-        holder.fog.setCells(state.fogCells, state.fogPerDeg)
-        mapView.invalidate()
+        holder.fog.setCells(state.fogCells, state.fogPerDeg); mapView.invalidate()
     }
     LaunchedEffect(holder, state.inferred) { holder.inferred.setBatches(state.inferred); mapView.invalidate() }
     LaunchedEffect(holder, state.places) { holder.places.setPlaces(state.places); mapView.invalidate() }
@@ -204,11 +208,9 @@ fun MapScreen(
         holder.places.isEnabled = state.layers.places
         mapView.invalidate()
     }
-
-    // Apply the selected basemap (and re-apply when the Mapbox token arrives or
-    // the selection changes).
-    LaunchedEffect(mapView, state.basemap, state.mapboxToken) {
-        val desired = basemapTileSource(state.basemap, state.mapboxToken)
+    // Basemap: re-applied when the pick, the Mapbox token or the theme changes.
+    LaunchedEffect(mapView, state.basemap, state.mapboxToken, dark) {
+        val desired = basemapTileSource(state.basemap, state.mapboxToken, dark)
         if (mapView.tileProvider.tileSource.name() != desired.name()) {
             mapView.setTileSource(desired)
             mapView.invalidate()
@@ -217,12 +219,8 @@ fun MapScreen(
 
     DisposableEffect(mapView) {
         val listener = object : org.osmdroid.events.MapListener {
-            override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
-                emit(); return false
-            }
-            override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
-                emit(); return false
-            }
+            override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean { emit(); return false }
+            override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean { emit(); return false }
             private fun emit() {
                 val bbox = mapView.boundingBox ?: return
                 viewModel.onViewportChanged(
@@ -236,15 +234,13 @@ fun MapScreen(
         onDispose { mapView.removeMapListener(listener) }
     }
 
-    var nearHereResult by remember { mutableStateOf<NearHereResult?>(null) }
-    var showAllDays by remember { mutableStateOf(false) }
+    var nearHere by remember { mutableStateOf<NearHereResult?>(null) }
     var checkingHere by remember { mutableStateOf(false) }
     var nearHereError by remember { mutableStateOf<String?>(null) }
     var tappedPoint by remember { mutableStateOf<LocationPoint?>(null) }
 
-    // Wire the overlay tap callback back to Compose state
-    LaunchedEffect(pointsOverlay) {
-        pointsOverlay.onPointTapped = { pt -> tappedPoint = pt }
+    LaunchedEffect(holder.points) {
+        holder.points.onPointTapped = { pt -> haptics.click(); tappedPoint = pt }
     }
 
     val startNearHere = {
@@ -252,39 +248,31 @@ fun MapScreen(
         nearHereError = null
         checkNearHere(context, viewModel) { result ->
             checkingHere = false
-            if (result != null) nearHereResult = result
-            else nearHereError = "couldn't get your current location — try again outdoors"
+            if (result != null) { haptics.success(); nearHere = result }
+            else { haptics.reject(); nearHereError = "Couldn't get your location — try again outdoors." }
         }
     }
-
-    val locationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
-                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        if (granted) startNearHere()
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { p ->
+        if (p[Manifest.permission.ACCESS_FINE_LOCATION] == true || p[Manifest.permission.ACCESS_COARSE_LOCATION] == true) startNearHere()
+    }
+    val askBeenHere = {
+        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (fine || coarse) startNearHere()
+        else locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
     }
 
-    // didAutoFit lives on the (activity-scoped) ViewModel, not in a remember.
-    // A remember is reset every time the composable leaves the back stack, so
-    // switching to another tab and back re-ran the whole fit: a GeoPoint
-    // allocated per point across the full accumulated set, a bbox over all of
-    // them, and a camera jump undoing wherever the user had panned to. It is a
-    // property of the loaded data, so it belongs with the data.
-    // The track draws the filtered points (outliers, transport, hide track);
-    // the auto-fit below still frames everything loaded.
+    // The track draws the filtered points; the auto-fit frames everything loaded.
+    // didAutoFit lives on the ViewModel so coming back to the tab keeps the camera.
     val visible = remember(state.locations, state.layers) { state.visibleLocations() }
     LaunchedEffect(visible) {
-        heatmapOverlay.setPoints(visible)
-        pointsOverlay.setPoints(visible)
+        holder.heatmap.setPoints(visible)
+        holder.points.setPoints(visible)
         mapView.invalidate()
     }
     LaunchedEffect(state.locations) {
         if (!viewModel.didAutoFit && state.focus == null && state.locations.isNotEmpty()) {
-            // Min/max in one pass rather than materialising a GeoPoint list just
-            // to hand it to BoundingBox.fromGeoPoints.
             val pts = state.locations
-            val single = pts.size == 1
             var minLat = Double.MAX_VALUE; var maxLat = -Double.MAX_VALUE
             var minLng = Double.MAX_VALUE; var maxLng = -Double.MAX_VALUE
             for (i in pts.indices) {
@@ -295,11 +283,11 @@ fun MapScreen(
                 if (lo > maxLng) maxLng = lo
             }
             val fit = {
-                if (single) {
+                if (pts.size == 1) {
                     mapView.controller.animateTo(GeoPoint(minLat, minLng))
                     mapView.controller.setZoom(13.0)
                 } else {
-                    mapView.zoomToBoundingBox(BoundingBox(maxLat, maxLng, minLat, minLng), false, 96)
+                    mapView.zoomToBoundingBox(BoundingBox(maxLat, maxLng, minLat, minLng), false, 120)
                 }
             }
             if (mapView.width > 0 && mapView.height > 0) fit() else mapView.post { fit() }
@@ -307,69 +295,48 @@ fun MapScreen(
         }
         mapView.invalidate()
     }
-
     LaunchedEffect(state.focus?.key) {
         state.focus?.let {
             mapView.controller.setZoom(it.zoom)
             mapView.controller.animateTo(GeoPoint(it.lat, it.lng))
         }
     }
-
     DisposableEffect(mapView) {
         mapView.onResume()
-        mapView.post {
-            mapView.invalidate()
-            // Was controller.setZoom(zoomLevelDouble) — setting the zoom to the value
-            // it already holds. A no-op with one side effect: a ZoomEvent into the
-            // listener above, i.e. a full detail query on every return to the Map tab.
-            // requestLayout() forces the relayout this was here for without the event.
-            mapView.requestLayout()
-        }
+        // requestLayout, not setZoom(current): that fired a ZoomEvent and a full
+        // detail query on every return to the tab.
+        mapView.post { mapView.invalidate(); mapView.requestLayout() }
         onDispose { mapView.onPause() }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    val c = Atlas.colors
+    val dock = LocalDockPadding.current
+
+    Box(Modifier.fillMaxSize()) {
         AndroidView(
             factory = { (mapView.parent as? android.view.ViewGroup)?.removeView(mapView); mapView },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
+        )
+        // A soft scrim under the status bar so the controls read on any basemap.
+        Box(
+            Modifier.fillMaxWidth().height(140.dp).background(
+                Brush.verticalGradient(listOf(c.bg.copy(alpha = if (dark) 0.75f else 0.45f), Color.Transparent))
+            )
         )
 
-        // Top-left: the active time range, with ‹ › to step it a window at a
-        // time. Tapping the label opens the same map-options sheet as the tune
-        // button. Under it, the "what I did today" pill.
+        // ── Top ─────────────────────────────────────────────────────────
         Column(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(start = 12.dp, top = 12.dp, end = 104.dp),
+            Modifier.align(Alignment.TopStart).statusBarsPadding().padding(start = 14.dp, top = 10.dp, end = 120.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Surface(
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                shape = SquircleShape(SquircleRadius.control),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RangeStep(Icons.Rounded.ChevronLeft, "Previous range", enabled = state.canStepBack) { viewModel.stepRange(-1) }
-                    Row(
-                        modifier = Modifier
-                            .clickable { showOptions = true }
-                            .padding(horizontal = 6.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            if (state.timePeriod == TimePeriod.CUSTOM) Icons.Rounded.DateRange else Icons.Rounded.CalendarMonth,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(state.periodLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-                        Chevron(down = true, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    RangeStep(Icons.Rounded.ChevronRight, "Next range", enabled = state.canStepForward) { viewModel.stepRange(1) }
-                }
-            }
+            RangePill(
+                label = state.periodLabel,
+                custom = state.timePeriod == TimePeriod.CUSTOM,
+                canBack = state.canStepBack,
+                canForward = state.canStepForward,
+                onStep = { dir -> haptics.tick(); viewModel.stepRange(dir) },
+                onOpen = { showOptions = true },
+            )
             if (notesState != null && !notesState.hidden) {
                 QuickNotePill(state = notesState, onClick = {
                     notesViewModel?.refreshToday()
@@ -378,160 +345,77 @@ fun MapScreen(
                 })
             }
         }
-
-        // Top-right: refresh + map options, in one grouped plate.
-        Surface(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = 12.dp, end = 12.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-            shape = SquircleShape(SquircleRadius.control),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        Row(
+            Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 10.dp, end = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(
-                    onClick = viewModel::refresh,
-                    enabled = !state.isRefreshing,
-                    modifier = Modifier.size(40.dp),
-                ) {
-                    if (state.isRefreshing) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
-                    } else {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "Refresh map", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                    }
-                }
-                IconButton(onClick = { showOptions = true }, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Rounded.Tune, contentDescription = "Map options", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                }
-            }
+            GlassButton(Icons.Rounded.Refresh, "Refresh map", busy = state.isRefreshing, enabled = !state.isRefreshing) { viewModel.refresh() }
+            GlassButton(Icons.Rounded.Tune, "Map options") { showOptions = true }
         }
 
-        if (state.isLoadingMore) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .statusBarsPadding()
-                    .padding(top = 64.dp, end = 12.dp)
-                    .clip(SquircleShape(SquircleRadius.control))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
-                    .border(1.dp, MaterialTheme.colorScheme.outline, SquircleShape(SquircleRadius.control))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+        // Thin progress line while the period loads, and a chip while detail streams in.
+        AnimatedVisibility(state.isLoading, Modifier.align(Alignment.TopCenter).statusBarsPadding(), enter = fadeIn(), exit = fadeOut()) {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().height(2.dp),
+                color = c.accent, trackColor = Color.Transparent, strokeCap = StrokeCap.Round,
+            )
+        }
+        AnimatedVisibility(
+            state.isLoadingMore,
+            Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp),
+            enter = fadeIn() + slideInVertically { -it }, exit = fadeOut() + slideOutVertically { -it },
+        ) {
+            GlassChip {
+                CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp, color = c.accent)
                 Spacer(Modifier.width(8.dp))
-                Text("Loading detail…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Loading detail", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
+            }
+        }
+        state.error?.let { msg ->
+            Box(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 110.dp, start = 16.dp, end = 16.dp)) {
+                GlassChip { Dot(c.danger); Spacer(Modifier.width(8.dp)); Text(msg, style = MaterialTheme.typography.bodySmall, color = c.text) }
             }
         }
 
-        // Right-side zoom controls
+        // ── Right edge: zoom ────────────────────────────────────────────
+        ZoomRail(
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 14.dp),
+            onIn = { haptics.tick(); mapView.controller.zoomIn() },
+            onOut = { haptics.tick(); mapView.controller.zoomOut() },
+        )
+
+        // ── Bottom: been-here + stats, above the dock ───────────────────
         Column(
-            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = dock + 10.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // Record sits above the zoom pair rather than in the nav: the bar is full
-            // at six tabs, and this is where you already are before heading out.
-            if (onRecord != null) {
-                ZoomFab(icon = Icons.Rounded.FiberManualRecord, desc = "Record an activity") {
-                    onRecord()
+            BeenHereButton(checking = checkingHere, onClick = askBeenHere)
+            AnimatedVisibility(state.stats != null, enter = fadeIn() + slideInVertically { it / 2 }, exit = fadeOut()) {
+                state.stats?.let { stats ->
+                    StatsCard(
+                        label = state.periodLabel,
+                        points = stats.totalPoints,
+                        cities = stats.cities,
+                        countries = stats.countries,
+                    )
                 }
             }
-            ZoomFab(icon = Icons.Rounded.Add, desc = "Zoom in") { mapView.controller.zoomIn() }
-            ZoomFab(icon = Icons.Rounded.Remove, desc = "Zoom out") { mapView.controller.zoomOut() }
         }
 
-        // "Have I been here?" — a Material 3 rounded-rectangle surface rather than
-        // a pill, matching the rest of the app's plates.
-        Surface(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = if (state.stats != null) 108.dp else 16.dp)
-                .clickable {
-                    val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                    val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                    if (hasFine || hasCoarse) startNearHere()
-                    else locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                },
-            color = MaterialTheme.colorScheme.primaryContainer,
-            shape = SquircleShape(SquircleRadius.panel),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(Icons.Rounded.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                Text("Have I been here?", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-            }
-        }
-
-        if (state.isLoading) {
-            LinearProgressIndicator(modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth())
-        }
-
-        // Bottom stats strip
-        state.stats?.let { stats ->
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 16.dp)
-                    .clip(SquircleShape(SquircleRadius.panel))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.97f))
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                StatChip("${stats.totalPoints}", "points")
-                StatChip("${stats.cities}", "cities")
-                StatChip("${stats.countries}", "countries")
-            }
-        }
-
-        state.error?.let {
-            Surface(
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 60.dp, start = 16.dp, end = 16.dp),
-                color = MaterialTheme.colorScheme.errorContainer,
-                shape = SquircleShape(SquircleRadius.control),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-            ) {
-                Text(it, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(12.dp))
+        nearHereError?.let { msg ->
+            LaunchedEffect(msg) { kotlinx.coroutines.delay(3500); nearHereError = null }
+            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = dock + 150.dp, start = 16.dp, end = 16.dp)) {
+                GlassChip { Dot(c.danger); Spacer(Modifier.width(8.dp)); Text(msg, style = MaterialTheme.typography.bodySmall, color = c.text) }
             }
         }
     }
 
-    // Date range picker dialog
     if (state.showDateRangePicker) {
-        val pickerState = rememberDateRangePickerState()
-        DatePickerDialog(
-            onDismissRequest = viewModel::dismissDateRangePicker,
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val startMs = pickerState.selectedStartDateMillis
-                        val endMs = pickerState.selectedEndDateMillis
-                        if (startMs != null) {
-                            val zone = ZoneId.systemDefault()
-                            val start = Instant.ofEpochMilli(startMs).atZone(zone).toLocalDate()
-                            val end = if (endMs != null) Instant.ofEpochMilli(endMs).atZone(zone).toLocalDate() else start
-                            viewModel.setCustomDateRange(DateRange(start, end))
-                        } else {
-                            viewModel.dismissDateRangePicker()
-                        }
-                    },
-                ) { Text("Apply") }
-            },
-            dismissButton = { TextButton(onClick = viewModel::dismissDateRangePicker) { Text("Cancel") } },
-        ) {
-            DateRangePicker(
-                state = pickerState,
-                modifier = Modifier
-                    .wrapContentHeight()
-                    .padding(top = 16.dp),
-            )
-        }
+        RangePickerDialog(
+            onDismiss = viewModel::dismissDateRangePicker,
+            onPick = { viewModel.setCustomDateRange(it) },
+        )
     }
 
     if (showNotes && notesViewModel != null && notesState != null) {
@@ -541,10 +425,7 @@ fun MapScreen(
             onDraftChange = notesViewModel::onDraftChange,
             onSave = notesViewModel::save,
             onEdit = notesViewModel::edit,
-            onShowDay = { day ->
-                showNotes = false
-                viewModel.navigateToDate(day.toString())
-            },
+            onShowDay = { day -> showNotes = false; viewModel.navigateToDate(day.toString()) },
             onDismiss = { showNotes = false; focusNoteComposer = false },
         )
     }
@@ -559,58 +440,19 @@ fun MapScreen(
         )
     }
 
-    if (checkingHere) {
-        AlertDialog(
-            onDismissRequest = { checkingHere = false },
-            title = { Text("Have you been here?") },
-            text = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(14.dp))
-                    Text("Checking your history at this spot…")
-                }
+    nearHere?.let { result ->
+        NearHereSheet(
+            result = result,
+            onDismiss = { nearHere = null },
+            onDayClick = { day ->
+                viewModel.navigateToDate(day.date.toString(), day.lat, day.lng)
+                nearHere = null
             },
-            confirmButton = {},
         )
-    }
-
-    nearHereError?.let { msg ->
-        AlertDialog(
-            onDismissRequest = { nearHereError = null },
-            title = { Text("Have you been here?") },
-            text = { Text(msg) },
-            confirmButton = { TextButton(onClick = { nearHereError = null }) { Text("OK") } },
-        )
-    }
-
-    nearHereResult?.let { result ->
-        if (showAllDays) {
-            AllDaysScreen(
-                result = result,
-                onClose = { showAllDays = false; nearHereResult = null },
-                onBack = { showAllDays = false },
-                onDayClick = { day ->
-                    // Navigate to that date on the map
-                    viewModel.navigateToDate(day.date.toString(), day.lat, day.lng)
-                    showAllDays = false
-                    nearHereResult = null
-                }
-            )
-        } else {
-            NearHereDialog(
-                result = result,
-                onDismiss = { nearHereResult = null },
-                onShowAll = { showAllDays = true },
-                onDayClick = { day ->
-                    viewModel.navigateToDate(day.date.toString(), day.lat, day.lng)
-                    nearHereResult = null
-                }
-            )
-        }
     }
 
     tappedPoint?.let { pt ->
-        PointDetailDialog(
+        PointSheet(
             pt = pt,
             deviceName = pt.deviceId?.let { state.deviceNames[it] ?: it },
             onDismiss = { tappedPoint = null },
@@ -618,24 +460,184 @@ fun MapScreen(
                 val id = pt.id
                 tappedPoint = null
                 viewModel.deletePoint(id) { ok ->
-                    Toast.makeText(
-                        context,
-                        if (ok) "Point deleted" else "Couldn't delete point",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    if (ok) haptics.confirm() else haptics.reject()
+                    Toast.makeText(context, if (ok) "Point deleted" else "Couldn't delete point", Toast.LENGTH_SHORT).show()
                 }
             },
         )
     }
 }
 
+// ── Floating controls ──────────────────────────────────────────────────────
+
+@Composable
+private fun glassModifier(shape: androidx.compose.ui.graphics.Shape): Modifier {
+    val c = Atlas.colors
+    return Modifier
+        .shadow(14.dp, shape, ambientColor = c.shadow, spotColor = c.shadow)
+        .clip(shape)
+        .background(c.glass)
+        .border(1.dp, c.lineStrong, shape)
+}
+
+@Composable
+private fun GlassChip(content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    Row(
+        glassModifier(SquircleShape(50)).padding(horizontal = 14.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        content = content,
+    )
+}
+
+@Composable
+private fun GlassButton(icon: ImageVector, desc: String, busy: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+    val c = Atlas.colors
+    Box(
+        glassModifier(SquircleShape(50)).size(46.dp).tappable(enabled = enabled, pressedScale = 0.88f, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = c.accent)
+        else Icon(icon, desc, tint = c.text, modifier = Modifier.size(21.dp))
+    }
+}
+
+@Composable
+private fun RangePill(
+    label: String,
+    custom: Boolean,
+    canBack: Boolean,
+    canForward: Boolean,
+    onStep: (Int) -> Unit,
+    onOpen: () -> Unit,
+) {
+    val c = Atlas.colors
+    Row(glassModifier(SquircleShape(50)).height(46.dp), verticalAlignment = Alignment.CenterVertically) {
+        StepArrow(Icons.Rounded.ChevronLeft, "Previous range", canBack) { onStep(-1) }
+        Row(
+            Modifier.clip(SquircleShape(50)).tappable(pressedScale = 0.95f, onClick = onOpen).padding(horizontal = 6.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(if (custom) Icons.Rounded.DateRange else Icons.Rounded.CalendarMonth, null, tint = c.accent, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(7.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Icon(Icons.Rounded.ExpandMore, null, tint = c.textMuted, modifier = Modifier.size(18.dp))
+        }
+        StepArrow(Icons.Rounded.ChevronRight, "Next range", canForward) { onStep(1) }
+    }
+}
+
+@Composable
+private fun StepArrow(icon: ImageVector, desc: String, enabled: Boolean, onClick: () -> Unit) {
+    val c = Atlas.colors
+    Box(
+        Modifier.size(width = 38.dp, height = 46.dp).clip(SquircleShape(50))
+            .tappable(enabled = enabled, feel = Feel.None, pressedScale = 0.85f, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, desc, tint = if (enabled) c.text else c.textFaint.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
+    }
+}
+
+@Composable
+private fun ZoomRail(modifier: Modifier, onIn: () -> Unit, onOut: () -> Unit) {
+    val c = Atlas.colors
+    Column(modifier.then(glassModifier(SquircleShape(50))).width(46.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(46.dp).tappable(feel = Feel.None, pressedScale = 0.85f, onClick = onIn), contentAlignment = Alignment.Center) {
+            Icon(Icons.Rounded.Add, "Zoom in", tint = c.text, modifier = Modifier.size(20.dp))
+        }
+        Box(Modifier.width(22.dp).height(1.dp).background(c.lineStrong))
+        Box(Modifier.size(46.dp).tappable(feel = Feel.None, pressedScale = 0.85f, onClick = onOut), contentAlignment = Alignment.Center) {
+            Icon(Icons.Rounded.Remove, "Zoom out", tint = c.text, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun BeenHereButton(checking: Boolean, onClick: () -> Unit) {
+    val c = Atlas.colors
+    Row(
+        glassModifier(SquircleShape(50)).tappable(enabled = !checking, pressedScale = 0.94f, onClick = onClick)
+            .heightIn(min = 44.dp).padding(start = 12.dp, end = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (checking) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = c.accent)
+        else Icon(Icons.Rounded.MyLocation, null, tint = c.accent, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(if (checking) "Checking…" else "Been here?", style = MaterialTheme.typography.labelLarge, color = c.text)
+    }
+}
+
+@Composable
+private fun StatsCard(label: String, points: Int, cities: Int, countries: Int) {
+    val c = Atlas.colors
+    Panel(Modifier.fillMaxWidth(), tone = PanelTone.Glass, padding = PaddingValues(horizontal = 20.dp, vertical = 14.dp)) {
+        Eyebrow(label, color = c.textMuted)
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            CountUp(points, "points", c.text)
+            CountUp(cities, "cities", c.text)
+            CountUp(countries, "countries", c.accent)
+        }
+    }
+}
+
+@Composable
+private fun CountUp(target: Int, label: String, color: Color) {
+    val v by animateIntAsState(target, tween(700), label = "count")
+    Column {
+        Text("%,d".format(v), style = AtlasType.figureSmall, color = color)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Atlas.colors.textMuted)
+    }
+}
+
+// ── Date range ─────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RangePickerDialog(onDismiss: () -> Unit, onPick: (DateRange) -> Unit) {
+    val c = Atlas.colors
+    val picker = rememberDateRangePickerState()
+    val colors = DatePickerDefaults.colors(
+        containerColor = c.surface,
+        selectedDayContainerColor = c.accent,
+        selectedDayContentColor = c.onAccent,
+        dayInSelectionRangeContainerColor = c.accentSoft,
+        todayDateBorderColor = c.accent,
+        todayContentColor = c.accent,
+    )
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        colors = colors,
+        shape = SquircleShape(SquircleRadius.dialog),
+        tonalElevation = 0.dp,
+        confirmButton = {
+            AtlasButton("Apply", compact = true, feel = Feel.Confirm, onClick = {
+                val startMs = picker.selectedStartDateMillis
+                if (startMs == null) { onDismiss(); return@AtlasButton }
+                val zone = ZoneId.systemDefault()
+                val start = Instant.ofEpochMilli(startMs).atZone(zone).toLocalDate()
+                val end = picker.selectedEndDateMillis?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() } ?: start
+                onPick(DateRange(start, end))
+            })
+        },
+        dismissButton = { AtlasButton("Cancel", onDismiss, kind = ButtonKind.Ghost, compact = true) },
+    ) {
+        DateRangePicker(state = picker, colors = colors, modifier = Modifier.wrapContentHeight().padding(top = 16.dp))
+    }
+}
+
+// ── Map options ────────────────────────────────────────────────────────────
+
+private val TRANSPORT_LABELS = mapOf(
+    "walk" to "Walk", "cycle" to "Cycle", "vehicle" to "Vehicle",
+    "plane" to "Plane", "still" to "Still", "none" to "Unclassified",
+)
+
 /**
- * Map options, grouped like the web map's sidebar: the time range on top (any
- * pick closes the sheet, since the map it changes is behind the scrim), then
- * three folding groups whose heads say how many of their toggles are on —
- * **map display** (basemap, fog of war), **track** (transport filter, filled
- * gaps, hide outliers, hide track) and **extra data** (my places). Toggles keep
- * the sheet open so several can be set at once.
+ * Map options, grouped like the web sidebar: the time range on top (a pick
+ * slides the sheet away first, since the map it changes is behind the scrim),
+ * then folding groups for map display, track and extra data. Toggles keep the
+ * sheet open so several can be set at once.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -649,26 +651,15 @@ private fun MapOptionsSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val layers = state.layers
-    // Animate the sheet out, then act — dropping it from composition outright
-    // would make it disappear without the exit transition.
     val closeThen: (() -> Unit) -> Unit = { action ->
-        scope.launch { sheetState.hide() }.invokeOnCompletion {
-            onDismiss()
-            action()
-        }
+        scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss(); action() }
     }
-
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    AtlasSheet(onDismiss = onDismiss, sheetState = sheetState, title = "Map") {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
-                .navigationBarsPadding()
-                .padding(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            OptionsSectionLabel("Time range")
+            SectionTitle("Time range")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 TimePeriod.entries.forEach { period ->
                     val isCustom = period == TimePeriod.CUSTOM
@@ -677,419 +668,174 @@ private fun MapOptionsSheet(
                         state.timePeriod == TimePeriod.CUSTOM && state.customDateRange != null -> state.customDateRange.label
                         else -> "Custom…"
                     }
-                    FilterChip(
+                    AtlasChip(
+                        label = label,
                         selected = state.timePeriod == period,
+                        icon = if (isCustom) Icons.Rounded.DateRange else null,
                         onClick = { closeThen { onPeriod(period) } },
-                        label = { Text(label) },
-                        leadingIcon = if (isCustom) {
-                            { Icon(Icons.Rounded.DateRange, null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
-                        } else null,
                     )
                 }
             }
-
-            OptionsGroup(
-                title = "Map display", icon = Icons.Rounded.Layers, on = layers.displayOn,
-                open = layers.openDisplay, onToggle = { onLayers { it.copy(openDisplay = !it.openDisplay) } },
-            ) {
-                OptionsSubLabel("Basemap")
+            Spacer(Modifier.height(10.dp))
+            Foldout("Map display", layers.openDisplay, { onLayers { it.copy(openDisplay = !it.openDisplay) } },
+                icon = Icons.Rounded.Layers, badge = layers.displayOn.takeIf { it > 0 }?.let { "$it on" }) {
+                Text("Basemap", style = MaterialTheme.typography.labelMedium, color = Atlas.colors.textMuted)
                 val basemaps = buildList {
-                    add("Streets"); add("Satellite"); add("Dark")
-                    if (state.mapboxToken.isNotBlank()) {
-                        add("Mapbox Streets"); add("Mapbox Outdoors"); add("Mapbox Satellite")
-                    }
+                    add("Auto"); add("Streets"); add("Satellite"); add("Dark")
+                    if (state.mapboxToken.isNotBlank()) { add("Mapbox Streets"); add("Mapbox Outdoors"); add("Mapbox Satellite") }
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    basemaps.forEach { name ->
-                        FilterChip(
-                            selected = name == state.basemap,
-                            onClick = { onBasemap(name) },
-                            label = { Text(name) },
-                            leadingIcon = if (name == state.basemap) {
-                                { Icon(Icons.Rounded.Check, null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
-                            } else null,
-                        )
-                    }
+                    basemaps.forEach { name -> AtlasChip(name, name == state.basemap, { onBasemap(name) }) }
                 }
-                LayerSwitch("Fog of war", "Dim everywhere you've never been", layers.fog) {
-                    onLayers { it.copy(fog = !it.fog) }
-                }
+                ToggleRow("Fog of war", layers.fog, { onLayers { l -> l.copy(fog = !l.fog) } },
+                    subtitle = "Dim everywhere you've never been", modifier = Modifier.padding(horizontal = 0.dp))
             }
-
-            OptionsGroup(
-                title = "Track", icon = Icons.Rounded.Timeline, on = layers.trackOn,
-                open = layers.openTrack, onToggle = { onLayers { it.copy(openTrack = !it.openTrack) } },
-            ) {
-                OptionsSubLabel("Transport")
+            Foldout("Track", layers.openTrack, { onLayers { it.copy(openTrack = !it.openTrack) } },
+                icon = Icons.Rounded.Timeline, badge = layers.trackOn.takeIf { it > 0 }?.let { "$it on" }) {
+                Text("Transport", style = MaterialTheme.typography.labelMedium, color = Atlas.colors.textMuted)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     MapLayers.TRANSPORT_MODES.forEach { mode ->
                         val on = mode in layers.modes
-                        FilterChip(
-                            selected = on,
-                            onClick = { onLayers { l -> l.copy(modes = if (on) l.modes - mode else l.modes + mode) } },
-                            label = { Text(TRANSPORT_LABELS[mode] ?: mode) },
-                        )
+                        AtlasChip(TRANSPORT_LABELS[mode] ?: mode, on, {
+                            onLayers { l -> l.copy(modes = if (on) l.modes - mode else l.modes + mode) }
+                        })
                     }
                 }
-                LayerSwitch("Filled gaps", "Points the map editor filled in, drawn dashed", layers.filledGaps) {
-                    onLayers { it.copy(filledGaps = !it.filledGaps) }
-                }
-                LayerSwitch("Hide outliers", "Leave out fixes the quality scan flagged", layers.hideSuspect) {
-                    onLayers { it.copy(hideSuspect = !it.hideSuspect) }
-                }
-                LayerSwitch("Hide track", "Show only the other layers", layers.hideTrack) {
-                    onLayers { it.copy(hideTrack = !it.hideTrack) }
+                ToggleRow("Filled gaps", layers.filledGaps, { onLayers { l -> l.copy(filledGaps = !l.filledGaps) } },
+                    subtitle = "Points the map editor filled in, drawn dashed")
+                ToggleRow("Hide outliers", layers.hideSuspect, { onLayers { l -> l.copy(hideSuspect = !l.hideSuspect) } },
+                    subtitle = "Leave out fixes the quality scan flagged")
+                ToggleRow("Hide track", layers.hideTrack, { onLayers { l -> l.copy(hideTrack = !l.hideTrack) } },
+                    subtitle = "Show only the other layers")
+            }
+            Foldout("Extra data", layers.openExtra, { onLayers { it.copy(openExtra = !it.openExtra) } },
+                icon = Icons.Rounded.Place, badge = layers.extraOn.takeIf { it > 0 }?.let { "$it on" }) {
+                ToggleRow("My places", layers.places, { onLayers { l -> l.copy(places = !l.places) } },
+                    subtitle = "Your saved places and their radius")
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+// ── Point detail ───────────────────────────────────────────────────────────
+
+@Composable
+private fun PointSheet(pt: LocationPoint, deviceName: String?, onDismiss: () -> Unit, onDelete: () -> Unit) {
+    val c = Atlas.colors
+    val fmt = remember { DateTimeFormatter.ofPattern("EEE d MMM yyyy · HH:mm:ss") }
+    val time = remember(pt.timestamp) {
+        runCatching { java.time.OffsetDateTime.parse(pt.timestamp).atZoneSameInstant(ZoneId.systemDefault()).format(fmt) }
+            .getOrDefault(pt.timestamp)
+    }
+    var confirming by remember { mutableStateOf(false) }
+    AtlasSheet(onDismiss = onDismiss) {
+        Column(Modifier.padding(horizontal = 24.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconTile(Icons.Rounded.Place, tint = Color(speedColor(pt.speed)))
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    val place = listOfNotNull(pt.city, pt.state, pt.country).joinToString(", ")
+                    Text(place.ifBlank { "Location point" }, style = MaterialTheme.typography.titleLarge, color = c.text)
+                    Text(time, style = MaterialTheme.typography.bodySmall, color = c.textMuted)
                 }
             }
+            Spacer(Modifier.height(20.dp))
+            val pairs = buildList {
+                deviceName?.takeIf { it.isNotBlank() }?.let { add("Device" to it) }
+                add("Coordinates" to "%.5f, %.5f".format(pt.lat, pt.lng))
+                pt.speed?.let { add("Speed" to "%.1f km/h".format(it * 3.6)) }
+                pt.accuracy?.let { add("Accuracy" to "${it.toInt()} m") }
+                pt.altitude?.let { add("Altitude" to "${it.toInt()} m") }
+                pt.battery?.let { add("Battery" to "${it.toInt()}%") }
+            }
+            pairs.chunked(2).forEach { row ->
+                Row(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+                    row.forEach { (k, v) -> InfoPair(k, v, Modifier.weight(1f), mono = k == "Coordinates") }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            if (confirming) {
+                Text("This permanently removes this GPS point. It can't be undone.", style = MaterialTheme.typography.bodySmall, color = c.danger)
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    AtlasButton("Cancel", { confirming = false }, Modifier.weight(1f), kind = ButtonKind.Secondary)
+                    AtlasButton("Delete", onDelete, Modifier.weight(1f), kind = ButtonKind.Danger, feel = Feel.Heavy)
+                }
+            } else {
+                AtlasButton("Delete point", { confirming = true }, Modifier.fillMaxWidth(), kind = ButtonKind.Danger, icon = Icons.Rounded.DeleteOutline)
+            }
+        }
+    }
+}
 
-            OptionsGroup(
-                title = "Extra data", icon = Icons.Rounded.Place, on = layers.extraOn,
-                open = layers.openExtra, onToggle = { onLayers { it.copy(openExtra = !it.openExtra) } },
+// ── Have I been here? ──────────────────────────────────────────────────────
+
+@Composable
+private fun NearHereSheet(result: NearHereResult, onDismiss: () -> Unit, onDayClick: (NearHereDay) -> Unit) {
+    val c = Atlas.colors
+    AtlasSheet(onDismiss = onDismiss) {
+        Column(Modifier.padding(horizontal = 24.dp)) {
+            val (title, sub, tint) = when {
+                result.days.isNotEmpty() -> Triple(
+                    "You've been right here",
+                    buildString {
+                        append("${result.veryCloseDays} day${if (result.veryCloseDays != 1) "s" else ""}")
+                        result.closestMeters?.let { append(" · closest ${it.toInt()} m away") }
+                    },
+                    c.success,
+                )
+                result.totalRegionPoints > 0 -> Triple(
+                    "Nearby, but not this spot",
+                    "${result.totalRegionPoints} past points in ${result.region ?: "this area"}",
+                    c.accent,
+                )
+                else -> Triple("First time here", "Nothing in your history nearby", c.cyan)
+            }
+            IconTile(Icons.Rounded.TravelExplore, tint = tint, size = 52.dp, iconSize = 26.dp)
+            Spacer(Modifier.height(14.dp))
+            Text(title, style = MaterialTheme.typography.headlineSmall, color = c.text)
+            Text(sub, style = MaterialTheme.typography.bodyMedium, color = c.textMuted)
+            result.region?.let {
+                Spacer(Modifier.height(6.dp))
+                Text(it, style = MaterialTheme.typography.labelMedium, color = c.textFaint)
+            }
+        }
+        if (result.days.isNotEmpty()) {
+            Spacer(Modifier.height(18.dp))
+            SectionTitle("Past visits", Modifier.padding(horizontal = 24.dp))
+            LazyColumn(
+                Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                LayerSwitch("My places", "Your saved places and their radius", layers.places) {
-                    onLayers { it.copy(places = !it.places) }
-                }
+                items(result.days) { day -> VisitRow(day) { onDayClick(day) } }
             }
         }
     }
 }
 
-private val TRANSPORT_LABELS = mapOf(
-    "walk" to "Walk", "cycle" to "Cycle", "vehicle" to "Vehicle",
-    "plane" to "Plane", "still" to "Still", "none" to "Unclassified",
-)
-
-/** A folding group of map options; the head says how many toggles inside are on. */
 @Composable
-private fun OptionsGroup(
-    title: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    on: Int,
-    open: Boolean,
-    onToggle: () -> Unit,
-    content: @Composable () -> Unit,
-) {
-    Column {
-        HorizontalDivider()
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onToggle)
-                .padding(vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(8.dp))
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            if (on > 0) {
-                Text("$on on", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(8.dp))
-            }
-            Chevron(down = !open, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        AnimatedVisibility(visible = open) {
-            Column(
-                modifier = Modifier.padding(bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) { content() }
-        }
-    }
-}
-
-@Composable
-private fun OptionsSubLabel(text: String) {
-    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-}
-
-@Composable
-private fun LayerSwitch(title: String, hint: String, checked: Boolean, onToggle: () -> Unit) {
+private fun VisitRow(day: NearHereDay, onClick: () -> Unit) {
+    val c = Atlas.colors
+    val fmt = remember { DateTimeFormatter.ofPattern("EEE d MMM yyyy") }
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 2.dp),
+        Modifier.fillMaxWidth().clip(SquircleShape(SquircleRadius.control)).background(c.surfaceHigh)
+            .tappable(pressedScale = 0.98f, onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Spacer(Modifier.width(12.dp))
-        Switch(checked = checked, onCheckedChange = { onToggle() })
-    }
-}
-
-@Composable
-private fun RangeStep(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, enabled: Boolean, onClick: () -> Unit) {
-    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(width = 36.dp, height = 40.dp)) {
-        Icon(
-            icon, contentDescription = desc, modifier = Modifier.size(CHEVRON_SIZE),
-            tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-        )
-    }
-}
-
-/** Every arrow on the map's controls is this one chevron at one size, as on the web. */
-private val CHEVRON_SIZE = 20.dp
-
-/** The shared chevron pointing down, or up when [down] is false, turning between the two. */
-@Composable
-private fun Chevron(down: Boolean, tint: ComposeColor, modifier: Modifier = Modifier) {
-    val angle by animateFloatAsState(if (down) 90f else -90f, label = "chevron")
-    Icon(
-        Icons.Rounded.ChevronRight, contentDescription = null, tint = tint,
-        modifier = modifier.size(CHEVRON_SIZE).rotate(angle),
-    )
-}
-
-@Composable
-private fun OptionsSectionLabel(text: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            if (text == "Basemap") Icons.Rounded.Layers else Icons.Rounded.CalendarMonth,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.primary,
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(text, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-@Composable
-private fun PointDetailDialog(pt: LocationPoint, deviceName: String?, onDismiss: () -> Unit, onDelete: () -> Unit) {
-    val fmt = remember { java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d, yyyy · HH:mm:ss") }
-    val timeStr = remember(pt.timestamp) {
-        runCatching {
-            java.time.OffsetDateTime.parse(pt.timestamp)
-                .atZoneSameInstant(java.time.ZoneId.systemDefault())
-                .format(fmt)
-        }.getOrDefault(pt.timestamp)
-    }
-    var confirmingDelete by remember { mutableStateOf(false) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (confirmingDelete) "Delete this point?" else "Location point") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(timeStr, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                HorizontalDivider()
-                deviceName?.takeIf { it.isNotBlank() }?.let { InfoLine("Device", it) }
-                val location = listOfNotNull(pt.city, pt.state, pt.country).joinToString(", ")
-                if (location.isNotBlank()) InfoLine("Location", location)
-                InfoLine("Coordinates", "${"%.5f".format(pt.lat)}, ${"%.5f".format(pt.lng)}")
-                pt.speed?.let { InfoLine("Speed", speedLabel(it)) }
-                pt.accuracy?.let { InfoLine("Accuracy", "${it.toInt()} m") }
-                pt.altitude?.let { InfoLine("Altitude", "${it.toInt()} m") }
-                pt.battery?.let { InfoLine("Battery", "${it.toInt()}%") }
-                if (confirmingDelete) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "This permanently removes this GPS point. It can't be undone.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            if (confirmingDelete) {
-                TextButton(onClick = onDelete) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            } else {
-                TextButton(onClick = onDismiss) { Text("Close") }
-            }
-        },
-        dismissButton = {
-            if (confirmingDelete) {
-                TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") }
-            } else {
-                TextButton(onClick = { confirmingDelete = true }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            }
-        },
-    )
-}
-
-@Composable
-private fun InfoLine(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth()) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(80.dp))
-        Text(value, style = MaterialTheme.typography.bodySmall)
-    }
-}
-
-private fun speedLabel(mps: Double): String {
-    val kmh = mps * 3.6
-    return "%.1f km/h".format(kmh)
-}
-
-@Composable
-private fun ZoomFab(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, onClick: () -> Unit) {
-    // Same outlined plate as the time pill and the refresh/options group.
-    Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-        shape = SquircleShape(SquircleRadius.control),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-    ) {
-        IconButton(onClick = onClick, modifier = Modifier.size(38.dp)) {
-            Icon(icon, contentDescription = desc, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
-        }
-    }
-}
-
-@Composable
-private fun StatChip(value: String, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-// ---- Near-here dialog ----
-
-data class NearHereDay(
-    val date: LocalDate,
-    val pointCount: Int,
-    val closestMeters: Double,
-    val lat: Double,
-    val lng: Double,
-    val timeSpentSeconds: Int = 0,
-)
-
-data class NearHereResult(
-    val region: String?,
-    val veryCloseDays: Int,
-    val totalRegionPoints: Int,
-    val closestMeters: Double?,
-    val days: List<NearHereDay>,
-)
-
-private const val PREVIEW_DAYS = 3
-
-@Composable
-private fun NearHereDialog(
-    result: NearHereResult,
-    onDismiss: () -> Unit,
-    onShowAll: () -> Unit,
-    onDayClick: (NearHereDay) -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Have you been here?") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                when {
-                    result.days.isNotEmpty() -> {
-                        val closest = result.closestMeters?.let { "${it.toInt()} m away" } ?: ""
-                        ResultHeader(
-                            "Yes — you've been right here",
-                            "${result.veryCloseDays} day${if (result.veryCloseDays != 1) "s" else ""}${if (closest.isNotEmpty()) " · closest $closest" else ""}",
-                            MaterialTheme.colorScheme.secondary,
-                        )
-                    }
-                    result.totalRegionPoints > 0 ->
-                        ResultHeader(
-                            "In this area, but not this exact spot",
-                            "${result.totalRegionPoints} past points in ${result.region ?: "this region"}",
-                            MaterialTheme.colorScheme.primary,
-                        )
-                    else ->
-                        ResultHeader("First time here", "No past points nearby", MaterialTheme.colorScheme.onSurface)
-                }
-
-                result.region?.let {
-                    Text("Region: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-
-                if (result.days.isNotEmpty()) {
-                    HorizontalDivider()
-                    Text("Past visits — tap to go there", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        result.days.take(PREVIEW_DAYS).forEach { day ->
-                            DayRow(day, onClick = { onDayClick(day) })
-                        }
-                    }
-                    if (result.days.size > PREVIEW_DAYS) {
-                        TextButton(onClick = onShowAll, modifier = Modifier.fillMaxWidth()) {
-                            Text("Show all ${result.days.size} visits")
-                            Icon(Icons.Rounded.ChevronRight, contentDescription = null, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
-    )
-}
-
-@Composable
-private fun AllDaysScreen(
-    result: NearHereResult,
-    onClose: () -> Unit,
-    onBack: () -> Unit,
-    onDayClick: (NearHereDay) -> Unit,
-) {
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, contentDescription = "Back") }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("All visits to this spot", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "${result.days.size} days${result.region?.let { " · $it" } ?: ""}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                TextButton(onClick = onClose) { Text("Close") }
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(result.days) { day ->
-                    DayRow(day, onClick = { onDayClick(day) })
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ResultHeader(title: String, sub: String, tint: ComposeColor) {
-    Column {
-        Text(title, style = MaterialTheme.typography.titleMedium, color = tint, fontWeight = FontWeight.SemiBold)
-        Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun DayRow(day: NearHereDay, onClick: () -> Unit) {
-    val fmt = remember { DateTimeFormatter.ofPattern("EEE, MMM d, yyyy") }
-    Surface(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-        shape = SquircleShape(SquircleRadius.control),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(day.date.format(fmt), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                val sub = buildString {
+            Text(day.date.format(fmt), style = MaterialTheme.typography.bodyLarge, color = c.text)
+            Text(
+                buildString {
                     append("${day.closestMeters.toInt()} m · ${day.pointCount} pts")
                     if (day.timeSpentSeconds > 0) append(" · ${formatDuration(day.timeSpentSeconds)}")
-                }
-                Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+                style = MaterialTheme.typography.bodySmall, color = c.textMuted,
+            )
         }
+        Icon(Icons.Rounded.ChevronRight, null, tint = c.textFaint)
     }
 }
 
@@ -1101,436 +847,4 @@ private fun formatDuration(seconds: Int): String {
         m > 0 -> "${m}m"
         else -> "<1m"
     }
-}
-
-/** An osmdroid tile source backed by Mapbox raster tiles for the given style,
- *  authenticated with the user's public token. Mirrors the web map's Mapbox
- *  basemaps. A distinct name per style keeps their tile caches separate. */
-private fun mapboxTileSource(token: String, styleId: String): org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase =
-    object : org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase(
-        "Mapbox-$styleId", 0, 22, 256, "",
-        arrayOf("https://api.mapbox.com/styles/v1/mapbox/$styleId/tiles/256/"),
-        "© Mapbox © OpenStreetMap",
-    ) {
-        override fun getTileURLString(pMapTileIndex: Long): String {
-            val z = org.osmdroid.util.MapTileIndex.getZoom(pMapTileIndex)
-            val x = org.osmdroid.util.MapTileIndex.getX(pMapTileIndex)
-            val y = org.osmdroid.util.MapTileIndex.getY(pMapTileIndex)
-            return baseUrl + z + "/" + x + "/" + y + "?access_token=" + token
-        }
-    }
-
-/** Esri World Imagery satellite tiles. Esri serves tiles in z/y/x order, so it
- *  needs a custom URL builder rather than the standard XYZ XYTileSource. */
-private fun esriTileSource(): org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase =
-    object : org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase(
-        "EsriWorldImagery", 0, 19, 256, "",
-        arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"),
-        "© Esri",
-    ) {
-        override fun getTileURLString(pMapTileIndex: Long): String {
-            val z = org.osmdroid.util.MapTileIndex.getZoom(pMapTileIndex)
-            val x = org.osmdroid.util.MapTileIndex.getX(pMapTileIndex)
-            val y = org.osmdroid.util.MapTileIndex.getY(pMapTileIndex)
-            return baseUrl + z + "/" + y + "/" + x
-        }
-    }
-
-/** CARTO dark-matter basemap — standard XYZ, so a plain XYTileSource works. */
-private fun cartoDarkTileSource(): org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase =
-    org.osmdroid.tileprovider.tilesource.XYTileSource(
-        "CartoDark", 0, 20, 256, ".png",
-        arrayOf("https://basemaps.cartocdn.com/dark_all/"),
-        "© CARTO © OpenStreetMap",
-    )
-
-/** Resolve a basemap name (shared with the web map's labels) to a tile source.
- *  Mapbox entries need a token; without one they fall back to OSM streets. */
-internal fun basemapTileSource(name: String, mapboxToken: String): org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase {
-    val token = mapboxToken.trim()
-    return when (name) {
-        "Satellite" -> esriTileSource()
-        "Dark" -> cartoDarkTileSource()
-        "Mapbox Streets" -> if (token.isNotEmpty()) mapboxTileSource(token, "streets-v12") else org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK
-        "Mapbox Outdoors" -> if (token.isNotEmpty()) mapboxTileSource(token, "outdoors-v12") else org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK
-        "Mapbox Satellite" -> if (token.isNotEmpty()) mapboxTileSource(token, "satellite-streets-v12") else org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK
-        else -> org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK  // "Streets"
-    }
-}
-
-// ---- Heatmap overlay ----
-
-/** Holds the single reusable MapView and its overlays. */
-internal class MapHolder(
-    val mapView: MapView,
-    val heatmap: HeatmapOverlay,
-    val points: PointsOverlay,
-    val fog: FogOverlay,
-    val inferred: InferredOverlay,
-    val places: PlacesOverlay,
-) {
-    fun detach() { runCatching { mapView.onDetach() } }
-}
-
-/**
- * Per-frame culling in geographic space, recomputed once per draw.
- *
- * Both overlays are drawn on every pan/zoom frame over the *whole* accumulated
- * point set — [MapViewModel] keeps adding viewport detail without ever pruning,
- * so after a bit of panning that list is tens of thousands of rows. Projecting
- * every one of them and *then* discarding the off-screen ones meant ~50k
- * throwaway [GeoPoint] allocations plus ~50k pixel transforms per frame; the GC
- * churn alone is what made the map feel like it was dragging.
- *
- * Two double comparisons per point up front is orders of magnitude cheaper than
- * a projection, and allocates nothing — so the per-frame cost now scales with
- * what is actually on screen rather than with everything ever loaded.
- */
-internal class ViewportCull(mapView: MapView, padDegrees: Double) {
-    private val minLat: Double
-    private val maxLat: Double
-    private val minLng: Double
-    private val maxLng: Double
-    /** True when the viewport straddles the antimeridian (lonWest > lonEast). */
-    private val wraps: Boolean
-    val valid: Boolean
-
-    init {
-        val bbox = runCatching { mapView.boundingBox }.getOrNull()
-        if (bbox == null) {
-            minLat = 0.0; maxLat = 0.0; minLng = 0.0; maxLng = 0.0
-            wraps = false; valid = false
-        } else {
-            minLat = bbox.latSouth - padDegrees
-            maxLat = bbox.latNorth + padDegrees
-            minLng = bbox.lonWest - padDegrees
-            maxLng = bbox.lonEast + padDegrees
-            wraps = bbox.lonWest > bbox.lonEast
-            valid = true
-        }
-    }
-
-    /**
-     * Whether the point is on (or just off) screen. Answers `true` for
-     * everything when the viewport could not be read, so a bad frame falls back
-     * to the old draw-it-all behaviour rather than to a blank map.
-     */
-    fun contains(lat: Double, lng: Double): Boolean {
-        if (!valid) return true
-        if (lat < minLat || lat > maxLat) return false
-        // Straddling the antimeridian, the visible span is the OUTSIDE of
-        // [minLng, maxLng] — hence the `or` rather than an `and`.
-        return if (wraps) lng >= minLng || lng <= maxLng else lng >= minLng && lng <= maxLng
-    }
-}
-
-/** Rough degrees-of-latitude for a pixel count at the given zoom. */
-internal fun pixelsToDegrees(px: Float, zoom: Double): Double {
-    val worldPx = 256.0 * Math.pow(2.0, zoom)
-    return (px / worldPx) * 360.0
-}
-
-internal class HeatmapOverlay : Overlay() {
-    private var points: List<LocationPoint> = emptyList()
-    private var sprite: android.graphics.Bitmap? = null
-
-    // Hoisted out of draw(): these were reallocated on every frame.
-    private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
-    private val src = android.graphics.Rect()
-    private val dst = android.graphics.RectF()
-    private val out = android.graphics.Point()
-    private val scratch = GeoPoint(0.0, 0.0)
-
-    fun setPoints(p: List<LocationPoint>) { points = p }
-
-    private fun ensureSprite() {
-        if (sprite != null) return
-        val size = 64
-        val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
-        val c = Canvas(bmp)
-        val cx = size / 2f
-        val grad = android.graphics.RadialGradient(
-            cx, cx, cx,
-            intArrayOf(Color.argb(200, 255, 80, 60), Color.argb(120, 255, 170, 0), Color.argb(0, 255, 255, 0)),
-            floatArrayOf(0f, 0.5f, 1f),
-            android.graphics.Shader.TileMode.CLAMP,
-        )
-        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = grad }
-        c.drawCircle(cx, cx, cx, p)
-        sprite = bmp
-    }
-
-    override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
-        if (shadow || points.isEmpty()) return
-        ensureSprite()
-        val s = sprite ?: return
-        val zoom = mapView.zoomLevelDouble
-        val alphaFrac = when {
-            zoom >= 15 -> 0.04f
-            zoom >= 13 -> 0.16f
-            zoom >= 11 -> 0.50f
-            else -> 0.70f
-        }
-        val spriteSize = when {
-            zoom < 6 -> 26f
-            zoom < 10 -> 44f
-            zoom < 13 -> 64f
-            else -> 80f
-        }
-        val half = spriteSize / 2f
-        val cull = ViewportCull(mapView, pixelsToDegrees(spriteSize, zoom))
-        paint.alpha = (alphaFrac * 255).toInt()
-        src.set(0, 0, s.width, s.height)
-        val projection: Projection = mapView.projection
-        for (i in points.indices) {
-            val pt = points[i]
-            if (!cull.contains(pt.lat, pt.lng)) continue
-            scratch.setCoords(pt.lat, pt.lng)
-            projection.toPixels(scratch, out)
-            dst.set(out.x - half, out.y - half, out.x + half, out.y + half)
-            canvas.drawBitmap(s, src, dst, paint)
-        }
-    }
-}
-
-// ---- Speed-graded coloured dots; larger and more visible at detail zoom ----
-
-internal class PointsOverlay : Overlay() {
-    private var points: List<LocationPoint> = emptyList()
-    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        color = Color.argb(200, 255, 255, 255)
-    }
-    private val out = android.graphics.Point()
-    private val scratch = GeoPoint(0.0, 0.0)
-    var onPointTapped: ((LocationPoint) -> Unit)? = null
-
-    fun setPoints(p: List<LocationPoint>) { points = p }
-
-    override fun onSingleTapConfirmed(e: android.view.MotionEvent, mapView: MapView): Boolean {
-        if (mapView.zoomLevelDouble < 11.0 || points.isEmpty()) return false
-        val projection = mapView.projection
-        val tapX = e.x; val tapY = e.y
-        val tapRadiusPx = 40f  // generous tap target
-        val cull = ViewportCull(mapView, pixelsToDegrees(tapRadiusPx, mapView.zoomLevelDouble))
-        var bestDist = Float.MAX_VALUE
-        var bestPt: LocationPoint? = null
-        val hit = android.graphics.Point()
-        for (i in points.indices) {
-            val pt = points[i]
-            if (!cull.contains(pt.lat, pt.lng)) continue
-            scratch.setCoords(pt.lat, pt.lng)
-            projection.toPixels(scratch, hit)
-            val dx = hit.x - tapX; val dy = hit.y - tapY
-            val dist = dx * dx + dy * dy
-            if (dist < tapRadiusPx * tapRadiusPx && dist < bestDist) {
-                bestDist = dist
-                bestPt = pt
-            }
-        }
-        bestPt?.let { onPointTapped?.invoke(it) }
-        return bestPt != null
-    }
-
-    override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
-        if (shadow || points.isEmpty()) return
-        val zoom = mapView.zoomLevelDouble
-        if (zoom < 11.0) return
-        val alphaFrac = when {
-            zoom >= 13 -> 1.0f
-            zoom >= 12 -> 0.75f
-            else -> 0.4f
-        }
-        val projection: Projection = mapView.projection
-        val radius = when {
-            zoom < 12 -> 3.5f
-            zoom < 13 -> 5.0f
-            zoom < 15 -> 7.0f
-            else -> 9.0f
-        }
-        strokePaint.strokeWidth = (radius * 0.35f).coerceAtLeast(1.5f)
-        val cull = ViewportCull(mapView, pixelsToDegrees(radius + 20f, zoom))
-        for (i in points.indices) {
-            val p = points[i]
-            if (!cull.contains(p.lat, p.lng)) continue
-            scratch.setCoords(p.lat, p.lng)
-            projection.toPixels(scratch, out)
-            val c = speedColor(p.speed)
-            fillPaint.color = Color.argb((Color.alpha(c) * alphaFrac).toInt(), Color.red(c), Color.green(c), Color.blue(c))
-            val x = out.x.toFloat(); val y = out.y.toFloat()
-            canvas.drawCircle(x, y, radius, fillPaint)
-            canvas.drawCircle(x, y, radius, strokePaint)
-        }
-    }
-}
-
-/** speed in m/s — matches the website's green→amber→red gradient */
-private fun speedColor(speed: Double?): Int {
-    val s = speed ?: 0.0
-    return when {
-        s < 1.0 -> Color.rgb(59, 130, 246)
-        s < 5.0 -> Color.rgb(34, 197, 94)
-        s < 14.0 -> Color.rgb(234, 179, 8)
-        s < 30.0 -> Color.rgb(249, 115, 22)
-        else -> Color.rgb(239, 68, 68)
-    }
-}
-
-// ---- Have-I-been-here computation ----
-
-private fun checkNearHere(
-    context: android.content.Context,
-    viewModel: MapViewModel,
-    onResult: (NearHereResult?) -> Unit,
-) {
-    // The same source the tracking service uses, so this answers on a de-Googled build too.
-    // It went straight to Play Services before, which on GrapheneOS meant every check
-    // silently reported "no location" rather than saying it had no provider.
-    val source = LocationSource.get(context)
-    val compute = { lat: Double, lng: Double ->
-        viewModel.checkHaveIBeenHere(lat, lng) { onResult(it) }
-    }
-    try {
-        source.lastKnown { last ->
-            if (last != null) {
-                compute(last.latitude, last.longitude)
-            } else {
-                source.currentFix(FixAccuracy.BALANCED) { cur ->
-                    if (cur != null) compute(cur.latitude, cur.longitude) else onResult(null)
-                }
-            }
-        }
-    } catch (_: SecurityException) {
-        onResult(null)
-    }
-}
-
-private const val SAME_SPOT_METERS = 200.0
-private const val REGION_KM = 5.0
-
-internal fun buildNearHere(
-    userLat: Double,
-    userLng: Double,
-    locations: List<LocationPoint>,
-): NearHereResult {
-    val today = LocalDate.now()
-
-    var regionCity: String? = null
-    var regionState: String? = null
-    var nearestPastDistKm = Double.MAX_VALUE
-    for (pt in locations) {
-        val day = parseDate(pt.timestamp)
-        if (day == today) continue
-        val distKm = haversineKm(userLat, userLng, pt.lat, pt.lng)
-        if (distKm < nearestPastDistKm) {
-            nearestPastDistKm = distKm
-            regionCity = pt.city?.takeIf { it.isNotBlank() }
-            regionState = pt.state?.takeIf { it.isNotBlank() }
-        }
-    }
-    val regionLabel = listOfNotNull(regionCity, regionState).joinToString(", ").ifBlank { null }
-
-    val regionPoints = locations.filter { pt ->
-        val day = parseDate(pt.timestamp)
-        if (day == today) return@filter false
-        if (regionCity != null && !pt.city.isNullOrBlank()) {
-            pt.city.equals(regionCity, ignoreCase = true)
-        } else {
-            haversineKm(userLat, userLng, pt.lat, pt.lng) <= REGION_KM
-        }
-    }
-
-    data class DayAgg(
-        var count: Int = 0,
-        var bestDistM: Double = Double.MAX_VALUE,
-        var lat: Double = 0.0,
-        var lng: Double = 0.0,
-        val timestamps: MutableList<Long> = mutableListOf(),
-    )
-    val byDay = HashMap<LocalDate, DayAgg>()
-    var globalClosestM = Double.MAX_VALUE
-
-    for (pt in regionPoints) {
-        val distM = haversineKm(userLat, userLng, pt.lat, pt.lng) * 1000.0
-        if (distM > SAME_SPOT_METERS) continue
-        if (distM < globalClosestM) globalClosestM = distM
-        val day = parseDate(pt.timestamp) ?: continue
-        val tsMs = parseIsoMs(pt.timestamp) ?: continue
-        val agg = byDay.getOrPut(day) { DayAgg() }
-        agg.count++
-        agg.timestamps.add(tsMs)
-        if (distM < agg.bestDistM) {
-            agg.bestDistM = distM
-            agg.lat = pt.lat
-            agg.lng = pt.lng
-        }
-    }
-
-    val days = byDay.entries
-        .sortedByDescending { it.key }
-        .map { (date, agg) ->
-            val timeSpent = computeTimeSpentSeconds(agg.timestamps)
-            NearHereDay(
-                date = date,
-                pointCount = agg.count,
-                closestMeters = agg.bestDistM,
-                lat = agg.lat,
-                lng = agg.lng,
-                timeSpentSeconds = timeSpent,
-            )
-        }
-
-    return NearHereResult(
-        region = regionLabel,
-        veryCloseDays = days.size,
-        totalRegionPoints = regionPoints.size,
-        closestMeters = if (globalClosestM == Double.MAX_VALUE) null else globalClosestM,
-        days = days,
-    )
-}
-
-private fun computeTimeSpentSeconds(timestampsMs: List<Long>): Int {
-    if (timestampsMs.size < 2) return 0
-    val sorted = timestampsMs.sorted()
-    var totalMs = 0L
-    for (i in 1 until sorted.size) {
-        val gap = sorted[i] - sorted[i - 1]
-        totalMs += minOf(gap, 3_600_000L)  // cap each gap at 1 hour like the server does
-    }
-    return (totalMs / 1000L).toInt()
-}
-
-private fun parseIsoMs(ts: String?): Long? {
-    if (ts.isNullOrBlank()) return null
-    return try {
-        OffsetDateTime.parse(ts).toInstant().toEpochMilli()
-    } catch (_: Exception) {
-        try {
-            LocalDateTime.parse(ts).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        } catch (_: Exception) { null }
-    }
-}
-
-private fun parseDate(ts: String?): LocalDate? {
-    if (ts.isNullOrBlank()) return null
-    return try {
-        OffsetDateTime.parse(ts).atZoneSameInstant(ZoneId.systemDefault()).toLocalDate()
-    } catch (_: DateTimeParseException) {
-        try {
-            LocalDateTime.parse(ts).toLocalDate()
-        } catch (_: DateTimeParseException) {
-            try { LocalDate.parse(ts.take(10)) } catch (_: DateTimeParseException) { null }
-        }
-    }
-}
-
-private fun haversineKm(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
-    val r = 6371.0
-    val dLat = Math.toRadians(lat2 - lat1)
-    val dLng = Math.toRadians(lng2 - lng1)
-    val a = sin(dLat / 2) * sin(dLat / 2) +
-            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
-            sin(dLng / 2) * sin(dLng / 2)
-    return r * 2 * atan2(sqrt(a), sqrt(1 - a))
 }

@@ -98,7 +98,8 @@ data class MapUiState(
     // Optional Mapbox token (from the web account). Blank = use the built-in basemap.
     val mapboxToken: String = "",
     // Selected basemap label (e.g. "Streets", "Satellite", "Mapbox Streets").
-    val basemap: String = "Streets",
+    // "Auto" follows the theme: a dark basemap in dark mode, a light one in light.
+    val basemap: String = "Auto",
     // device_id → display name, so a tapped point can name the phone that recorded it.
     val deviceNames: Map<String, String> = emptyMap(),
     /** Map options toggles (fog, filled gaps, outliers, transport, places). */
