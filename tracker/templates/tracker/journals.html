@@ -43,8 +43,28 @@
     display: grid;
     grid-template-columns: 1.55fr 1fr;
     gap: 1.25rem;
-    align-items: start;
+    align-items: stretch;
 }
+.j-side { display: flex; flex-direction: column; min-width: 0; }
+.j-mini {
+    flex: 1; display: flex; flex-direction: column; gap: 0.5rem; min-height: 260px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius-clay-sm); padding: 0.9rem 1rem 1rem;
+    box-shadow: var(--clay-shadow-sm);
+}
+.j-mini-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.j-mini-title { font-family: var(--font-display); font-size: 1.05rem; font-weight: 800; text-transform: none; }
+.j-mini-text {
+    flex: 1; width: 100%; min-height: 150px; resize: none; box-sizing: border-box;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-clay-sm);
+    padding: 0.75rem 0.9rem; color: var(--text); font-family: var(--font-body); font-size: 0.95rem;
+    font-weight: 500; line-height: 1.6; outline: none; box-shadow: var(--clay-shadow-inset);
+    text-transform: none; cursor: text;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.j-mini-text:focus { border-color: var(--border-bright); box-shadow: var(--clay-shadow-inset), 0 0 0 3px var(--primary-soft); }
+.j-mini-text::placeholder { color: var(--text-dim); }
+.j-mini .j-recap-btn { margin: 0; }
 @media (max-width: 900px) {
     .j-layout { grid-template-columns: 1fr; }
 }
@@ -147,7 +167,6 @@
     margin-bottom: 0.9rem;
     text-transform: none;
 }
-.j-today-btn { width: 100%; justify-content: center; margin-bottom: 1rem; }
 .j-recent { display: flex; flex-direction: column; gap: 0.6rem; }
 .j-entry-card {
     display: flex;
@@ -537,12 +556,7 @@
         </div>
 
         <!-- Sidebar -->
-        <div>
-            <button class="btn btn-primary j-today-btn" id="j-write-today">
-                <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
-                write today's entry
-            </button>
-            <button class="btn btn-outline j-recap-btn" id="j-recap-toggle" aria-expanded="false" aria-controls="j-recap">recap my past few days</button>
+        <div class="j-side">
             <div class="j-search-wrap">
                 <input class="j-search-input" id="j-search" type="text" placeholder="search entries…" autocomplete="off">
                 <button class="j-search-clear" id="j-search-clear" title="Clear">×</button>
@@ -550,6 +564,15 @@
             <div class="j-search-results" id="j-search-results">
                 <div class="j-search-count" id="j-search-count"></div>
                 <div class="j-recent" id="j-search-list"></div>
+            </div>
+            <!-- Today's entry, always open. Autosaves; clicking it opens the full editor. -->
+            <div class="j-mini" id="j-mini">
+                <div class="j-mini-head">
+                    <span class="j-mini-title" id="j-mini-title">today</span>
+                    <span class="j-save-pill" id="j-mini-pill"></span>
+                </div>
+                <textarea class="j-mini-text" id="j-mini-text" placeholder="what happened today?" aria-label="Today's journal entry" disabled></textarea>
+                <button class="btn btn-outline j-recap-btn" id="j-recap-toggle" aria-expanded="false" aria-controls="j-recap">recap my past few days</button>
             </div>
         </div>
     </div>
@@ -944,6 +967,7 @@ const searchResults = document.getElementById('j-search-results');
 const searchList = document.getElementById('j-search-list');
 const searchCount = document.getElementById('j-search-count');
 const recentCard = document.getElementById('j-recent-card');
+const miniBox = document.getElementById('j-mini');
 
 function runSearch(q) {
     if (!q.trim()) {
@@ -956,13 +980,13 @@ function runSearch(q) {
             searchCount.textContent = `${data.count} result${data.count===1?'':'s'}`;
             renderEntryCards(data.entries, searchList);
             searchResults.classList.add('active');
-            recentCard.style.display = 'none';
+            recentCard.style.display = 'none'; miniBox.style.display = 'none';
         })
         .catch(()=>{
             searchCount.textContent = '';
             searchList.innerHTML = '<div class="j-empty-state" style="color:var(--danger);">Search failed. <a href="#" onclick="runSearch(document.getElementById(\'j-search\').value);return false;">Retry</a></div>';
             searchResults.classList.add('active');
-            recentCard.style.display = 'none';
+            recentCard.style.display = 'none'; miniBox.style.display = 'none';
         });
 }
 
@@ -970,7 +994,7 @@ function clearSearch() {
     searchInput.value = '';
     searchClear.style.display = 'none';
     searchResults.classList.remove('active');
-    recentCard.style.display = '';
+    recentCard.style.display = ''; miniBox.style.display = '';
     searchList.innerHTML = '';
 }
 
@@ -996,7 +1020,7 @@ function openEntry(dateStr) {
     currentMood = '';
     renderMoodRow('');
     document.getElementById('j-title').value = '';
-    document.getElementById('j-body').value = '';
+    document.getElementById('j-body').value = (dateStr === todayStr() && miniReady) ? mini.value : '';
     document.getElementById('j-quick').value = '';
     sizeQuick();
     document.getElementById('j-weather').value = '';
@@ -1009,7 +1033,7 @@ function openEntry(dateStr) {
     fetch(`/api/journals/${dateStr}/?tz=${new Date().getTimezoneOffset()}`).then(r=>r.json()).then(data=>{
         currentEntry = data.entry;
         document.getElementById('j-title').value = data.entry.title || '';
-        document.getElementById('j-body').value = data.entry.body || '';
+        if (!(dateStr === todayStr() && miniReady)) document.getElementById('j-body').value = data.entry.body || '';
         document.getElementById('j-quick').value = data.entry.quick_note || '';
         sizeQuick();
         document.getElementById('j-weather').value = data.entry.weather || '';
@@ -1046,7 +1070,9 @@ function closeEntry() {
     document.getElementById('j-modal-overlay').classList.remove('open');
     document.body.style.overflow = '';
     editedThisOpen = false;
+    if (dateStr === todayStr() && miniReady) mini.value = document.getElementById('j-body').value;
     saved.then(ok => {
+        if (dateStr !== todayStr()) loadMini();
         refreshLists();
         if (ok && edited && needsAi) autofillEntry(dateStr);
     });
@@ -1344,7 +1370,57 @@ function renderDayMap(track) {
 document.getElementById('j-prev').onclick = ()=>{ viewMonth--; if(viewMonth<1){viewMonth=12;viewYear--;} loadMonth(); };
 document.getElementById('j-next').onclick = ()=>{ viewMonth++; if(viewMonth>12){viewMonth=1;viewYear++;} loadMonth(); };
 document.getElementById('j-today-nav').onclick = ()=>{ const d=new Date(); viewYear=d.getFullYear(); viewMonth=d.getMonth()+1; loadMonth(); };
-document.getElementById('j-write-today').onclick = ()=> openEntry(todayStr());
+
+// ── Today's box (sidebar) ──
+// The small box is the quick way to write today's entry. It saves only `body`, so
+// it can never overwrite the title, mood or weather. While the full editor is open
+// on today it just mirrors j-body, which does the saving.
+const mini = document.getElementById('j-mini-text');
+const miniPill = document.getElementById('j-mini-pill');
+let miniDirty = false, miniTimer = null, miniReady = false;
+document.getElementById('j-mini-title').textContent = 'today · ' + fmtLong(todayStr());
+
+function editorOnToday() {
+    return document.getElementById('j-modal-overlay').classList.contains('open') && currentDate === todayStr();
+}
+function loadMini() {
+    miniReady = false; mini.disabled = true;
+    fetch(`/api/journals/${todayStr()}/?tz=${new Date().getTimezoneOffset()}`).then(r=>r.ok ? r.json() : Promise.reject())
+        .then(data=>{ mini.value = data.entry.body || ''; mini.disabled = false; miniReady = true; })
+        .catch(()=>{ miniPill.className = 'j-save-pill failed'; miniPill.textContent = '⚠ could not load'; });
+}
+function flushMini() {
+    clearTimeout(miniTimer);
+    if (!miniDirty || !miniReady) return Promise.resolve(true);
+    miniDirty = false;
+    return fetch(`/api/journals/${todayStr()}/save/`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},
+        body: JSON.stringify({body: mini.value}),
+    }).then(r=>{ if (!r.ok) throw new Error('save'); miniPill.className = 'j-save-pill saved'; miniPill.textContent = '✓ saved'; loadMonth(); return true; })
+      .catch(()=>{
+          miniDirty = true;
+          miniPill.className = 'j-save-pill failed'; miniPill.textContent = '⚠ not saved — retry'; miniPill.onclick = flushMini;
+          return false;
+      });
+}
+mini.addEventListener('input', ()=>{
+    if (editorOnToday()) {                       // the editor owns the save while it is open
+        const body = document.getElementById('j-body');
+        body.value = mini.value;
+        body.dispatchEvent(new Event('input'));
+        return;
+    }
+    miniDirty = true;
+    miniPill.className = 'j-save-pill saving'; miniPill.textContent = '• saving…'; miniPill.onclick = null;
+    clearTimeout(miniTimer);
+    miniTimer = setTimeout(flushMini, 800);
+});
+// Clicking opens the full editor; focus stays in the small box so typing carries on.
+mini.addEventListener('click', ()=>{
+    if (!miniReady || document.getElementById('j-modal-overlay').classList.contains('open')) return;
+    flushMini().then(()=>{ openEntry(todayStr()); mini.focus(); });
+});
+loadMini();
 document.getElementById('j-close').onclick = closeEntry;
 document.getElementById('j-modal-overlay').addEventListener('click', e=>{ if(e.target.id==='j-modal-overlay') closeEntry(); });
 document.getElementById('j-fav-btn').onclick = toggleFav;
@@ -1357,7 +1433,7 @@ function sizeQuick() {
     q.style.height = q.scrollHeight + 'px';
 }
 document.getElementById('j-quick').addEventListener('input', ()=>{ sizeQuick(); scheduleSave(); });
-document.getElementById('j-body').addEventListener('input', ()=>{ updateWordCount(); scheduleSave(); });
+document.getElementById('j-body').addEventListener('input', ()=>{ updateWordCount(); scheduleSave(); if (currentDate === todayStr() && miniReady) mini.value = document.getElementById('j-body').value; });
 document.addEventListener('keydown', e=>{ if(e.key==='Escape' && document.getElementById('j-modal-overlay').classList.contains('open')) closeEntry(); });
 
 // ── Init ──
