@@ -197,7 +197,10 @@ data class TripResponse(
     @SerializedName("location_count") val locationCount: Int = 0,
     @SerializedName("member_count")   val memberCount: Int = 0,
     @SerializedName("total_location_count") val totalLocationCount: Int = 0,
-    val locations: List<TripLatLng> = emptyList(),
+    // Nullable on purpose: only the detail endpoint sends it, and Gson skips
+    // Kotlin defaults on this class (no no-arg constructor), so a list-endpoint
+    // trip gets null here despite any `= emptyList()`.
+    val locations: List<TripLatLng>? = null,
     val members: List<PalMember>? = null,
     @SerializedName("is_public")      val isPublic: Boolean = false,
     @SerializedName("is_creator")     val isCreator: Boolean = false,
@@ -218,7 +221,7 @@ data class TripResponse(
     @SerializedName("member_locations") val memberLocations: Map<String, List<TripLatLng>> = emptyMap(),
 ) {
     /** Best available point count regardless of which endpoint produced this. */
-    val pointCount: Int get() = if (totalLocationCount > 0) totalLocationCount else maxOf(locationCount, locations.size)
+    val pointCount: Int get() = if (totalLocationCount > 0) totalLocationCount else maxOf(locationCount, locations?.size ?: 0)
     /** Best available member count regardless of endpoint. */
     val memberCountResolved: Int get() = members?.size ?: memberCount
 }

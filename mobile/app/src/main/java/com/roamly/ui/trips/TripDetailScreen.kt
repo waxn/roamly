@@ -268,7 +268,7 @@ private fun Hero(trip: TripResponse, onOpenMap: () -> Unit) {
     val c = Atlas.colors
     val lines = remember(trip) {
         buildList {
-            if (trip.locations.isNotEmpty()) add(trip.locations.map { it.lat to it.lng } to Color(MEMBER_TRACK_COLORS[0]))
+            if (!trip.locations.isNullOrEmpty()) add(trip.locations.map { it.lat to it.lng } to Color(MEMBER_TRACK_COLORS[0]))
             var idx = 1
             trip.memberLocations.values.forEach { pts ->
                 if (pts.isNotEmpty()) { add(pts.map { it.lat to it.lng } to Color(MEMBER_TRACK_COLORS[idx % MEMBER_TRACK_COLORS.size])); idx++ }
@@ -501,7 +501,7 @@ private fun TripFullMapScreen(trip: TripResponse, onBack: () -> Unit) {
     val mapView = rememberAtlasMapView(interactive = true)
     LaunchedEffect(trip) {
         mapView.overlays.clear()
-        val geo = trip.locations.map { GeoPoint(it.lat, it.lng) }
+        val geo = trip.locations.orEmpty().map { GeoPoint(it.lat, it.lng) }
         val memberGeo = drawMemberTracks(mapView, trip.memberLocations)
         if (geo.isNotEmpty()) mapView.overlays.add(0, trackPolyline(mapView, geo, MEMBER_TRACK_COLORS[0]))
         val stopGeo = addItineraryOverlays(mapView, trip.plannedStops, context)
