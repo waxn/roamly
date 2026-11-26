@@ -1,27 +1,28 @@
 package com.roamly.ui
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
@@ -29,280 +30,157 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.roamly.R
-import com.roamly.ui.theme.Clay
+import com.roamly.ui.kit.rememberHaptics
+import com.roamly.ui.theme.Atlas
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
 
-private enum class SplashStyle { JOURNEY, CONSTELLATION, RADAR, GRIDZOOM }
+private val Emphasized = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
-/**
- * Config generated fresh on every launch so the intro is never the same twice.
- * `points` are normalized (0..1) screen coords; `blips` reuse the pair as
- * (angleTurns, radiusFrac) for the radar style. `bg`/`highlight` are read
- * from the active theme (Field Journal, dark or light) rather than hardcoded,
- * so the splash matches whichever mode the rest of the app is in.
- */
-private class SplashConfig(seed: Long, accents: List<Color>, val bg: Color, val highlight: Color) {
-    val rng = Random(seed)
-    val style = SplashStyle.entries[rng.nextInt(SplashStyle.entries.size)]
-    val accent = accents[rng.nextInt(accents.size)]
-    val accent2 = accents.filter { it != accent }[rng.nextInt(accents.size - 1)]
-
-    // A randomized route from a corner, wandering through waypoints to center.
-    val points: List<Offset> = buildList {
-        val corners = listOf(
-            Offset(0.10f, 0.86f), Offset(0.88f, 0.84f),
-            Offset(0.12f, 0.16f), Offset(0.86f, 0.18f),
-        )
-        var p = corners[rng.nextInt(corners.size)]
+/** Per-launch randomness: the contour wobble and the route's wander. */
+private class SplashSeed(seed: Long) {
+    private val rng = Random(seed)
+    /** Harmonic offsets per contour ring, so each launch draws a different "terrain". */
+    val rings: List<FloatArray> = List(6) { FloatArray(4) { rng.nextFloat() * 2f * PI.toFloat() } }
+    val wobble: Float = 0.05f + rng.nextFloat() * 0.05f
+    /** Normalised waypoints from an off-centre start into the middle. */
+    val route: List<Offset> = buildList {
+        val starts = listOf(Offset(0.08f, 0.92f), Offset(0.92f, 0.9f), Offset(0.1f, 0.12f), Offset(0.9f, 0.1f))
+        var p = starts[rng.nextInt(starts.size)]
         add(p)
-        val hops = 3 + rng.nextInt(3) // 3..5 waypoints
-        repeat(hops) {
-            // step toward center with lateral jitter
-            val tx = 0.5f + (rng.nextFloat() - 0.5f) * 0.5f
-            val ty = 0.5f + (rng.nextFloat() - 0.5f) * 0.5f
-            p = Offset(p.x + (tx - p.x) * 0.55f, p.y + (ty - p.y) * 0.55f)
+        repeat(3) {
+            val tx = 0.5f + (rng.nextFloat() - 0.5f) * 0.55f
+            val ty = 0.5f + (rng.nextFloat() - 0.5f) * 0.55f
+            p = Offset(p.x + (tx - p.x) * 0.6f, p.y + (ty - p.y) * 0.6f)
             add(p)
         }
-        add(Offset(0.5f, 0.5f)) // arrive at the logo
-    }
-
-    // Scattered fixes for constellation / radar blips.
-    val scatter: List<Offset> = buildList {
-        repeat(7) {
-            add(Offset(0.15f + rng.nextFloat() * 0.7f, 0.15f + rng.nextFloat() * 0.7f))
-        }
-    }
-    val radarBlips: List<Offset> = buildList {
-        repeat(6) { add(Offset(rng.nextFloat(), 0.25f + rng.nextFloat() * 0.65f)) }
+        add(Offset(0.5f, 0.5f))
     }
 }
 
 /**
- * Splash: a procedurally-generated map intro that differs on every launch.
- * One of four styles is chosen at random — a wandering GPS route, a
- * constellation of fixes wiring together, a radar sweep, or a fly-through
- * that zooms along a map grid — and the Roamly mark springs in at center.
+ * The intro: topographic contour rings draw themselves outward from the
+ * centre while a glowing route arcs in from a corner; the Roamly mark lands
+ * with a spring and a tap of haptics, the wordmark rises under it, and the
+ * whole thing fades into the app. The terrain and the route are reseeded on
+ * every launch, so it is never quite the same twice.
  */
 @Composable
 fun SplashScreen(onFinished: () -> Unit) {
-    val clay = Clay.colors
-    val bg = MaterialTheme.colorScheme.background
-    val cfg = remember {
-        val accents = listOf(clay.moss, clay.rust, clay.mapBlue, clay.mauve, clay.ochre)
-        SplashConfig(System.nanoTime(), accents, bg, clay.rust)
-    }
-
-    val trackProgress = remember { Animatable(0f) }
-    val markScale = remember { Animatable(0f) }
-    val markAlpha = remember { Animatable(0f) }
-    val screenAlpha = remember { Animatable(1f) }
-
-    val infinite = rememberInfiniteTransition(label = "pulse")
-    val pulse by infinite.animateFloat(
-        initialValue = 1f, targetValue = 1.06f,
-        animationSpec = infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing)),
-        label = "pulse",
-    )
+    val c = Atlas.colors
+    val haptics = rememberHaptics()
+    val seed = remember { SplashSeed(System.nanoTime()) }
+    val contours = remember { Animatable(0f) }
+    val route = remember { Animatable(0f) }
+    val glow = remember { Animatable(0f) }
+    val mark = remember { Animatable(0f) }
+    val word = remember { Animatable(0f) }
+    val out = remember { Animatable(1f) }
 
     LaunchedEffect(Unit) {
-        launch { trackProgress.animateTo(1f, tween(1150, easing = FastOutSlowInEasing)) }
-        delay(560)
-        launch { markAlpha.animateTo(1f, tween(280)) }
-        markScale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
-        delay(360)
-        screenAlpha.animateTo(0f, tween(280, easing = FastOutSlowInEasing))
+        launch { contours.animateTo(1f, tween(1300, easing = Emphasized)) }
+        launch { glow.animateTo(1f, tween(900)) }
+        launch { delay(120); route.animateTo(1f, tween(950, easing = Emphasized)) }
+        delay(820)
+        launch { mark.animateTo(1f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMediumLow)) }
+        delay(140)
+        haptics.click()
+        word.animateTo(1f, tween(380, easing = Emphasized))
+        delay(320)
+        out.animateTo(0f, tween(260))
         onFinished()
     }
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer { alpha = screenAlpha.value }
-            .background(cfg.bg),
+        Modifier.fillMaxSize().graphicsLayer { alpha = out.value }.background(c.bg),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val t = trackProgress.value
-            if (t <= 0f) return@Canvas
-            when (cfg.style) {
-                SplashStyle.JOURNEY -> drawJourney(cfg, t)
-                SplashStyle.CONSTELLATION -> drawConstellation(cfg, t)
-                SplashStyle.RADAR -> drawRadar(cfg, t)
-                SplashStyle.GRIDZOOM -> drawGridZoom(cfg, t)
-            }
+        Canvas(Modifier.fillMaxSize()) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            // A warm glow pooling under the mark.
+            drawCircle(
+                Brush.radialGradient(listOf(c.accent.copy(alpha = 0.22f * glow.value), Color.Transparent), center, size.minDimension * 0.55f),
+                radius = size.minDimension * 0.55f, center = center,
+            )
+            drawContours(seed, contours.value, c.lineStrong, c.accent)
+            drawRoute(seed, route.value, c.accent, c.amber, c.text)
         }
-
-        Image(
-            painter = painterResource(R.drawable.roamly_favicon),
-            contentDescription = "Roamly",
-            modifier = Modifier
-                .size(96.dp)
-                .graphicsLayer {
-                    val s = markScale.value * if (markAlpha.value > 0.9f) pulse else 1f
-                    scaleX = s; scaleY = s
-                    alpha = markAlpha.value
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Image(
+                painter = painterResource(R.drawable.roamly_favicon),
+                contentDescription = "Roamly",
+                modifier = Modifier.size(92.dp).graphicsLayer {
+                    scaleX = 0.4f + 0.6f * mark.value; scaleY = 0.4f + 0.6f * mark.value
+                    alpha = mark.value.coerceIn(0f, 1f)
                 },
-        )
-    }
-}
-
-/** Smooth path through normalized points, mapped to pixel space. */
-private fun DrawScope.buildTrack(points: List<Offset>): Path {
-    val w = size.width; val h = size.height
-    val pts = points.map { Offset(it.x * w, it.y * h) }
-    val path = Path()
-    path.moveTo(pts[0].x, pts[0].y)
-    for (i in 1 until pts.size) {
-        val prev = pts[i - 1]; val cur = pts[i]
-        val mid = Offset((prev.x + cur.x) / 2f, (prev.y + cur.y) / 2f)
-        path.quadraticBezierTo(prev.x, prev.y, mid.x, mid.y)
-    }
-    path.lineTo(pts.last().x, pts.last().y)
-    return path
-}
-
-private fun DrawScope.strokeTrack(path: Path, accent: Color, cfg: SplashConfig, drawn: Float) {
-    val measure = PathMeasure().apply { setPath(path, false) }
-    val total = measure.length
-    val trimmed = Path()
-    measure.getSegment(0f, total * drawn, trimmed, true)
-
-    drawPath(trimmed, accent.copy(alpha = 0.16f), style = Stroke(18.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-    drawPath(trimmed, accent.copy(alpha = 0.92f), style = Stroke(4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-
-    drawCircle(accent.copy(alpha = 0.5f), 6.dp.toPx(), measure.getPosition(0f))
-    if (drawn < 0.98f) {
-        val tip = measure.getPosition(total * drawn)
-        drawCircle(cfg.highlight, 9.dp.toPx(), tip)
-        drawCircle(Color.White.copy(alpha = 0.85f), 4.dp.toPx(), tip)
-    }
-}
-
-private fun DrawScope.drawJourney(cfg: SplashConfig, t: Float) {
-    val path = buildTrack(cfg.points)
-    strokeTrack(path, cfg.accent, cfg, t)
-
-    // Waypoint pins light up as the line passes them.
-    val w = size.width; val h = size.height
-    cfg.points.forEachIndexed { i, np ->
-        val frac = i.toFloat() / (cfg.points.size - 1)
-        if (i > 0 && i < cfg.points.size - 1 && t >= frac) {
-            val pos = Offset(np.x * w, np.y * h)
-            drawCircle(cfg.accent2, 5.dp.toPx(), pos)
-            drawCircle(cfg.bg, 2.5.dp.toPx(), pos)
+            )
+            Spacer(Modifier.height(18.dp))
+            Text(
+                "ROAMLY",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp, letterSpacing = (2 + 6 * word.value).sp),
+                color = c.text,
+                modifier = Modifier.graphicsLayer { alpha = word.value; translationY = (1f - word.value) * 24f },
+            )
         }
     }
 }
 
-private fun DrawScope.drawConstellation(cfg: SplashConfig, t: Float) {
-    val w = size.width; val h = size.height
-    val nodes = cfg.scatter.map { Offset(it.x * w, it.y * h) } + Offset(w / 2f, h / 2f)
-    val n = nodes.size
-    val reveal = t * (n - 1) // how many edges/nodes are live
-
-    // edges between consecutive revealed nodes
-    for (i in 1 until n) {
-        val edge = (reveal - (i - 1)).coerceIn(0f, 1f)
-        if (edge <= 0f) break
-        val a = nodes[i - 1]; val b = nodes[i]
-        val end = Offset(a.x + (b.x - a.x) * edge, a.y + (b.y - a.y) * edge)
-        drawLine(cfg.accent.copy(alpha = 0.85f), a, end, strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
-    }
-    // nodes pop in
-    nodes.forEachIndexed { i, p ->
-        if (reveal >= i - 0.5f) {
-            drawCircle(cfg.accent.copy(alpha = 0.18f), 12.dp.toPx(), p)
-            drawCircle(if (i == n - 1) cfg.highlight else cfg.accent2, 6.dp.toPx(), p)
-            drawCircle(cfg.bg, 3.dp.toPx(), p)
-        }
-    }
-}
-
-private fun DrawScope.drawRadar(cfg: SplashConfig, t: Float) {
+private fun DrawScope.drawContours(seed: SplashSeed, t: Float, line: Color, accent: Color) {
     val cx = size.width / 2f; val cy = size.height / 2f
-    val center = Offset(cx, cy)
-    val maxR = min(size.width, size.height) * 0.42f
-
-    // range rings
-    for (k in 1..3) {
-        drawCircle(cfg.accent.copy(alpha = 0.14f), maxR * k / 3f, center, style = Stroke(1.5.dp.toPx()))
-    }
-    // sweeping wedge (1.25 turns over the animation)
-    val sweep = t * 450f - 90f
-    val rad = Math.toRadians(sweep.toDouble())
-    val tip = Offset(cx + cos(rad).toFloat() * maxR, cy + sin(rad).toFloat() * maxR)
-    drawLine(cfg.accent, center, tip, strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
-    // a few trailing sweep lines for a faded fan
-    for (k in 1..5) {
-        val a = Math.toRadians((sweep - k * 6f).toDouble())
-        drawLine(
-            cfg.accent.copy(alpha = 0.10f - k * 0.015f),
-            center,
-            Offset(cx + cos(a).toFloat() * maxR, cy + sin(a).toFloat() * maxR),
-            strokeWidth = 2.dp.toPx(),
-        )
-    }
-    // blips pop in sequence
-    cfg.radarBlips.forEachIndexed { i, b ->
-        val thr = i.toFloat() / cfg.radarBlips.size
-        if (t >= thr) {
-            val ang = Math.toRadians((b.x * 360f).toDouble())
-            val r = b.y * maxR
-            val pos = Offset(cx + cos(ang).toFloat() * r, cy + sin(ang).toFloat() * r)
-            val pop = ((t - thr) * 6f).coerceIn(0f, 1f)
-            drawCircle(cfg.accent2.copy(alpha = 0.2f), 10.dp.toPx() * pop, pos)
-            drawCircle(cfg.accent2, 4.dp.toPx() * pop, pos)
+    val maxR = min(size.width, size.height) * 0.62f
+    seed.rings.forEachIndexed { i, phase ->
+        // Rings start one after another, inner first.
+        val local = ((t * 1.6f) - i * 0.12f).coerceIn(0f, 1f)
+        if (local <= 0f) return@forEachIndexed
+        val r = maxR * (0.22f + i * 0.15f)
+        val path = Path()
+        val steps = 96
+        for (s in 0..steps) {
+            val a = s / steps.toFloat() * 2f * PI.toFloat()
+            val wob = 1f + seed.wobble * (sin(2 * a + phase[0]) * 0.6f + sin(3 * a + phase[1]) * 0.3f + sin(5 * a + phase[2]) * 0.15f)
+            val x = cx + cos(a + phase[3]) * r * wob
+            val y = cy + sin(a + phase[3]) * r * wob
+            if (s == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
+        path.close()
+        val measure = PathMeasure().apply { setPath(path, false) }
+        val seg = Path()
+        measure.getSegment(0f, measure.length * local, seg, true)
+        val color = if (i == 1) accent.copy(alpha = 0.35f) else line.copy(alpha = line.alpha * (1f - i * 0.12f))
+        drawPath(seg, color, style = Stroke(width = (if (i == 1) 1.6f else 1.1f).dp.toPx(), cap = StrokeCap.Round))
     }
 }
 
-private fun DrawScope.drawGridZoom(cfg: SplashConfig, t: Float) {
-    val w = size.width; val h = size.height
-    val cx = w / 2f; val cy = h / 2f
-    val zoom = 0.7f + 0.7f * t          // fly in
-    val panX = -0.18f * w * t
-    val panY = 0.18f * h * t
-    val cell = min(w, h) / 6f
-
-    // Map grid slides + scales underneath — the "zooming along a map" feel.
-    withTransform({
-        scale(zoom, zoom, pivot = Offset(cx, cy))
-        translate(panX, panY)
-    }) {
-        val gridColor = cfg.accent.copy(alpha = 0.16f)
-        var x = -cell
-        while (x <= w + cell) {
-            drawLine(gridColor, Offset(x, -cell), Offset(x, h + cell), strokeWidth = 1.dp.toPx())
-            x += cell
+private fun DrawScope.drawRoute(seed: SplashSeed, t: Float, from: Color, to: Color, head: Color) {
+    if (t <= 0f) return
+    val pts = seed.route.map { Offset(it.x * size.width, it.y * size.height) }
+    val path = Path().apply {
+        moveTo(pts[0].x, pts[0].y)
+        for (i in 1 until pts.size) {
+            val p = pts[i - 1]; val q = pts[i]
+            quadraticBezierTo(p.x, p.y, (p.x + q.x) / 2f, (p.y + q.y) / 2f)
         }
-        var y = -cell
-        while (y <= h + cell) {
-            drawLine(gridColor, Offset(-cell, y), Offset(w + cell, y), strokeWidth = 1.dp.toPx())
-            y += cell
-        }
-        // faint lat/long crosses at intersections
-        var gx = -cell
-        while (gx <= w + cell) {
-            var gy = -cell
-            while (gy <= h + cell) {
-                drawCircle(cfg.accent.copy(alpha = 0.12f), 1.5.dp.toPx(), Offset(gx, gy))
-                gy += cell
-            }
-            gx += cell
-        }
+        lineTo(pts.last().x, pts.last().y)
     }
-
-    // Track drawn in fixed screen space so the camera appears to follow it.
-    val path = buildTrack(cfg.points)
-    strokeTrack(path, cfg.accent2, cfg, t)
+    val measure = PathMeasure().apply { setPath(path, false) }
+    val drawn = Path()
+    measure.getSegment(0f, measure.length * t, drawn, true)
+    val brush = Brush.linearGradient(listOf(from.copy(alpha = 0.2f), from, to), pts.first(), pts.last())
+    drawPath(drawn, brush, alpha = 0.25f, style = Stroke(14.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+    drawPath(drawn, brush, style = Stroke(3.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+    if (t < 0.97f) {
+        val tip = measure.getPosition(measure.length * t)
+        drawCircle(to.copy(alpha = 0.35f), 12.dp.toPx(), tip)
+        drawCircle(head, 4.5.dp.toPx(), tip)
+    }
 }
