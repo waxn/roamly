@@ -303,7 +303,8 @@
             border-bottom-color: var(--primary);
         }
         .navbar-end {
-            justify-self: end;
+            justify-self: stretch;
+            justify-content: flex-end;
             display: flex;
             align-items: center;
             gap: 0.75rem;
@@ -440,12 +441,12 @@
         .navbar-logout-mobile { display: none; }
 
         /* ── A year ago today (header chip) ── */
-        .yago { position: relative; display: none; min-width: 0; }
+        .yago { position: relative; display: none; flex: 1 1 0; min-width: 0; justify-content: center; }
         .yago.show { display: flex; }
         .yago-chip {
             display: inline-flex; align-items: center; gap: 0.45rem;
-            max-width: 15rem; min-width: 0;
-            padding: 0.3rem 0.65rem 0.3rem 0.5rem;
+            width: 60%; min-width: 9rem; max-width: 24rem;
+            padding: 0.45rem 0.85rem 0.45rem 0.7rem;
             background: var(--bg-elevated); border: 1px solid var(--border);
             border-radius: var(--radius-clay-sm);
             color: var(--text-muted); text-decoration: none;
@@ -455,12 +456,12 @@
         .yago-chip:focus-visible { outline: 2px solid var(--border-bright); outline-offset: 1px; }
         .yago-icon { flex: none; fill: none; stroke: var(--primary); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
         .yago-tag {
-            flex: none; font-family: var(--font-mono); font-size: 0.62rem;
+            flex: none; font-family: var(--font-mono); font-size: 0.66rem;
             letter-spacing: 0.06em; text-transform: uppercase; color: var(--primary);
         }
-        .yago-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.78rem; font-weight: 600; }
+        .yago-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.86rem; font-weight: 600; }
         .yago-pop {
-            position: absolute; top: calc(100% + 0.5rem); right: 0; width: 20rem;
+            position: absolute; top: calc(100% + 0.5rem); left: 50%; transform: translateX(-50%); width: 21rem; max-width: 90vw;
             padding: 0.85rem 0.95rem;
             background: var(--bg-elevated); border: 1px solid var(--border);
             border-radius: var(--radius-clay-sm); box-shadow: var(--clay-shadow);
@@ -481,7 +482,7 @@
         .yago-go:hover { text-decoration: underline; }
         /* The nav needs the room below this width; a phone has no header space at all. */
         @media (max-width: 1280px) { .yago { display: none !important; } }
-        @media (max-width: 1500px) { .yago-tag { display: none; } .yago-chip { max-width: 11rem; } }
+        @media (max-width: 1500px) { .yago-tag { display: none; } }
 
         /* ── Notification bell ── */
         .notif { position: relative; display: flex; }
@@ -1446,7 +1447,7 @@
         <div class="navbar-end">
             <div class="yago" id="yago">
                 <a class="yago-chip" id="yago-chip" href="#" aria-describedby="yago-pop">
-                    <svg class="yago-icon" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 9 8 9"/><polyline points="12 7 12 12 15 14"/></svg>
+                    <svg class="yago-icon" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 9 8 9"/><polyline points="12 7 12 12 15 14"/></svg>
                     <span class="yago-tag">1 year ago</span>
                     <span class="yago-line" id="yago-line"></span>
                 </a>
