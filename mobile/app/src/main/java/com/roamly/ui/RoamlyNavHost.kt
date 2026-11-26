@@ -426,8 +426,8 @@ fun RoamlyNavHost() {
 // Tab ↔ tab: a quick crossfade with a hint of scale. Into a pushed screen: it
 // slides in from the right over the one beneath, which drifts left and dims.
 
-private const val TAB_MS = 220
-private const val PUSH_MS = 320
+private const val TAB_MS = 150
+private const val PUSH_MS = 240
 
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabSwap() =
     initialState.isTab() && targetState.isTab()
