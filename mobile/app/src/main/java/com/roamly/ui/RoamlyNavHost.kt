@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -355,6 +358,12 @@ fun RoamlyNavHost() {
                     DiagnosticsScreen(viewModel = hiltViewModel(), onBack = back)
                 }
             }
+        }
+
+        // Tabs other than the map scroll under the status bar: give it a ground
+        // so content never runs into the clock.
+        if (showDock && currentRoute != Tab.Map.route) {
+            Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(Atlas.colors.bg.copy(alpha = 0.94f)))
         }
 
         if (showDock) {
