@@ -25,7 +25,7 @@ private const val TAG = "QuickNoteReminder"
 /**
  * The evening "what did you do today?" nudge.
  *
- * One inexact alarm a day (setAndAllowWhileIdle: no exact-alarm permission,
+ * One alarm a day (exact when permitted, else setAndAllowWhileIdle, which
  * still fires in Doze), re-armed for tomorrow every time it fires, on app start
  * and on boot. When it fires, [QuickNoteReminderReceiver] posts the
  * notification only if today has no note yet, so writing one earlier in the day
@@ -50,8 +50,17 @@ object QuickNoteReminder {
         am.cancel(pi)
         if (!enabled) return
         val at = nextTrigger(ZonedDateTime.now(), minuteOfDay)
+        val atMs = at.toInstant().toEpochMilli()
+        // Exact when the OS lets us (it fires on the minute, even in Doze); an
+        // inexact alarm can slip by an hour or more on an idle phone, which is
+        // what made the reminder feel unreliable.
+        val exact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
         runCatching {
-            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at.toInstant().toEpochMilli(), pi)
+            if (exact) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi)
+            else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi)
+        }.recoverCatching {
+            // A SecurityException if the exact-alarm grant was revoked meanwhile.
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi)
         }.onFailure { Log.w(TAG, "Could not arm the daily note reminder", it) }
     }
 

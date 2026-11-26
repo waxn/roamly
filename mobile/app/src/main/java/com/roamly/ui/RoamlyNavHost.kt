@@ -166,12 +166,30 @@ fun RoamlyNavHost() {
     val recording by authViewModel.recordingActive.collectAsState()
     val username by authViewModel.username.collectAsState()
 
+    // Ask for notification permission once after the first sign-in: without it
+    // the reminder and Family alerts silently never show.
+    val notifLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { }
+    LaunchedEffect(isLoggedIn) {
+        if (isLoggedIn != true || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) return@LaunchedEffect
+        val prompts = context.getSharedPreferences("roamly_prompts", android.content.Context.MODE_PRIVATE)
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.POST_NOTIFICATIONS
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!granted && !prompts.getBoolean("asked_notifications", false)) {
+            prompts.edit().putBoolean("asked_notifications", true).apply()
+            notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn == true) {
             // RoamlyApp's start-up arm ran before sign-in on a fresh install.
             quickNotesViewModel.ensureReminderScheduled()
             updateViewModel.checkOnLaunch()
             authViewModel.refreshFeaturedTrip()
+            authViewModel.registerPush()
         }
     }
 

@@ -46,6 +46,7 @@ class AuthViewModel @Inject constructor(
     private val disk: DiskCache,
     private val store: LocationStore,
     private val tripBlogs: TripBlogRepository,
+    private val pushRegistrar: com.roamly.family.PushRegistrar,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LoginUiState())
@@ -83,6 +84,11 @@ class AuthViewModel @Inject constructor(
     val username: StateFlow<String> = prefs.username
         .map { it.orEmpty() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
+    /** Re-register this phone for Family Circle push (self-healing; see PushRegistrar). */
+    fun registerPush() {
+        viewModelScope.launch { runCatching { pushRegistrar.registerCurrent() } }
+    }
 
     fun refreshFeaturedTrip() {
         viewModelScope.launch { tripBlogs.refreshFeatured() }

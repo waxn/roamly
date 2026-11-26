@@ -95,6 +95,8 @@ fun YouScreen(
             Spacer(Modifier.height(8.dp))
             TrackingHeroCard(viewModel, state)
 
+            NotificationsOffNotice()
+
             if (featuredBlogName != null) {
                 Spacer(Modifier.height(12.dp))
                 FeaturedBlogCard(featuredBlogName, { onOpen(Routes.TRIP_BLOG) })
@@ -147,6 +149,39 @@ fun YouScreen(
             icon = Icons.Rounded.Logout,
             body = { Text("Tracking stops on this phone and its cached map history is cleared. Your data on the server stays.") },
         )
+    }
+}
+
+/** Shown only while notifications are blocked: reminders and Family alerts can't reach you then. */
+@Composable
+private fun NotificationsOffNotice() {
+    val context = LocalContext.current
+    val c = Atlas.colors
+    var enabled by remember { mutableStateOf(androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()) }
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(owner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                enabled = androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
+            }
+        }
+        owner.lifecycle.addObserver(obs)
+        onDispose { owner.lifecycle.removeObserver(obs) }
+    }
+    if (enabled) return
+    Spacer(Modifier.height(12.dp))
+    Panel(Modifier.fillMaxWidth(), tone = com.roamly.ui.kit.PanelTone.Accent, padding = PaddingValues(16.dp), onClick = {
+        runCatching {
+            context.startActivity(
+                android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
+    }) {
+        Text("Notifications are off", style = MaterialTheme.typography.titleSmall, color = c.text)
+        Text("Your evening reminder and Family Circle alerts can't reach you. Tap to turn them on.",
+            style = MaterialTheme.typography.bodySmall, color = c.textMuted)
     }
 }
 
