@@ -321,6 +321,8 @@ def map_api(request):
     except ask_map.CardError as e:
         return JsonResponse({'error': str(e)}, status=400)
     geo = ask_map.geometry(request.user, card, request.GET.get('tz_offset', 0))
+    if geo.get('error'):
+        return JsonResponse({'error': geo['error']}, status=404)
     geo.update(title=card['title'], card=card, url=ask_map.full_map_url(card))
     resp = JsonResponse(geo)
     resp['Cache-Control'] = 'no-store'

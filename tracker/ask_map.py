@@ -48,6 +48,12 @@ def clean_card(raw):
     kind = raw.get('kind') or 'history'
     if kind == 'flights':
         return ask_tools.flights_card(raw.get('year'), raw.get('title'))
+    if kind == 'data':
+        from . import ask_datamap
+        try:
+            return ask_datamap.clean_card(raw)
+        except ask_datamap.DataMapError as e:
+            raise CardError(str(e))
     if kind == 'pins':
         try:
             return ask_tools.clean_pins(raw.get('pins'), raw.get('connect'), raw.get('title'))
@@ -150,6 +156,9 @@ def geometry(user, card, tz_offset=0):
     if kind == 'flights':
         from . import ask_tools
         return ask_tools.flights_geometry(user, card)
+    if kind == 'data':
+        from . import ask_datamap
+        return ask_datamap.geometry(user, card, tz_offset)
     if kind == 'pins':
         pins = card['pins']
         lons = [p['lon'] for p in pins]
@@ -203,6 +212,8 @@ def full_map_url(card):
     """Where "open in the full map" goes."""
     if card.get('kind') == 'flights':
         return '/flights/#map'
+    if card.get('kind') == 'data':
+        return '/stats/'
     if card.get('kind') == 'pins':
         p = card['pins'][0]
         return '/map/?' + urlencode({'lat': p['lat'], 'lng': p['lon'], 'zoom': 11})

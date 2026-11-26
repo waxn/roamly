@@ -279,6 +279,10 @@ def test_every_tool_is_read_only(client, user, device, llm):
         call('get_achievements'), call('list_unvisited', level='us_state'),
         call('search_near', latitude=44.4, longitude=-69.0),
         call('show_map', date='2026-06-19'), call('show_flights_map'),
+        call('show_data_map', metric='days', level='state'),
+        call('show_data_map', metric='town_coverage'),
+        call('show_data_map', metric='place_visits', name_contains='Hannaford'),
+        call('show_data_map', metric='top_roads'),
         call('show_places', places=[{'name': 'Bar Harbor', 'latitude': 44.39, 'longitude': -68.2}]),
         call('read_journal_entry', date='2026-06-19'),
     ]
@@ -390,3 +394,70 @@ def test_send_is_rate_limited_per_account(client, user, llm, monkeypatch):
     resp = client.post('/api/ask/send/', json.dumps({'message': 'Again', 'tz_offset': 0}),
                        content_type='application/json')
     assert resp.status_code == 429
+
+
+# ── Data maps ───────────────────────────────────────────────────────────
+
+def _visit(device, name, state, lat, lon, poi=None, when=T0):
+    from tracker.models import Visit
+    return Visit.objects.create(device=device, start_time=when, end_time=when + timedelta(hours=1),
+                                latitude=lat, longitude=lon, state=state, country='United States',
+                                country_code='US', place_name=name, poi=poi)
+
+
+def test_data_map_counts_distinct_places_per_state(client, device):
+    _visit(device, 'Hannaford Supermarket', 'Maine', 44.40, -69.00)
+    _visit(device, 'Hannaford Supermarket', 'Maine', 44.40, -69.00, when=T0 + timedelta(days=1))  # same store
+    _visit(device, 'Hannaford', 'Maine', 44.90, -68.70)
+    _visit(device, 'Hannaford', 'Vermont', 44.20, -72.50)
+    _visit(device, 'Shaws', 'Maine', 44.40, -69.10)
+    geo = client.get('/api/ask/map/?kind=data&metric=place_visits&name_contains=Hannaford').json()
+    assert geo['mode'] == 'choropleth'
+    vals = {r['name']: r['value'] for r in geo['regions']}
+    assert vals == {'Maine': 2, 'Vermont': 1}
+    assert geo['regions'][0]['detail'] == '3 visits'
+
+
+def test_data_map_days_and_country_level_do_not_double_count(client, device):
+    track(device)
+    track(device, day=T0 + timedelta(days=1), n=3, city='Bath', state='Maine')
+    st = client.get('/api/ask/map/?kind=data&metric=days&level=state').json()
+    assert {r['name']: r['value'] for r in st['regions']} == {'Maine': 2}
+    co = client.get('/api/ask/map/?kind=data&metric=days&level=country').json()
+    assert {r['key']: r['value'] for r in co['regions']} == {'US': 2}
+
+
+def test_data_map_is_scoped_to_the_signed_in_user(client, device):
+    other = Device.objects.create(user=_user('sam'), device_id='x', name='X')
+    _visit(other, 'Hannaford', 'Ohio', 40.0, -83.0)
+    track(other)
+    assert client.get('/api/ask/map/?kind=data&metric=place_visits&name_contains=Hannaford').status_code == 404
+    assert client.get('/api/ask/map/?kind=data&metric=days').status_code == 404
+
+
+def test_data_map_rejects_bad_parameters(client):
+    for q in ('metric=sql', 'metric=place_visits', 'metric=place_visits&name_contains=a',
+              'metric=days&level=planet', 'metric=days&start_date=nope'):
+        assert client.get('/api/ask/map/?kind=data&' + q).status_code == 400, q
+
+
+def test_town_coverage_uses_loaded_boundaries(client, device):
+    from tracker.models import Boundary
+    track(device, city='Waldo', state='Maine')
+    track(device, city='Bath', state='Maine', day=T0 + timedelta(days=1))
+    for n in ('Waldo', 'Bath', 'Belfast', 'Camden'):
+        Boundary.objects.create(name=n, state='Maine', kind='place')
+    geo = client.get('/api/ask/map/?kind=data&metric=town_coverage').json()
+    assert geo['regions'][0]['value'] == 50.0
+    assert geo['regions'][0]['detail'] == '2 of 4 towns'
+
+
+def test_show_data_map_returns_ranking_and_card(client, user, device, llm):
+    _visit(device, 'Hannaford', 'Maine', 44.40, -69.00)
+    llm.rounds = [[call('show_data_map', metric='place_visits', name_contains='Hannaford')], 'Done.']
+    evs = send(client, message='hannafords by state')
+    card = next(e for e in evs if e['type'] == 'map')['card']
+    assert card['kind'] == 'data' and card['metric'] == 'place_visits'
+    result = json.loads([m for m in llm.sent[1]['messages'] if m['role'] == 'tool'][0]['content'])
+    assert result['regions'][0] == {'name': 'Maine', 'value': 1, 'detail': '1 visit'}
+    assert 'lat' not in json.dumps(card)

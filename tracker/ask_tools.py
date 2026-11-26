@@ -90,6 +90,25 @@ DATA_TOOL_SCHEMAS = [
 ]
 
 MAP_EXTRA_SCHEMAS = [
+    _fn("show_data_map",
+        "Draw a statistic about the user's history on the map beside the chat. "
+        "metric 'place_visits' = number of distinct places whose name contains "
+        "name_contains (e.g. 'Hannaford') the user has been in, per US state or "
+        "country (level). 'days' = days spent per US state or country, optionally "
+        "within start_date/end_date. 'town_coverage' = share of each US state's "
+        "towns the user has been in, a ranking (optionally one state). "
+        "'top_roads' = the roads they drove most, drawn as lines (optionally one "
+        "state and/or date range). Read-only: you pick a metric, the server "
+        "computes it from their data. You get the ranking back; the user sees the "
+        "map.",
+        {"metric": {"type": "string", "enum": ["place_visits", "days", "town_coverage", "top_roads"]},
+         "level": {"type": "string", "enum": ["state", "country"],
+                   "description": "Region type for place_visits and days. Default state."},
+         "name_contains": {"type": "string", "description": "place_visits only: part of the place name."},
+         "state": {"type": "string", "description": "Limit to one US state, by full name."},
+         "start_date": {"type": "string"}, "end_date": {"type": "string"},
+         "title": {"type": "string", "description": "Short caption."}},
+        ["metric"]),
     _fn("show_flights_map",
         "Draw the user's flights on the map beside the chat as routes between "
         "airports, weighted by how often each was flown. Optionally one year.",
@@ -123,6 +142,7 @@ TOOL_STATUS = {
     "search_near": "Checking if you've been nearby…",
     "show_flights_map": "Drawing your flights…",
     "show_places": "Pinning places…",
+    "show_data_map": "Crunching the numbers for a map…",
 }
 
 
@@ -602,7 +622,21 @@ def _great_circle(lat1, lon1, lat2, lon2, steps=48):
     return out
 
 
+def show_data_map(user, tz_offset=0, **args):
+    from . import ask_datamap
+    card = dict(args, kind='data')
+    try:
+        card = ask_datamap.clean_card(card)
+    except ask_datamap.DataMapError as e:
+        return {"error": str(e)}
+    result = ask_datamap.summary(user, card, tz_offset)
+    if 'error' in result:
+        return result
+    return {"shown": True, **result, "_card": card}
+
+
 MAP_DISPATCH = {
+    "show_data_map": show_data_map,
     "show_places": show_places,
     "show_flights_map": show_flights_map,
 }

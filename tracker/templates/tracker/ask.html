@@ -1,4 +1,5 @@
 {% extends "tracker/base.html" %}
+{% load static %}
 {% block title %}Ask - Roamly{% endblock %}
 
 {% block extra_css %}
@@ -332,6 +333,15 @@ body:has(.ask-app) #main-content + div { display: none; }
 .ask-map-legend { position: absolute; left: 10px; top: 10px; z-index: 1; display: flex; gap: 0.6rem;
     font-size: 0.72rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: calc(6px * var(--rk, 1)); padding: 0.25rem 0.55rem; color: var(--text-muted); }
 .ask-map-legend:empty { display: none; }
+.ask-map-legend .ramp { display: inline-block; width: 90px; height: 8px; border-radius: 4px; margin: 0 0.35rem; vertical-align: -1px; background: linear-gradient(90deg, rgba(232,118,61,0.15), #e8763d); }
+.ask-map-rank { position: absolute; left: 10px; bottom: 28px; z-index: 1; max-width: min(260px, 70%); max-height: 45%; overflow: auto;
+    font-size: 0.74rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: calc(6px * var(--rk, 1)); padding: 0.3rem 0.55rem; color: var(--text); }
+.ask-map-rank:empty { display: none; }
+.ask-map-rank ol { margin: 0; padding: 0; list-style: none; }
+.ask-map-rank li { display: flex; justify-content: space-between; gap: 0.8rem; padding: 0.1rem 0; }
+.ask-map-rank li span:last-child { font-family: var(--font-mono); color: var(--text-muted); white-space: nowrap; }
+.ask-val { font: 700 11px var(--font-mono); color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000; pointer-events: none; transform: translate(-50%, -50%); position: absolute; }
+.ask-road-label { font: 600 11px var(--font-body); color: #fff; background: rgba(26,22,18,0.8); border-radius: 4px; padding: 1px 5px; pointer-events: none; }
 .ask-map-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 0.3rem; vertical-align: -1px; }
 @media (min-width: 861px) { .ask-topbar { padding: 0.5rem 1rem; } }
 @media (max-width: 860px) { .ask-topbar .ask-burger { display: inline-flex; } }
@@ -382,6 +392,7 @@ body:has(.ask-app) #main-content + div { display: none; }
         <div class="ask-map-wrap">
             <div id="ask-map"></div>
             <div class="ask-map-legend" id="ask-map-legend"></div>
+            <div class="ask-map-rank" id="ask-map-rank"></div>
             <div class="ask-map-loading" id="ask-map-loading"><span class="spinner"></span> loading…</div>
         </div>
         <div class="ask-map-tabs" id="ask-map-tabs"></div>
@@ -787,6 +798,7 @@ function paintText(turn, live) {
 }
 function cardSub(card) {
     if (card.kind === 'flights') return card.year ? `flights · ${card.year}` : 'all flights';
+    if (card.kind === 'data') return ({ place_visits: 'places by ' + (card.level || 'state'), days: 'days by ' + (card.level || 'state'), town_coverage: 'town coverage', top_roads: 'roads' })[card.metric] || 'data';
     if (card.kind === 'pins') return `${card.pins.length} place${card.pins.length > 1 ? 's' : ''}${card.connect ? ' · route' : ''}`;
     if (card.date) return card.date;
     if (card.start_date) return card.start_date === card.end_date ? card.start_date : `${card.start_date} → ${card.end_date}`;
@@ -795,6 +807,7 @@ function cardSub(card) {
 const CARD_ICONS = {
     history: '<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>',
     flights: '<path d="M2 16l20-8-8 12-2-5-5-2z"/>',
+    data: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
     pins: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
 };
 function addCard(turn, card, autoOpen) {
@@ -856,6 +869,7 @@ function paintProposal(el, p) {
 }
 function cardKey(c) {
     if (c.kind === 'pins') return JSON.stringify(['pins', c.title, c.pins.map(p => [p.lat, p.lon])]);
+    if (c.kind === 'data') return JSON.stringify(['data', c.metric, c.level, c.name_contains, c.state, c.start_date, c.end_date]);
     return JSON.stringify([c.kind || 'history', c.year, c.date, c.start_date, c.end_date, c.city, c.state, c.country]);
 }
 function registerCard(card) {
@@ -1168,6 +1182,19 @@ function ensureMap() {
             map.addLayer({ id: 'ask-route', type: 'line', source: 'ask-route',
                 layout: { 'line-cap': 'round', 'line-join': 'round' },
                 paint: { 'line-color': '#7ba3b8', 'line-width': 2.5, 'line-dasharray': [2, 1.6] } });
+            for (const id of ['ask-regions', 'ask-roads']) map.addSource(id, { type: 'geojson', data: EMPTY });
+            map.addLayer({ id: 'ask-regions-fill', type: 'fill', source: 'ask-regions',
+                paint: { 'fill-color': ['case', ['>=', ['get', 't'], 0], ['interpolate', ['linear'], ['get', 't'], 0, '#5a3a2a', 1, '#e8763d'], '#7ba3b8'],
+                    'fill-opacity': ['case', ['>=', ['get', 't'], 0], ['+', 0.25, ['*', 0.6, ['get', 't']]], 0.05] } });
+            map.addLayer({ id: 'ask-regions-line', type: 'line', source: 'ask-regions',
+                paint: { 'line-color': INK, 'line-width': 0.8, 'line-opacity': 0.8 } });
+            map.addLayer({ id: 'ask-roads-casing', type: 'line', source: 'ask-roads',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': INK, 'line-opacity': 0.7, 'line-width': ['+', 3, ['*', 6, ['get', 't']]] } });
+            map.addLayer({ id: 'ask-roads', type: 'line', source: 'ask-roads',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': ['interpolate', ['linear'], ['get', 't'], 0, '#f2b48f', 1, '#e8763d'],
+                    'line-width': ['+', 1.5, ['*', 5, ['get', 't']]] } });
             const popup = (lngLat, title, note) => {
                 const el = document.createElement('div');
                 el.className = 'ask-popup';
@@ -1183,7 +1210,11 @@ function ensureMap() {
                 const p = e.features[0].properties;
                 popup(e.lngLat, p.label, `flown ${p.n}×`);
             });
-            for (const id of ['ask-airports', 'ask-arcs']) {
+            map.on('click', 'ask-roads', e => {
+                const p = e.features[0].properties;
+                popup(e.lngLat, p.name, `${p.value}% of your driving`);
+            });
+            for (const id of ['ask-airports', 'ask-arcs', 'ask-roads']) {
                 map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer');
                 map.on('mouseleave', id, () => map.getCanvas().style.cursor = '');
             }
@@ -1217,15 +1248,85 @@ function markActive() {
 }
 function clearMapData(m) {
     for (const id of ['ask-lines', 'ask-dots', 'ask-ends', 'ask-arcs', 'ask-airports', 'ask-route']) m.getSource(id).setData(EMPTY);
+    for (const id of ['ask-regions', 'ask-roads']) m.getSource(id).setData(EMPTY);
     markers.forEach(mk => mk.remove());
     markers = [];
     $('ask-map-legend').innerHTML = '';
+    $('ask-map-rank').innerHTML = '';
 }
 function pinsGeo(card) {
     const lons = card.pins.map(p => p.lon), lats = card.pins.map(p => p.lat);
     return { mode: 'pins', count: card.pins.length, pins: card.pins, connect: card.connect,
         bounds: [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)],
         url: `/map/?lat=${card.pins[0].lat}&lng=${card.pins[0].lon}&zoom=11` };
+}
+const REGION_URL = { state: "{% static 'tracker/data/us-states.json' %}", country: "{% static 'tracker/data/world-countries.json' %}" };
+const regionCache = {};
+function ringCentroid(ring) {
+    let a = 0, cx = 0, cy = 0;
+    for (let i = 0, n = ring.length - 1; i < n; i++) {
+        const [x0, y0] = ring[i], [x1, y1] = ring[i + 1], f = x0 * y1 - x1 * y0;
+        a += f; cx += (x0 + x1) * f; cy += (y0 + y1) * f;
+    }
+    return a ? [cx / (3 * a), cy / (3 * a), Math.abs(a / 2)] : [ring[0][0], ring[0][1], 0];
+}
+function featureCentre(f) {
+    const polys = f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates;
+    let best = null;
+    for (const p of polys) { const c = ringCentroid(p[0]); if (!best || c[2] > best[2]) best = c; }
+    return best;
+}
+function fmtVal(r, unit) {
+    if (r.value == null) return '–';
+    return unit === '% of towns' ? Math.round(r.value) + '%' : String(r.value);
+}
+async function paintChoropleth(m, geo, bits) {
+    const url = REGION_URL[geo.level];
+    regionCache[url] = regionCache[url] || fetch(url).then(r => r.json());
+    const world = await regionCache[url];
+    const byKey = new Map(geo.regions.map(r => [r.key, r]));
+    const max = geo.max || 1;
+    const feats = [];
+    for (const f of world.features) {
+        const r = byKey.get(geo.level === 'country' ? f.properties.cc : f.properties.name);
+        // t in 0..1 drives the colour; -1 marks a region with nothing to show.
+        const t = r && r.value != null ? (r.value <= 0 ? 0 : Math.sqrt(r.value / max)) : -1;
+        feats.push({ type: 'Feature', geometry: f.geometry, properties: { t, name: f.properties.name } });
+        if (r) {
+            const c = featureCentre(f);
+            const el = document.createElement('div');
+            el.className = 'ask-val';
+            el.textContent = fmtVal(r, geo.unit);
+            el.title = `${r.name}: ${fmtVal(r, geo.unit)}${r.detail ? ' · ' + r.detail : ''}`;
+            markers.push(new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([c[0], c[1]]).addTo(m));
+        }
+    }
+    m.getSource('ask-regions').setData({ type: 'FeatureCollection', features: feats });
+    $('ask-map-legend').innerHTML = `<span>0<span class="ramp"></span>${esc(fmtVal({ value: max }, geo.unit))} ${esc(geo.unit)}</span>`;
+    const top = geo.regions.slice(0, 10).map(r =>
+        `<li><span>${esc(r.name)}</span><span>${esc(fmtVal(r, geo.unit))}${r.detail ? ' · ' + esc(r.detail) : ''}</span></li>`).join('');
+    $('ask-map-rank').innerHTML = `<ol>${top}</ol>`;
+    bits.push(`${geo.regions.length} region${geo.regions.length === 1 ? '' : 's'}`);
+    // Frame the regions that have values, not the whole country.
+    const lit = feats.filter(f => f.properties.t >= 0), box = [180, 90, -180, -90];
+    for (const f of lit) {
+        const walk = c => typeof c[0] === 'number' ? (box[0] = Math.min(box[0], c[0]), box[1] = Math.min(box[1], c[1]), box[2] = Math.max(box[2], c[0]), box[3] = Math.max(box[3], c[1])) : c.forEach(walk);
+        walk(f.geometry.coordinates);
+    }
+    geo.bounds = lit.length ? box : null;
+}
+function paintRoads(m, geo, bits) {
+    const top = geo.roads[0].value || 1;
+    const feats = [];
+    for (const r of geo.roads)
+        for (const line of r.lines)
+            feats.push({ type: 'Feature', properties: { name: r.name, value: r.value, t: r.value / top },
+                geometry: { type: 'LineString', coordinates: line } });
+    m.getSource('ask-roads').setData({ type: 'FeatureCollection', features: feats });
+    $('ask-map-legend').innerHTML = '<span><i style="background:#e8763d"></i>thicker = driven more</span>';
+    $('ask-map-rank').innerHTML = '<ol>' + geo.roads.slice(0, 10).map(r =>
+        `<li><span>${esc(r.name)}</span><span>${r.value}%</span></li>`).join('') + '</ol>';
+    bits.push(`${geo.roads.length} roads`, 'share of sampled driving');
 }
 async function showCard(idx) {
     const card = mapCards[idx];
@@ -1242,7 +1343,7 @@ async function showCard(idx) {
     if (card.kind === 'pins') geoP = Promise.resolve(pinsGeo(card));
     else {
         const params = new URLSearchParams({ tz_offset: TZ });
-        for (const k of ['kind', 'year', 'title', 'date', 'start_date', 'end_date', 'city', 'state', 'country'])
+        for (const k of ['kind', 'year', 'title', 'date', 'start_date', 'end_date', 'city', 'state', 'country', 'metric', 'level', 'name_contains'])
             if (card[k] != null && card[k] !== '') params.set(k, card[k]);
         geoP = fetch('/api/ask/map/?' + params).then(r => r.ok ? r.json() : r.json().then(d => Promise.reject(new Error(d.error || 'Map failed'))));
     }
@@ -1261,6 +1362,10 @@ async function showCard(idx) {
             m.getSource('ask-airports').setData({ type: 'FeatureCollection', features: geo.airports.map(a => ({
                 type: 'Feature', properties: a, geometry: { type: 'Point', coordinates: [a.lon, a.lat] } })) });
             $('ask-map-legend').innerHTML = '<span><i style="background:#e8763d"></i>routes</span><span><i style="background:#7ba3b8"></i>airports</span>';
+        } else if (geo.mode === 'choropleth') {
+            await paintChoropleth(m, geo, bits);
+        } else if (geo.mode === 'roads') {
+            paintRoads(m, geo, bits);
         } else if (geo.mode === 'pins') {
             const numbered = geo.pins.some(p => p.order) || geo.connect;
             geo.pins.forEach((p, i) => {
