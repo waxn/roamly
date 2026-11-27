@@ -1,0 +1,11 @@
+{% comment %}The notification bell + panel. Shared by the classic navbar and every layout shell (JS in base.html finds it by id).{% endcomment %}
+            <div class="notif" id="notif">
+                <button type="button" class="notif-toggle" id="notif-toggle" aria-haspopup="dialog" aria-expanded="false" aria-controls="notif-panel" aria-label="Notifications">
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    <span class="notif-dot" id="notif-dot" hidden></span>
+                </button>
+                <div class="notif-panel" id="notif-panel" role="dialog" aria-label="Notifications" hidden>
+                    <div class="notif-head"><span>Notifications</span><button type="button" class="notif-clear" id="notif-clear" hidden>Clear all</button></div>
+                    <div class="notif-body" id="notif-body"></div>
+                </div>
+            </div>

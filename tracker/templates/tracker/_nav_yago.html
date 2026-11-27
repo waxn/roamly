@@ -1,0 +1,19 @@
+{% comment %}The "1 year ago" chip + popover. Shared by the classic navbar and every layout shell (JS in base.html finds it by id).{% endcomment %}
+            <div class="yago" id="yago">
+                <a class="yago-chip" id="yago-chip" href="#" aria-describedby="yago-pop">
+                    <svg class="yago-icon" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 9 8 9"/><polyline points="12 7 12 12 15 14"/></svg>
+                    <span class="yago-tag">1 year ago</span>
+                    <span class="yago-line" id="yago-line"></span>
+                </a>
+                <div class="yago-pop" id="yago-pop" role="group" aria-label="A year ago">
+                    <div class="yago-nav">
+                        <button type="button" class="yago-step" id="yago-prev" aria-label="Previous day" title="Previous day"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></button>
+                        <div class="yago-date" id="yago-date" aria-live="polite"></div>
+                        <button type="button" class="yago-step" id="yago-next" aria-label="Next day" title="Next day"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg></button>
+                    </div>
+                    <div class="yago-title" id="yago-title"></div>
+                    <div class="yago-text" id="yago-text"></div>
+                    <div class="yago-facts" id="yago-facts"></div>
+                    <a class="yago-go" id="yago-go" href="#">View that day →</a>
+                </div>
+            </div>
