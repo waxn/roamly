@@ -40,6 +40,8 @@ Rules that are load-bearing:
 
 **Page chrome.** The rescan / stop controls, job progress and "updated" line share the header row (`.page-toolbar` + `.toolbar-actions`). Under the level hero a **filter row** offers one button per category that has data (single choice; **All** restores everything; Sky / Health hide themselves when empty via `setEmpty`). Picking a category shows only that section, opens it if collapsed, and narrows the Badge Wall to that category's badge group (`data-group`); **Badges** shows the milestone timeline and the whole wall. Every section header is a button that **minimises** its body (**Collapse all / Expand all** at the end of the filter row). Collapsing is `height:0; visibility:hidden`, **not `display:none`**, so canvases and MapLibre maps drawn while a section was folded keep their size. Choice and folded sections persist in `roamly_ach_filter` / `roamly_ach_collapsed`. Tiles (`.tile`, `.bdg`, compass / alphabet / hemisphere cells) take the shape facet's panel radius (`--r-3`) and the card hover edge, and small chips/tags `--r-auto`, so they follow the theme like `.card` does.
 
+**`GET /api/achievements/?only=game`** returns just `{status, game, computed_at, job}` — the phone's call, since the full payload carries every county / region polygon. The schema-bump rescan is guarded by a one-shot `ach_schema_kick:{user}:{SCHEMA}` cache key (24 h) so a failing scan can't restart on every load.
+
 **Mobile.** `You` has a full-width **Achievements** tile → `ui/achievements/AchievementsScreen.kt` (level hero, category filter chips, collapsible categories of badge tiles); see mobile-app.md.
 
 **Regions abroad** (`tracker/boundary_download_tasks.py`):

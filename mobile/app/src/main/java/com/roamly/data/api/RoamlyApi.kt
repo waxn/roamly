@@ -493,8 +493,10 @@ interface RoamlyApi {
 
     // The first call for a new account kicks the scan on the server and answers
     // "pending"; rescans themselves are web-only (CSRF-checked).
+    // `only=game` trims the payload to the badge side (the full one carries every
+    // map polygon); an older server ignores it and sends everything, which still parses.
     @GET("api/achievements/")
-    suspend fun getAchievements(): Response<AchievementsResponse>
+    suspend fun getAchievements(@Query("only") only: String? = "game"): Response<AchievementsResponse>
 
     // --- Family Circle (mutual location sharing + place enter/exit alerts) ---
 

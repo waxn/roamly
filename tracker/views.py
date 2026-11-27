@@ -11789,13 +11789,20 @@ def achievements_api(request):
     if isinstance(game, dict):
         stale = (game.get('schema') or 0) < _adefs.SCHEMA
         _adefs.compat_game(game)
-        if stale and get_status(request.user.id)['status'] != 'running':
+        if (stale and get_status(request.user.id)['status'] != 'running'
+                # One kick per schema per day, so a scan that keeps failing
+                # cannot start another on every page load and app open.
+                and cache.add(f'ach_schema_kick:{request.user.id}:{_adefs.SCHEMA}', 1, 86400)):
             # Badge set changed since this snapshot: serve it patched, and have
             # one scan bring the new badges in rather than waiting for tonight.
             start_achievement_scan(request.user.id)
     payload['computed_at'] = snap.computed_at.isoformat()
     payload['status'] = 'ready'
     payload['job'] = get_status(request.user.id)
+    if request.GET.get('only') == 'game':
+        # The phone only draws the badge side; the full payload carries every
+        # county and region polygon, which is megabytes it would throw away.
+        payload = {k: payload.get(k) for k in ('status', 'game', 'computed_at', 'job')}
     resp = JsonResponse(payload)
     resp['Cache-Control'] = 'private, no-cache'
     return resp
