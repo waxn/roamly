@@ -72,6 +72,9 @@ private const val MAX_ACCUMULATED = 60_000
  * (see MapCacheDatabase), but there is still no reason to do them 8x a second.
  */
 private const val VIEWPORT_DEBOUNCE_MS = 350L
+private const val NEAR_HERE_TTL_MS = 10 * 60_000L
+/** ~45 m: a cached have-I-been-here answer is reused inside this. */
+private const val NEAR_HERE_SPOT_DEG = 0.0004
 
 /** Below this zoom a viewport covers enough ground that most of a full-size
  *  batch is culled off-screen before it is ever drawn. */
@@ -187,6 +190,17 @@ class MapViewModel @Inject constructor(
     private var viewportJob: Job? = null
     /** The viewport the last detail query covered, so panning back and forth across
      *  already-loaded ground re-queries nothing. Cleared whenever the dataset changes. */
+    private class NearHereCache(val lat: Double, val lng: Double, val atMs: Long, val result: NearHereResult)
+    private var nearHereCache: NearHereCache? = null
+
+    /** Compute the have-I-been-here answer ahead of the tap, so the button can answer instantly. */
+    fun prewarmNearHere(lat: Double, lng: Double) {
+        if (nearHereCache != null) return
+        viewModelScope.launch {
+            store.haveIBeenHere(lat, lng)?.let { nearHereCache = NearHereCache(lat, lng, System.currentTimeMillis(), it) }
+        }
+    }
+
     private var lastQueried: DoubleArray? = null
     private var lastQueriedZoom = 0.0
     private var lastKnownSyncMs = 0L
@@ -460,8 +474,18 @@ class MapViewModel @Inject constructor(
      * server query so the feature still works immediately.
      */
     fun checkHaveIBeenHere(userLat: Double, userLng: Double, onResult: (NearHereResult) -> Unit) {
+        // A recent answer for (nearly) this spot is as good as a fresh one: the answer
+        // only changes when a new day is recorded here.
+        nearHereCache?.let { c ->
+            if (System.currentTimeMillis() - c.atMs < NEAR_HERE_TTL_MS &&
+                kotlin.math.abs(c.lat - userLat) < NEAR_HERE_SPOT_DEG && kotlin.math.abs(c.lng - userLng) < NEAR_HERE_SPOT_DEG
+            ) { onResult(c.result); return }
+        }
         viewModelScope.launch {
-            store.haveIBeenHere(userLat, userLng)?.let { onResult(it); return@launch }
+            store.haveIBeenHere(userLat, userLng)?.let {
+                nearHereCache = NearHereCache(userLat, userLng, System.currentTimeMillis(), it)
+                onResult(it); return@launch
+            }
             val pad = 0.1 // ~11 km
             var points = store.allTimeAround(userLat, userLng, pad)
             if (points.isEmpty()) {

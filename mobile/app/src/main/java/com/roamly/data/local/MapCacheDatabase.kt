@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room3.Database
 import androidx.room3.Room
 import androidx.room3.RoomDatabase
+import androidx.sqlite.execSQL
 import com.roamly.tracking.SyncedLocation
 import com.roamly.tracking.SyncedLocationDao
 
@@ -32,20 +33,32 @@ import com.roamly.tracking.SyncedLocationDao
  * The capture queue, by contrast, holds points that exist *nowhere else* until
  * they upload, which is why that database now carries real migrations only.
  */
+// v3 widened the (lat, lng) index to cover timestampMs, so have-I-been-here never touches the table.
 // v2 added flag + transportMode (the map's outlier and transport filters);
 // the destructive fallback below just re-syncs the cache to fill them.
-@Database(entities = [SyncedLocation::class], version = 2, exportSchema = false)
+@Database(entities = [SyncedLocation::class], version = 3, exportSchema = false)
 abstract class MapCacheDatabase : RoomDatabase() {
     abstract fun syncedLocationDao(): SyncedLocationDao
 
     companion object {
         @Volatile private var INSTANCE: MapCacheDatabase? = null
 
+        /** Keeps the cache: only swaps the spatial index for the covering one. */
+        private val MIGRATION_2_3 = object : androidx.room3.migration.Migration(2, 3) {
+            override suspend fun migrate(connection: androidx.sqlite.SQLiteConnection) {
+                connection.execSQL("DROP INDEX IF EXISTS `index_synced_locations_lat_lng`")
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_synced_locations_lat_lng_timestampMs` " +
+                        "ON `synced_locations` (`lat`, `lng`, `timestampMs`)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): MapCacheDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder<MapCacheDatabase>(
                     context.applicationContext, "roamly_map_cache.db"
-                ).fallbackToDestructiveMigration(true)
+                ).addMigrations(MIGRATION_2_3).fallbackToDestructiveMigration(true)
                     .build().also { INSTANCE = it }
             }
     }

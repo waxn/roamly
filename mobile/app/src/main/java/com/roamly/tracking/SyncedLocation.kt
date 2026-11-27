@@ -19,7 +19,8 @@ import androidx.room3.PrimaryKey
     tableName = "synced_locations",
     indices = [
         Index(value = ["timestampMs"]),
-        Index(value = ["lat", "lng"]),
+        // Covering for "have I been here?": position and time are answered from the index alone.
+        Index(value = ["lat", "lng", "timestampMs"]),
     ],
 )
 data class SyncedLocation(

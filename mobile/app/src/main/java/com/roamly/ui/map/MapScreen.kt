@@ -278,6 +278,14 @@ fun MapScreen(
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { p ->
         if (p[Manifest.permission.ACCESS_FINE_LOCATION] == true || p[Manifest.permission.ACCESS_COARSE_LOCATION] == true) startNearHere()
     }
+    // Answer ahead of the tap when the permission is already there, so the button is instant.
+    LaunchedEffect(Unit) {
+        val ok = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (ok) runCatching {
+            com.roamly.tracking.LocationSource.get(context).lastKnown { l -> if (l != null) viewModel.prewarmNearHere(l.latitude, l.longitude) }
+        }
+    }
     val askBeenHere = {
         val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
