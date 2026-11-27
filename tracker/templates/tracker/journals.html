@@ -804,7 +804,7 @@ function trackSnapshot(pts) {
     const s = 84 / Math.max(w, h), ox = (100 - w * s) / 2, oy = (100 - h * s) / 2;
     const xy = ([la, lo]) => `${(ox + (lo - minLo) * k * s).toFixed(1)},${(oy + (maxLa - la) * s).toFixed(1)}`;
     const last = xy(pts[pts.length - 1]).split(',');
-    return `<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true">`
+    return `<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">`
         + `<polyline points="${pts.map(xy).join(' ')}" fill="none" stroke="var(--primary)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`
         + `<circle cx="${last[0]}" cy="${last[1]}" r="3.6" fill="var(--primary)"/></svg>`;
 }
