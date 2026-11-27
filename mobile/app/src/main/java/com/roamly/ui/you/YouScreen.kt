@@ -9,10 +9,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.Flight
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Groups
@@ -120,6 +123,10 @@ fun YouScreen(
             }
             Spacer(Modifier.height(16.dp))
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Full width: it is a destination in its own right, not one of the pair-up tiles.
+                if (!simpleMode) {
+                    WideHubTile(Icons.Rounded.EmojiEvents, "Achievements", "Levels, badges and personal records", c.amber) { onOpen(Routes.ACHIEVEMENTS) }
+                }
                 tiles.chunked(2).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         row.forEach { h -> HubTile(h.icon, h.title, h.subtitle, h.tint, Modifier.weight(1f), h.onClick) }
@@ -182,6 +189,23 @@ private fun NotificationsOffNotice() {
         Text("Notifications are off", style = MaterialTheme.typography.titleSmall, color = c.text)
         Text("Your evening reminder and Family Circle alerts can't reach you. Tap to turn them on.",
             style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+    }
+}
+
+/** A hub tile that spans the whole row: icon on the left, text, chevron on the right. */
+@Composable
+private fun WideHubTile(icon: ImageVector, title: String, subtitle: String, tint: Color, onClick: () -> Unit) {
+    val c = Atlas.colors
+    Panel(Modifier.fillMaxWidth(), padding = PaddingValues(16.dp), onClick = onClick) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconTile(icon, tint = tint, size = 40.dp)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, color = c.text)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 1)
+            }
+            Icon(Icons.Rounded.ChevronRight, null, tint = c.textMuted)
+        }
     }
 }
 

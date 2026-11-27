@@ -491,6 +491,11 @@ interface RoamlyApi {
     @POST("api/health/delete/")
     suspend fun deleteAllHealthData(): Response<ResponseBody>
 
+    // The first call for a new account kicks the scan on the server and answers
+    // "pending"; rescans themselves are web-only (CSRF-checked).
+    @GET("api/achievements/")
+    suspend fun getAchievements(): Response<AchievementsResponse>
+
     // --- Family Circle (mutual location sharing + place enter/exit alerts) ---
 
     @GET("api/family/circles/")

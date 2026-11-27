@@ -52,6 +52,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.roamly.flights.IncomingShare
 import com.roamly.notes.QuickNoteLaunch
+import com.roamly.ui.achievements.AchievementsScreen
 import com.roamly.ui.ask.AskViewModel
 import com.roamly.ui.auth.AuthViewModel
 import com.roamly.ui.auth.LoginScreen
@@ -115,6 +116,7 @@ object Routes {
     const val STATS = "stats"
     const val FLIGHTS = "flights"
     const val HEALTH = "health"
+    const val ACHIEVEMENTS = "achievements"
     const val LOCATIONS = "locations"
     const val SETTINGS = "settings"
     const val DIAGNOSTICS = "diagnostics"
@@ -355,6 +357,7 @@ fun RoamlyNavHost() {
                 }
                 // Back-stack scoped: Health's ViewModel is not a one-shot load.
                 composable(Routes.HEALTH) { HealthScreen(onBack = back) }
+                composable(Routes.ACHIEVEMENTS) { AchievementsScreen(onBack = back) }
                 composable(Routes.LOCATIONS) { LocationTableScreen(onBack = back) }
                 composable(
                     route = Routes.FLIGHT_SCAN,

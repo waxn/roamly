@@ -1271,3 +1271,64 @@ data class HealthDayResponse(
     val totals: Map<String, Double> = emptyMap(),
     val workouts: List<HealthWorkoutRow> = emptyList(),
 )
+
+
+// --- Achievements ---
+
+data class AchLevel(
+    val level: Int = 1,
+    val title: String = "",
+    val xp: Int = 0,
+    @SerializedName("level_xp") val levelXp: Int = 0,
+    @SerializedName("next_xp") val nextXp: Int = 0,
+    val progress: Double = 0.0,
+)
+
+data class AchBadge(
+    val id: String = "",
+    val name: String = "",
+    /** Key into the web's icon set; the app maps it to a Material icon. */
+    val icon: String = "",
+    val group: String = "",
+    val unit: String = "",
+    val blurb: String = "",
+    val tiers: List<Double> = emptyList(),
+    val value: Double? = null,
+    /** 0 = locked, 1..4 = bronze..platinum. */
+    val tier: Int = 0,
+    val next: Double? = null,
+    val progress: Double = 0.0,
+    val available: Boolean = false,
+)
+
+data class AchGroup(val id: String = "", val name: String = "")
+
+data class AchRecent(
+    val badge: String = "",
+    val tier: Int = 0,
+    val at: String? = null,
+    val name: String = "",
+    val icon: String = "",
+)
+
+data class AchGame(
+    val level: AchLevel = AchLevel(),
+    val badges: List<AchBadge> = emptyList(),
+    val groups: List<AchGroup> = emptyList(),
+    val unlocked: Int = 0,
+    val total: Int = 0,
+    @SerializedName("tiers_earned") val tiersEarned: Int = 0,
+    @SerializedName("max_tiers") val maxTiers: Int = 0,
+    val recent: List<AchRecent> = emptyList(),
+    val almost: List<String> = emptyList(),
+)
+
+data class AchJob(val status: String = "", val stage: String? = null, val pct: Double? = null)
+
+/** `status` is "pending" while the first scan runs (then [game] is null) and "ready" after. */
+data class AchievementsResponse(
+    val status: String = "",
+    val game: AchGame? = null,
+    @SerializedName("computed_at") val computedAt: String? = null,
+    val job: AchJob? = null,
+)

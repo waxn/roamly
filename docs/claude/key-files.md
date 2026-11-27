@@ -60,6 +60,8 @@ _Read when: Locating which file owns a feature._
 | `tracker/flight_lookup.py` | AeroDataBox flight lookup by number + date (Flights page auto-fill) |
 | `tracker/opensky.py` | OpenSky Network client (OAuth2 client credentials, per-family credit tracking) + 3-hourly flight-track fetch sweep |
 | `tracker/flight_detect.py` | Finds airport-to-airport hops in GPS history for the bell's "Did you fly…?" suggestions |
+| `tracker/static/tracker/icons.js` | Shared line-icon set (`RoamlyIcons.svg`) used by Achievements and Health |
+| `mobile/.../ui/achievements/` | Android Achievements screen, view-model and badge-icon mapping (opened from a full-width tile on You) |
 | `tracker/achievement_tasks.py` | Achievements scan: history pass, boundary/road coverage, places, badges + nightly scheduler |
 | `tracker/achievement_defs.py` | Badge registry, tiers, XP and level table (pure Python) |
 | `tracker/boundary_download_tasks.py` | geoBoundaries ADM1-3 download for countries with 7+ days |
