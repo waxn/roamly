@@ -162,8 +162,6 @@ fun MapScreen(
     simpleMode: Boolean = false,
     /** Pushes a route (see `Routes`). */
     onOpen: (String) -> Unit = {},
-    /** Switches to the Activity page, where recording starts. */
-    onRecord: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -410,12 +408,7 @@ fun MapScreen(
             onOut = { haptics.tick(); mapView.controller.zoomOut() },
         )
 
-        // ── Bottom: record + been-here, above the sheet's peek ──────────
-        if (!simpleMode) {
-            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = dock + 12.dp)) {
-                RecordFab(recording) { haptics.thud(); onRecord() }
-            }
-        }
+        // ── Bottom: been-here, above the sheet's peek (Record lives in the dock) ──
         Box(Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = dock + 12.dp)) {
             BeenHereButton(checking = checkingHere, onClick = askBeenHere)
         }
@@ -597,39 +590,6 @@ private fun SearchPill(modifier: Modifier, onClick: () -> Unit) {
         Icon(Icons.Rounded.Search, null, tint = c.textMuted, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(10.dp))
         Text("Search or ask", style = MaterialTheme.typography.bodyLarge, color = c.textMuted, maxLines = 1)
-    }
-}
-
-/** The one coral thing on the map: Record, red with a pulse while a session is live. */
-@Composable
-private fun RecordFab(recording: Boolean, onClick: () -> Unit) {
-    val c = Atlas.colors
-    val pulse = rememberInfiniteTransition(label = "rec")
-    val ring by pulse.animateFloat(
-        initialValue = 1f, targetValue = if (recording) 1.28f else 1f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "ring",
-    )
-    Box(Modifier.size(58.dp), contentAlignment = Alignment.Center) {
-        if (recording) {
-            Box(
-                Modifier.size(52.dp).graphicsLayer { scaleX = ring; scaleY = ring; alpha = 2f - ring * 1.3f }
-                    .clip(SquircleShape(50)).background(c.danger.copy(alpha = 0.35f))
-            )
-        }
-        Box(
-            Modifier.size(52.dp)
-                .shadow(6.dp, SquircleShape(50), ambientColor = c.shadow, spotColor = c.shadow)
-                .clip(SquircleShape(50))
-                .background(if (recording) c.danger else c.record)
-                .tappable(feel = Feel.None, pressedScale = 0.88f, onClick = onClick)
-                .semantics { contentDescription = if (recording) "Recording — open" else "Record an activity" },
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                if (recording) Icons.Rounded.RadioButtonChecked else Icons.Rounded.FiberManualRecord,
-                null, tint = if (recording) Color.White else c.onRecord, modifier = Modifier.size(24.dp),
-            )
-        }
     }
 }
 

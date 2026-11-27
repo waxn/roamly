@@ -103,6 +103,14 @@ import org.osmdroid.views.overlay.Polyline
 import java.util.Locale
 import kotlin.math.roundToInt
 
+/** One-shot request from the dock's Record button to open the kind picker. */
+object RecordLaunch {
+    private val _requested = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val requested: kotlinx.coroutines.flow.StateFlow<Boolean> = _requested
+    fun request() { _requested.value = true }
+    fun consume() { _requested.value = false }
+}
+
 internal data class Kind(val slug: String, val label: String, val icon: ImageVector)
 
 internal val KINDS = listOf(
@@ -130,6 +138,13 @@ fun RecordScreen(
     var confirmDiscard by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<ActivityDto?>(null) }
     val haptics = rememberHaptics()
+    // The dock's centre Record button asks for the kind picker.
+    val launchRequested by RecordLaunch.requested.collectAsState()
+    LaunchedEffect(launchRequested, state.recording) {
+        if (!launchRequested) return@LaunchedEffect
+        RecordLaunch.consume()
+        if (!state.recording) pickKind = true
+    }
     // Refresh whenever this page comes back into view (e.g. after deleting from the detail page).
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {

@@ -24,6 +24,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.rounded.FiberManualRecord
+import androidx.compose.material.icons.rounded.RadioButtonChecked
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -58,11 +61,16 @@ internal fun FloatingNav(
     selected: Tab?,
     recording: Boolean,
     onSelect: (Tab) -> Unit,
+    onRecord: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val c = Atlas.colors
     val haptics = rememberHaptics()
-    val selectedSlot = tabs.indexOf(selected).coerceAtLeast(0)
+    // The record button sits in the middle slot between the two halves of the tabs.
+    val centre = if (onRecord != null) tabs.size / 2 else -1
+    val slots = tabs.size + if (centre >= 0) 1 else 0
+    val tabIndex = tabs.indexOf(selected).coerceAtLeast(0)
+    val selectedSlot = if (centre in 0..tabIndex) tabIndex + 1 else tabIndex
 
     AnimatedVisibility(
         visible = visible,
@@ -84,7 +92,7 @@ internal fun FloatingNav(
                 .padding(horizontal = 6.dp),
         ) {
             androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
-                val slot = maxWidth / tabs.size.coerceAtLeast(1)
+                val slot = maxWidth / slots.coerceAtLeast(1)
                 val x by animateDpAsState(slot * selectedSlot, AtlasMotion.glide(), label = "navIndicator")
                 if (selected != null) {
                     Box(
@@ -98,7 +106,10 @@ internal fun FloatingNav(
                 }
             }
             Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                tabs.forEach { tab ->
+                tabs.forEachIndexed { i, tab ->
+                    if (i == centre && onRecord != null) {
+                        RecordSlot(recording, Modifier.weight(1f)) { haptics.thud(); onRecord() }
+                    }
                     NavItem(tab, tab == selected, live = recording && tab == Tab.Record, Modifier.weight(1f)) {
                         if (tab != selected) haptics.select()
                         onSelect(tab)
@@ -130,5 +141,42 @@ private fun NavItem(tab: Tab, selected: Boolean, live: Boolean, modifier: Modifi
         }
         Spacer(Modifier.height(3.dp))
         Text(tab.label, style = MaterialTheme.typography.labelMedium, color = tint, maxLines = 1)
+    }
+}
+
+/** The centre of the dock: a round coral Record button, red and pulsing while a session is live. */
+@Composable
+private fun RecordSlot(recording: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val c = Atlas.colors
+    val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "rec")
+    val ring by pulse.animateFloat(
+        initialValue = 1f, targetValue = if (recording) 1.28f else 1f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            tween(900), androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "ring",
+    )
+    Box(modifier.fillMaxHeight(), contentAlignment = Alignment.Center) {
+        if (recording) {
+            Box(
+                Modifier.size(48.dp).graphicsLayer { scaleX = ring; scaleY = ring; alpha = 2f - ring * 1.3f }
+                    .clip(SquircleShape(50)).background(c.danger.copy(alpha = 0.35f))
+            )
+        }
+        Box(
+            Modifier.size(48.dp)
+                .clip(SquircleShape(50))
+                .background(if (recording) c.danger else c.record)
+                .tappable(feel = Feel.None, pressedScale = 0.88f, role = Role.Button, onClick = onClick)
+                .semantics { contentDescription = if (recording) "Recording — open" else "Record an activity" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                if (recording) Icons.Rounded.RadioButtonChecked
+                else Icons.Rounded.FiberManualRecord,
+                null, tint = if (recording) androidx.compose.ui.graphics.Color.White else c.onRecord,
+                modifier = Modifier.size(24.dp),
+            )
+        }
     }
 }

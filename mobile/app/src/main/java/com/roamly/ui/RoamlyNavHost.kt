@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.DirectionsRun
-import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.runtime.Composable
@@ -68,6 +68,7 @@ import com.roamly.ui.map.MapScreen
 import com.roamly.ui.map.MapViewModel
 import com.roamly.ui.notes.QuickNotesViewModel
 import com.roamly.ui.record.ActivityDetailScreen
+import com.roamly.ui.record.RecordLaunch
 import com.roamly.ui.record.RecordScreen
 import com.roamly.ui.search.SearchTabScreen
 import com.roamly.ui.settings.DiagnosticsScreen
@@ -91,7 +92,7 @@ import com.roamly.ui.you.YouScreen
 /** The four dock tabs. Everything else is a pushed route over them. */
 enum class Tab(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     Map("map", "Map", Icons.Rounded.Map),
-    Trips("trips", "Trips", Icons.Rounded.Explore),
+    Trips("trips", "Write", Icons.Rounded.EditNote),
     Record("record", "Activity", Icons.Rounded.DirectionsRun),
     You("you", "You", Icons.Rounded.Person),
 }
@@ -266,7 +267,6 @@ fun RoamlyNavHost() {
                         recording = recording,
                         simpleMode = simpleMode,
                         onOpen = open,
-                        onRecord = { navController.toTab(Tab.Record.route) },
                     )
                 }
                 composable(Tab.Trips.route) {
@@ -417,6 +417,10 @@ fun RoamlyNavHost() {
             selected = Tab.entries.firstOrNull { it.route == currentRoute },
             recording = recording,
             onSelect = { tab -> if (tab.route != currentRoute) navController.toTab(tab.route) },
+            // Simple Mode has no recording; the centre button only exists with the full dock.
+            onRecord = if (simpleMode) null else {
+                { RecordLaunch.request(); if (currentRoute != Tab.Record.route) navController.toTab(Tab.Record.route) }
+            },
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
