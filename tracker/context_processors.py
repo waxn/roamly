@@ -133,6 +133,8 @@ def custom_js_snippet(request):
     featured_trip = None
     user_appearance = None
     user = getattr(request, 'user', None)
+    from .layouts import request_layout, shell_template, is_embed
+    layout = request_layout(request)
     if user is not None and user.is_authenticated:
         try:
             from .trip_blog_views import featured_for
@@ -176,6 +178,14 @@ def custom_js_snippet(request):
         'INTRO_PENDING': intro_pending,
         'APPEARANCE': user_appearance,
         'APPEARANCE_REGISTRY': _appearance_registry(),
+        # UI layout (Settings → Appearance → Layout): decided here, on the
+        # server, because it changes markup. LAYOUT_SHELL is the include that
+        # replaces the classic navbar ('' for Classic); EMBED is a page shown
+        # inside an Atlas panel. A view that passes `standalone` itself wins.
+        'LAYOUT': layout,
+        'LAYOUT_SHELL': shell_template(request),
+        'EMBED': is_embed(request),
+        'standalone': is_embed(request),
         # The trip blog shown as "Trip" in the nav, {id, name} or None.
         'FEATURED_TRIP': featured_trip,
         # Footer contact link + form (landing + settings). The form only renders
