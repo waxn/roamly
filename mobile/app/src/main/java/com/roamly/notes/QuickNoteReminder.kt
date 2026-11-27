@@ -112,6 +112,14 @@ object QuickNoteReminder {
             .onFailure { Log.w(TAG, "Could not post the daily note reminder", it) }
     }
 
+    /** Post the reminder right now (Settings' "Send a test"). False when notifications are not allowed. */
+    fun sendTest(context: Context): Boolean {
+        if (!canNotify(context)) return false
+        context.getSystemService(NotificationManager::class.java)?.let { createChannel(it) }
+        show(context)
+        return true
+    }
+
     /** Clear a posted reminder, e.g. once the note has been written. */
     fun dismiss(context: Context) {
         runCatching { NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID) }

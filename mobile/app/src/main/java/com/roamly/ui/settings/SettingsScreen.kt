@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PhonelinkErase
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.material.icons.rounded.Speed
@@ -274,6 +275,13 @@ fun SettingsScreen(
                     RowDivider()
                     ListRow("Remind me at", subtitle = formatMinuteOfDay(context, state.noteReminderMinute),
                         icon = Icons.Rounded.Schedule, iconTint = c.amber) { showReminderTime = true }
+                    RowDivider()
+                    ListRow("Send a test", subtitle = "Shows the reminder now, to check it arrives",
+                        icon = Icons.Rounded.NotificationsActive, iconTint = c.amber) {
+                        if (!com.roamly.notes.QuickNoteReminder.sendTest(context) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
                 }
             }
 
