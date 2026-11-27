@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.roamly.data.api.CountryVisit
 import com.roamly.data.api.CityVisit
+import com.roamly.data.api.DistanceResponse
 import com.roamly.data.api.StatsResponse
+import com.roamly.data.api.TransportResponse
 import com.roamly.data.api.VisitsResponse
 import com.roamly.data.api.YearlyOverviewResponse
 import com.roamly.data.cache.DiskCache
@@ -28,6 +30,8 @@ data class StatsUiState(
     val yearly: YearlyOverviewResponse? = null,
     val topCountries: List<CountryVisit> = emptyList(),
     val topCities: List<CityVisit> = emptyList(),
+    val distance: DistanceResponse? = null,
+    val transport: TransportResponse? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
     val selectedMonth: Int? = null,
@@ -41,6 +45,7 @@ class StatsViewModel @Inject constructor(
     private val cache: StatsCache,
     private val disk: DiskCache,
     private val store: LocationStore,
+    private val api: com.roamly.data.api.RoamlyApi,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(StatsUiState())
@@ -77,6 +82,15 @@ class StatsViewModel @Inject constructor(
 
     fun load() {
         _uiState.update { it.copy(isLoading = !cache.hasData, error = null) }
+        // Distance and transport are independent of the rest, so they land as they arrive.
+        viewModelScope.launch {
+            val d = runCatching { api.getDistance().body() }.getOrNull()
+            if (d != null) _uiState.update { it.copy(distance = d) }
+        }
+        viewModelScope.launch {
+            val t = runCatching { api.getTransport().body() }.getOrNull()
+            if (t != null) _uiState.update { it.copy(transport = t) }
+        }
         viewModelScope.launch {
             when (val r = locationRepository.getStats()) {
                 is Result.Success -> {

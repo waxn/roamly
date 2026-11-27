@@ -180,6 +180,17 @@ interface RoamlyApi {
         @Query("all") all: Int? = null,
     ): Response<StatsResponse>
 
+    /** Gated distance per local day (or hour); the Stats distance chart and heatmap. */
+    @GET("api/distance/")
+    suspend fun getDistance(
+        @Query("all") all: Int? = 1,
+        @Query("granularity") granularity: String? = "daily",
+    ): Response<DistanceResponse>
+
+    /** Distance and time split by transport mode. */
+    @GET("api/transport/breakdown/")
+    suspend fun getTransport(@Query("all") all: Int? = 1): Response<TransportResponse>
+
     @GET("api/visits/")
     suspend fun getVisits(): Response<VisitsResponse>
 

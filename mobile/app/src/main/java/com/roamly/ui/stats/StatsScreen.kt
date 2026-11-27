@@ -97,6 +97,12 @@ fun StatsScreen(
         ) {
             state.error?.let { item { ErrorNote(it, onRetry = viewModel::load) } }
             state.stats?.let { item { Hero(it) } }
+            state.distance?.takeIf { !it.days.isNullOrEmpty() }?.let { d ->
+                item { DistanceTiles(d) }
+                item { DistanceChart(d) }
+                item { YearHeatmap(d) }
+            }
+            state.transport?.takeIf { !it.modes.isNullOrEmpty() }?.let { item { TransportBreakdown(it) } }
             state.yearly?.let { y ->
                 item { Periods(y) }
                 item {

@@ -127,6 +127,16 @@ data class StatsResponse(
     @SerializedName("last_location")  val lastLocation: String? = null,
 )
 
+// Distance + transport (nullable: Gson skips Kotlin defaults on response models).
+data class DistanceResponse(
+    val days: List<String>? = null,
+    val distances: List<Double>? = null,
+    @SerializedName("total_km") val totalKm: Double? = null,
+)
+
+data class TransportMode(val mode: String? = null, val km: Double? = null, val points: Int? = null, val hours: Double? = null)
+data class TransportResponse(val modes: List<TransportMode>? = null, val unclassified: Int? = null)
+
 // --- Yearly Overview ---
 
 data class PeriodStats(
