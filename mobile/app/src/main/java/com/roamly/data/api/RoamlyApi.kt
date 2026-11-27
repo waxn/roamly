@@ -366,6 +366,7 @@ interface RoamlyApi {
     suspend fun getJournals(
         @Query("year") year: Int? = null,
         @Query("month") month: Int? = null,
+        @Query("tz") tz: Int? = null,
     ): Response<JournalListResponse>
 
     @GET("api/journals/stats/")

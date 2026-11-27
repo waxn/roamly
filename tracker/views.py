@@ -6537,7 +6537,9 @@ def trips_api(request):
         # adventure is six figures of rows counted to render a card. The list
         # only ever showed it as a rough size, so it is capped: past the cap the
         # client renders "30,000+" rather than paying for an exact figure.
-        loc_count = trip.locations.values_list('id', flat=True)[:LOCATION_LIMIT].count()
+        loc_count = cache.get_or_set(
+            f'trip_loccount:{trip.id}:{trip.start_time.timestamp():.0f}:{trip.end_time.timestamp():.0f}',
+            lambda: trip.locations.values_list('id', flat=True)[:LOCATION_LIMIT].count(), 600)
         member_count = trip.member_count
         is_creator = trip.device.user == request.user or (trip.creator == request.user)
         word_count = _body_word_count(trip.body or [])
@@ -6565,18 +6567,27 @@ def trips_api(request):
 def _trip_preview(trip, loc_count):
     """A coarse polyline ([[lat, lng], ...], ~60 points) so the app can draw a
     route preview on each Adventures card without fetching the whole track.
-    Sampled by id stride in the database and cached until the trip grows."""
+    Sampled by id stride in the database and cached; an ongoing trip's entry
+    also rolls over hourly so it keeps growing."""
     if not loc_count:
         return []
-    key = f'trip_preview:{trip.id}:{trip.end_time.timestamp():.0f}:{loc_count}'
+    now = timezone.now()
+    live = trip.end_time > now - timedelta(days=1)
+    key = f'trip_preview:{trip.id}:{trip.end_time.timestamp():.0f}:{loc_count}' + (f':{now:%Y%m%d%H}' if live else '')
     cached = cache.get(key)
     if cached is not None:
         return cached
-    stride = max(1, loc_count // 60)
     qs = trip.locations
+    # The exact size (loc_count is capped), so a long trip's stride spans the whole
+    # route rather than just its first stretch. Paid only on a cache miss.
+    total = qs.count()
+    stride = max(1, total // 60)
     if stride > 1:
         qs = qs.annotate(_stride=F('id') % stride).filter(_stride=0)
-    out = [[round(la, 5), round(lo, 5)] for la, lo in qs.values_list('latitude', 'longitude')[:150]]
+    out = [[round(la, 5), round(lo, 5)] for la, lo in qs.values_list('latitude', 'longitude')[:400]]
+    if len(out) > 120:  # id-stride is only roughly even; thin it to ~60 evenly
+        step = len(out) / 60.0
+        out = [out[int(i * step)] for i in range(60)] + [out[-1]]
     cache.set(key, out, 6 * 3600)
     return out
 
@@ -12892,7 +12903,9 @@ def journals_list_api(request):
     except (TypeError, ValueError):
         tz_offset = 0
     entries = []
-    previews_left = 40  # newest photo-less entries only; the rest keep their emoji
+    # The calendar's month calls don't show covers, so only the unscoped list gets
+    # previews: the newest 40 photo-less entries, the rest keep their emoji.
+    previews_left = 0 if (year and month) else 40
     for e in qs:
         photos = list(e.photos.all())
         snippet = e.body.strip().split('\n')[0][:140] if e.body else ''

@@ -89,16 +89,19 @@ class ActivityDetailViewModel @Inject constructor(private val api: RoamlyApi) : 
                 seg.filter { it.size >= 2 }.map { GeoPoint(it[0], it[1]) }
             }.filter { it.size >= 2 }
             val ch = track?.chart
-            val times = ch?.times.orEmpty().flatten().filterNotNull()
-            val t0 = times.firstOrNull() ?: 0.0
-            val speeds = ch?.speeds.orEmpty().flatten()
-            val elev = ch?.elevations.orEmpty().flatten()
-            val usable = speeds.size == times.size
+            // One value per time, across segments; drop any sample missing its time.
+            val ts = ch?.times.orEmpty().flatten()
+            val sp = ch?.speeds.orEmpty().flatten()
+            val el = ch?.elevations.orEmpty().flatten()
+            val usable = ts.isNotEmpty() && sp.size == ts.size
+            val keep = if (usable) ts.indices.filter { ts[it] != null } else emptyList()
+            val t0 = keep.firstOrNull()?.let { ts[it] } ?: 0.0
+            val times = keep.map { (ts[it] ?: 0.0) - t0 }
+            val speeds = keep.map { sp[it] }
+            val elev = if (el.size == ts.size) keep.map { el[it] } else emptyList()
             _state.update {
                 it.copy(
-                    chartTimes = if (usable) times.map { t -> t - t0 } else emptyList(),
-                    chartSpeeds = if (usable) speeds else emptyList(),
-                    chartElev = if (usable && elev.size == times.size) elev else emptyList(),
+                    chartTimes = times, chartSpeeds = speeds, chartElev = elev,
                     segments = segs, loading = false,
                     error = if (act == null && segs.isEmpty()) "Couldn't load this activity." else null,
                 )

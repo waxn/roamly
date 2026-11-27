@@ -17,7 +17,10 @@ import javax.inject.Singleton
 class JournalRepository @Inject constructor(private val api: RoamlyApi) {
 
     suspend fun list(year: Int? = null, month: Int? = null): Result<JournalListResponse> =
-        safeApiCall { api.getJournals(year, month) }
+        safeApiCall {
+            // JS getTimezoneOffset() convention, so the server's day previews match the user's local days.
+            api.getJournals(year, month, -java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60000)
+        }
 
     suspend fun stats(): Result<JournalStatsResponse> =
         safeApiCall { api.getJournalStats() }

@@ -158,7 +158,8 @@ fun AskScreen(
 private fun Composer(value: String, onValueChange: (String) -> Unit, enabled: Boolean, onSend: () -> Unit, modifier: Modifier) {
     val c = Atlas.colors
     val canSend = enabled && value.isNotBlank()
-    val shape = SquircleShape(SquircleRadius.panel)
+    // Same corner as the Search tab's field (AtlasField), so the two inputs match.
+    val shape = SquircleShape(SquircleRadius.control)
     Row(
         modifier.fillMaxWidth().clip(shape).background(c.surfaceHigh).border(1.dp, c.line, shape)
             .padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
@@ -179,7 +180,7 @@ private fun Composer(value: String, onValueChange: (String) -> Unit, enabled: Bo
             )
         }
         Box(
-            Modifier.size(44.dp).clip(SquircleShape(SquircleRadius.panel - 6.dp)).background(if (canSend) c.accent else c.surfaceHighest)
+            Modifier.size(44.dp).clip(SquircleShape(SquircleRadius.tag)).background(if (canSend) c.accent else c.surfaceHighest)
                 .tappable(enabled = canSend, feel = Feel.None, pressedScale = 0.85f, onClick = onSend),
             contentAlignment = Alignment.Center,
         ) {

@@ -182,6 +182,8 @@ class MapViewModel @Inject constructor(
     // Accumulator: server-id -> point. Holds the period overview plus any
     // higher-resolution dots pulled in as the user zooms.
     private val accumulator: HashMap<Int, LocationPoint> = HashMap()
+    /** Ids that arrived as viewport detail (not the period overview): the only ones eviction may drop. */
+    private val detailIds: HashSet<Int> = HashSet()
     private var viewportJob: Job? = null
     /** The viewport the last detail query covered, so panning back and forth across
      *  already-loaded ground re-queries nothing. Cleared whenever the dataset changes. */
@@ -500,10 +502,13 @@ class MapViewModel @Inject constructor(
             lastQueriedZoom = zoom
             if (detail.isEmpty()) return@launch
             var added = 0
-            detail.forEach { pt -> if (accumulator.put(pt.id, pt) == null) added++ }
+            detail.forEach { pt -> if (accumulator.put(pt.id, pt) == null) { added++; detailIds.add(pt.id) } }
             if (accumulator.size > MAX_ACCUMULATED) {
                 val padLat = (maxLat - minLat) / 2; val padLng = (maxLng - minLng) / 2
-                accumulator.values.removeAll { it.lat !in (minLat - padLat)..(maxLat + padLat) || it.lng !in (minLng - padLng)..(maxLng + padLng) }
+                accumulator.values.removeAll {
+                    it.id in detailIds && (it.lat !in (minLat - padLat)..(maxLat + padLat) || it.lng !in (minLng - padLng)..(maxLng + padLng))
+                }
+                detailIds.retainAll(accumulator.keys)
                 lastQueried = null
                 added = added.coerceAtLeast(1)
             }
@@ -576,6 +581,7 @@ class MapViewModel @Inject constructor(
 
     private fun setLocations(points: List<LocationPoint>) {
         accumulator.clear()
+        detailIds.clear()
         lastQueried = null
         points.forEach { accumulator[it.id] = it }
         _uiState.update { it.copy(locations = accumulator.values.toList(), isLoading = false, error = null) }

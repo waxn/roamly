@@ -194,42 +194,47 @@ class LocationStore @Inject constructor(
      * you are at home, which is what made it crawl). Null when the store is empty.
      */
     suspend fun haveIBeenHere(lat: Double, lng: Double): com.roamly.ui.map.NearHereResult? = withContext(Dispatchers.IO) {
-        if (dao.count() == 0) return@withContext null
+        if (dao.anyRow() == null) return@withContext null
         val zone = java.time.ZoneId.systemDefault()
         val todayStart = java.time.LocalDate.now().atStartOfDay(zone).toInstant().toEpochMilli()
-        val padLat = 0.0025
-        val padLng = padLat / kotlin.math.cos(Math.toRadians(lat)).coerceAtLeast(0.2)
-        val rows = dao.spotRows(lat - padLat, lat + padLat, lng - padLng, lng + padLng, todayStart)
-        data class Agg(var count: Int = 0, var best: Double = Double.MAX_VALUE, var lat: Double = 0.0, var lng: Double = 0.0, val ts: ArrayList<Long> = ArrayList())
-        val byDay = HashMap<java.time.LocalDate, Agg>()
-        var closest = Double.MAX_VALUE
-        for (r in rows) {
-            val d = com.roamly.ui.map.distanceMeters(lat, lng, r.lat, r.lng)
-            if (d > 200.0) continue
-            if (d < closest) closest = d
-            val day = java.time.Instant.ofEpochMilli(r.timestampMs).atZone(zone).toLocalDate()
-            val a = byDay.getOrPut(day) { Agg() }
-            a.count++; a.ts.add(r.timestampMs)
-            if (d < a.best) { a.best = d; a.lat = r.lat; a.lng = r.lng }
+        val offMs = zone.rules.getOffset(java.time.Instant.now()).totalSeconds * 1000L
+        val k = kotlin.math.cos(Math.toRadians(lat)).coerceAtLeast(0.2)
+        val spotDeg = 200.0 / 111_320.0                       // 200 m, in degrees of latitude
+        val r2 = spotDeg * spotDeg
+        val padLat = spotDeg; val padLng = spotDeg / k
+        val days = dao.nearDays(lat, lng, k, r2, offMs, todayStart, lat - padLat, lat + padLat, lng - padLng, lng + padLng)
+
+        // Dwell time (gaps capped at an hour) for the newest days only: it needs the
+        // individual timestamps, which is cheap for 30 days and not worth it for years.
+        val recent = days.take(30)
+        val spent = HashMap<Long, Long>()
+        if (recent.isNotEmpty()) {
+            val fromMs = recent.last().day * 86_400_000L - offMs
+            val times = dao.nearTimes(lat, lng, k, r2, fromMs, todayStart, lat - padLat, lat + padLat, lng - padLng, lng + padLng)
+            var prev = -1L
+            for (t in times) {
+                val d = (t + offMs) / 86_400_000L
+                if (prev >= 0 && (prev + offMs) / 86_400_000L == d) spent[d] = (spent[d] ?: 0L) + minOf(t - prev, 3_600_000L)
+                prev = t
+            }
         }
-        val days = byDay.entries.sortedByDescending { it.key }.map { (date, a) ->
-            a.ts.sort()
-            var ms = 0L
-            for (i in 1 until a.ts.size) ms += minOf(a.ts[i] - a.ts[i - 1], 3_600_000L)
-            com.roamly.ui.map.NearHereDay(date, a.count, a.best, a.lat, a.lng, (ms / 1000L).toInt())
+        val out = days.map { r ->
+            com.roamly.ui.map.NearHereDay(
+                date = java.time.LocalDate.ofEpochDay(r.day), pointCount = r.n,
+                closestMeters = kotlin.math.sqrt(r.d2) * 111_320.0, lat = r.lat, lng = r.lng,
+                timeSpentSeconds = ((spent[r.day] ?: 0L) / 1000L).toInt(),
+            )
         }
+        val wideLat = 0.05; val wideLng = 0.05 / k
         val label = dao.anyLabel(lat - padLat, lat + padLat, lng - padLng, lng + padLng)
-            ?: dao.anyLabel(lat - 0.05, lat + 0.05, lng - 0.05 / kotlin.math.cos(Math.toRadians(lat)).coerceAtLeast(0.2), lng + 0.05 / kotlin.math.cos(Math.toRadians(lat)).coerceAtLeast(0.2))
+            ?: dao.anyLabel(lat - wideLat, lat + wideLat, lng - wideLng, lng + wideLng)
         val region = listOfNotNull(label?.city?.takeIf { it.isNotBlank() }, label?.state?.takeIf { it.isNotBlank() }).joinToString(", ").ifBlank { null }
-        val regionPoints = if (days.isNotEmpty()) rows.size else label?.city?.let {
-            dao.countCityInBox(it, lat - 0.05, lat + 0.05, lng - 0.05 / kotlin.math.cos(Math.toRadians(lat)).coerceAtLeast(0.2), lng + 0.05 / kotlin.math.cos(Math.toRadians(lat)).coerceAtLeast(0.2))
+        val regionPoints = if (out.isNotEmpty()) days.sumOf { it.n } else label?.city?.let {
+            dao.countCityInBox(it, lat - wideLat, lat + wideLat, lng - wideLng, lng + wideLng)
         } ?: 0
         com.roamly.ui.map.NearHereResult(
-            region = region,
-            veryCloseDays = days.size,
-            totalRegionPoints = regionPoints,
-            closestMeters = if (closest == Double.MAX_VALUE) null else closest,
-            days = days,
+            region = region, veryCloseDays = out.size, totalRegionPoints = regionPoints,
+            closestMeters = out.minOfOrNull { it.closestMeters }, days = out,
         )
     }
 

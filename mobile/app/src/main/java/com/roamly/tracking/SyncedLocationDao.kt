@@ -71,14 +71,37 @@ interface SyncedLocationDao {
         minLat: Double, maxLat: Double, minLng: Double, maxLng: Double,
     ): List<SyncedLocation>
 
-    /** Just time + position of every point in a tight box: the cheap read behind "have I been here?". */
+    /** Cheap emptiness check ("have I been here?" must not COUNT a multi-million-row table). */
+    @Query("SELECT 1 FROM synced_locations LIMIT 1")
+    suspend fun anyRow(): Int?
+
+    /**
+     * One row per local day with points within [r2] (squared, lng-scaled degrees) of a spot:
+     * the count and the closest point, aggregated in SQL so a home you sit at all day
+     * returns hundreds of rows, not millions. [offMs] shifts UTC ms into local days.
+     */
     @Query(
-        "SELECT timestampMs, lat, lng FROM synced_locations WHERE timestampMs < :beforeMs AND " +
-            "lat BETWEEN :minLat AND :maxLat AND lng BETWEEN :minLng AND :maxLng"
+        "SELECT (timestampMs + :offMs) / 86400000 AS day, COUNT(*) AS n, MIN(d2) AS d2, lat, lng FROM (" +
+            "SELECT timestampMs, lat, lng, ((lat - :lat) * (lat - :lat) + ((lng - :lng) * :k) * ((lng - :lng) * :k)) AS d2 " +
+            "FROM synced_locations WHERE timestampMs < :beforeMs AND " +
+            "lat BETWEEN :minLat AND :maxLat AND lng BETWEEN :minLng AND :maxLng) " +
+            "WHERE d2 <= :r2 GROUP BY day ORDER BY day DESC"
     )
-    suspend fun spotRows(
-        minLat: Double, maxLat: Double, minLng: Double, maxLng: Double, beforeMs: Long,
-    ): List<SpotRow>
+    suspend fun nearDays(
+        lat: Double, lng: Double, k: Double, r2: Double, offMs: Long, beforeMs: Long,
+        minLat: Double, maxLat: Double, minLng: Double, maxLng: Double,
+    ): List<NearDayRow>
+
+    /** Timestamps only, for the recent days' dwell time. */
+    @Query(
+        "SELECT timestampMs FROM synced_locations WHERE timestampMs >= :fromMs AND timestampMs < :beforeMs AND " +
+            "lat BETWEEN :minLat AND :maxLat AND lng BETWEEN :minLng AND :maxLng AND " +
+            "((lat - :lat) * (lat - :lat) + ((lng - :lng) * :k) * ((lng - :lng) * :k)) <= :r2 ORDER BY timestampMs"
+    )
+    suspend fun nearTimes(
+        lat: Double, lng: Double, k: Double, r2: Double, fromMs: Long, beforeMs: Long,
+        minLat: Double, maxLat: Double, minLng: Double, maxLng: Double,
+    ): List<Long>
 
     /** Any one labelled point in a box — names the area without scanning it. */
     @Query(
@@ -114,5 +137,5 @@ interface SyncedLocationDao {
     suspend fun deleteAll()
 }
 
-data class SpotRow(val timestampMs: Long, val lat: Double, val lng: Double)
+data class NearDayRow(val day: Long, val n: Int, val d2: Double, val lat: Double, val lng: Double)
 data class CityState(val city: String?, val state: String?)
