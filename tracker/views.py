@@ -6557,8 +6557,28 @@ def trips_api(request):
             "cover_thumbnail": trip.cover_image_thumbnail.url if trip.cover_image_thumbnail else None,
             "word_count": word_count,
             "read_time_min": read_time_min,
+            "preview": _trip_preview(trip, loc_count),
         })
     return JsonResponse({"trips": data})
+
+
+def _trip_preview(trip, loc_count):
+    """A coarse polyline ([[lat, lng], ...], ~60 points) so the app can draw a
+    route preview on each Adventures card without fetching the whole track.
+    Sampled by id stride in the database and cached until the trip grows."""
+    if not loc_count:
+        return []
+    key = f'trip_preview:{trip.id}:{trip.end_time.timestamp():.0f}:{loc_count}'
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    stride = max(1, loc_count // 60)
+    qs = trip.locations
+    if stride > 1:
+        qs = qs.annotate(_stride=F('id') % stride).filter(_stride=0)
+    out = [[round(la, 5), round(lo, 5)] for la, lo in qs.values_list('latitude', 'longitude')[:150]]
+    cache.set(key, out, 6 * 3600)
+    return out
 
 
 @login_required
@@ -12828,6 +12848,30 @@ def journal_search_api(request):
     return JsonResponse({'entries': entries, 'count': len(entries)})
 
 
+def _journal_day_preview(user, d, tz_offset=0, n=60):
+    """A coarse [[lat, lng], ...] of one day for the journal list's map snapshot
+    (shown when the entry has no photo). Id-stride sampled in the database and
+    cached, so a long list does not pay for each day's full track."""
+    key = f'jprev:{user.id}:{d.isoformat()}:{tz_offset}'
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    start, end = _journal_day_bounds(d, tz_offset)
+    qs = Location.objects.filter(device__user=user, timestamp__gte=start, timestamp__lte=end,
+                                 latitude__isnull=False, longitude__isnull=False)
+    total = qs.count()
+    out = []
+    if total:
+        stride = max(1, total // n)
+        if stride > 1:
+            qs = qs.annotate(_stride=F('id') % stride).filter(_stride=0)
+        out = [[round(la, 5), round(lo, 5)]
+               for la, lo in qs.order_by('timestamp').values_list('latitude', 'longitude')[:n * 2]]
+    age_days = (timezone.localdate() - d).days
+    cache.set(key, out, 3600 if age_days <= 1 else 12 * 3600)
+    return out
+
+
 @login_required
 def journals_list_api(request):
     """List journal entries, optionally scoped to a year+month, for calendar rendering."""
@@ -12843,10 +12887,19 @@ def journals_list_api(request):
             pass
 
     qs = qs.prefetch_related('photos').order_by('-date')
+    try:
+        tz_offset = int(request.GET.get('tz', 0))
+    except (TypeError, ValueError):
+        tz_offset = 0
     entries = []
+    previews_left = 40  # newest photo-less entries only; the rest keep their emoji
     for e in qs:
         photos = list(e.photos.all())
         snippet = e.body.strip().split('\n')[0][:140] if e.body else ''
+        track = None
+        if not photos and previews_left > 0:
+            previews_left -= 1
+            track = _journal_day_preview(request.user, e.date, tz_offset)
         entries.append({
             'date': e.date.isoformat(),
             'title': e.title,
@@ -12859,6 +12912,7 @@ def journals_list_api(request):
             'cover': (photos[0].thumbnail.url if photos[0].thumbnail else photos[0].image.url) if photos else None,
             'word_count': len(e.body.split()) if e.body else 0,
             'location_name': e.location_name,
+            'track': track,
         })
     return JsonResponse({'entries': entries})
 

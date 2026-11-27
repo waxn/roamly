@@ -49,6 +49,7 @@ import com.roamly.ui.kit.ErrorNote
 import com.roamly.ui.kit.Feel
 import com.roamly.ui.kit.Panel
 import com.roamly.ui.kit.RouteArt
+import com.roamly.ui.kit.TrackSketch
 import com.roamly.ui.kit.Skeleton
 import com.roamly.ui.kit.Tag
 import com.roamly.ui.kit.dockAwareBottom
@@ -140,7 +141,9 @@ private fun TripCard(trip: TripResponse, onClick: () -> Unit, onLongClick: () ->
     val c = Atlas.colors
     Panel(Modifier.fillMaxWidth(), padding = PaddingValues(0.dp), onClick = onClick, onLongClick = onLongClick) {
         Box(Modifier.fillMaxWidth().height(116.dp).clip(SquircleShape(topStart = SquircleRadius.panel, topEnd = SquircleRadius.panel))) {
-            RouteArt(trip.id, Modifier.fillMaxSize())
+            val line = remember(trip.preview) { trip.preview.orEmpty().filter { it.size >= 2 }.map { it[0] to it[1] } }
+            if (line.size >= 2) TrackSketch(listOf(line to c.accent), Modifier.fillMaxSize(), background = c.surfaceHigh)
+            else RouteArt(trip.id, Modifier.fillMaxSize())
             Row(Modifier.align(Alignment.TopEnd).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (trip.isPublic) Tag("Public", color = c.cyan, icon = Icons.Rounded.Public)
             }

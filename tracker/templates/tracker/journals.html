@@ -12,6 +12,8 @@
     margin-bottom: 1.5rem;
 }
 .j-stat {
+    /* Share the row equally, so the strip spans the calendar's left edge to the right column's right edge. */
+    flex: 1 1 8rem;
     display: flex;
     align-items: center;
     gap: 0.6rem;
@@ -46,10 +48,11 @@
     align-items: stretch;
 }
 .j-side { display: flex; flex-direction: column; min-width: 0; }
+.j-layout > .card { margin-bottom: 0; align-self: stretch; }
 .j-mini {
     flex: 1; display: flex; flex-direction: column; gap: 0.5rem; min-height: 260px;
     background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: var(--radius-clay-sm); padding: 0.9rem 1rem 1rem;
+    border-radius: var(--radius); padding: 0.9rem 1rem 1rem;
     box-shadow: var(--clay-shadow-sm);
 }
 .j-mini-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
@@ -226,6 +229,9 @@
 .j-feed .j-entry-card { flex-direction: column; gap: 0; padding: 0; overflow: hidden; }
 .j-feed .j-entry-cover { width: 100%; height: 120px; border-radius: 0; box-shadow: none; font-size: 2.2rem; }
 .j-feed .j-entry-cover.no-photo { height: 64px; }
+.j-entry-cover.has-map { background-image: linear-gradient(var(--bg-elevated), var(--bg-elevated)); overflow: hidden; }
+.j-entry-cover.has-map svg { width: 100%; height: 100%; display: block; }
+.j-feed .j-entry-cover.has-map { height: 96px; }
 .j-feed .j-entry-meta { padding: 0.75rem 0.9rem 0.85rem; }
 .j-feed .j-entry-title.pending { color: var(--text-dim); font-style: italic; font-weight: 600; }
 .j-feed-more { display: block; margin: 1.4rem auto 0; }
@@ -789,10 +795,26 @@ let feedShown = 12;
 const FEED_STEP = 12;
 let titleBackfillDone = false;
 
+// A tile-free map snapshot of the day: the route fitted into a small SVG.
+function trackSnapshot(pts) {
+    let minLa = 90, maxLa = -90, minLo = 180, maxLo = -180;
+    pts.forEach(([la, lo]) => { minLa = Math.min(minLa, la); maxLa = Math.max(maxLa, la); minLo = Math.min(minLo, lo); maxLo = Math.max(maxLo, lo); });
+    const k = Math.cos(((minLa + maxLa) / 2) * Math.PI / 180);
+    const w = Math.max((maxLo - minLo) * k, 1e-5), h = Math.max(maxLa - minLa, 1e-5);
+    const s = 84 / Math.max(w, h), ox = (100 - w * s) / 2, oy = (100 - h * s) / 2;
+    const xy = ([la, lo]) => `${(ox + (lo - minLo) * k * s).toFixed(1)},${(oy + (maxLa - la) * s).toFixed(1)}`;
+    const last = xy(pts[pts.length - 1]).split(',');
+    return `<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true">`
+        + `<polyline points="${pts.map(xy).join(' ')}" fill="none" stroke="var(--primary)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`
+        + `<circle cx="${last[0]}" cy="${last[1]}" r="3.6" fill="var(--primary)"/></svg>`;
+}
+
 function entryCardHtml(e) {
     const cover = e.cover
         ? `<div class="j-entry-cover" style="background-image:url('${e.cover}')"></div>`
-        : `<div class="j-entry-cover no-photo">${e.mood||'📓'}</div>`;
+        : (Array.isArray(e.track) && e.track.length > 1
+            ? `<div class="j-entry-cover has-map" title="${escapeHtml(fmtLong(e.date))}">${trackSnapshot(e.track)}</div>`
+            : `<div class="j-entry-cover no-photo">${e.mood||'📓'}</div>`);
     const foot = [];
     if (e.word_count) foot.push(`${e.word_count} words`);
     if (e.photo_count) foot.push(`${e.photo_count} 📷`);
@@ -841,7 +863,7 @@ function renderFeed() {
 }
 
 function loadRecent() {
-    fetch('/api/journals/').then(r=>{ if(!r.ok) throw new Error('recent entries failed'); return r.json(); }).then(data=>{
+    fetch('/api/journals/?tz=' + new Date().getTimezoneOffset()).then(r=>{ if(!r.ok) throw new Error('recent entries failed'); return r.json(); }).then(data=>{
         feedEntries = data.entries;
         renderFeed();
         backfillTitles();

@@ -227,7 +227,8 @@
 .pl-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 1.25rem; }
 .pl-days-table th, .pl-days-table td { padding: 0.45rem 0.6rem; font-size: 0.82rem; }
 
-.pl-search { position: relative; width: min(100%, 22rem); margin: -0.6rem auto 1.5rem; }
+.pl-search { position: relative; flex: 1 1 14rem; max-width: 22rem; margin: 0 0.5rem; }
+@media (max-width: 720px) { .pl-search { order: 3; flex-basis: 100%; max-width: none; margin: 0; } }
 .pl-search svg {
     position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%);
     fill: none; stroke: var(--text-muted); stroke-width: 2; stroke-linecap: round; pointer-events: none;
@@ -247,15 +248,15 @@
 <div class="container places-wrap">
     <div class="page-toolbar">
         <h1>Places</h1>
+        <div class="pl-search" role="search">
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="search" id="places-search" class="form-control" placeholder="Search places" aria-label="Search places" autocomplete="off" spellcheck="false">
+        </div>
         <div class="toolbar-actions" id="snapshot-bar">
             <span id="snapshot-updated" style="font-size:0.75rem;color:var(--text-muted);font-weight:600;white-space:nowrap;">updated …</span>
             <button id="snapshot-recalc" class="btn btn-outline btn-sm" title="Recompute now">↻ recalculate</button>
             <button class="btn btn-primary btn-sm" onclick="openCreate()">+ new place</button>
         </div>
-    </div>
-    <div class="pl-search" role="search">
-        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="search" id="places-search" class="form-control" placeholder="Search places" aria-label="Search places" autocomplete="off" spellcheck="false">
     </div>
 
     <!-- Recurring stays not yet inside any place. Confirming one opens the

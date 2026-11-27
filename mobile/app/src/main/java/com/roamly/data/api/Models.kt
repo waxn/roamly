@@ -220,6 +220,8 @@ data class TripResponse(
     // Detail-endpoint rich content (empty on the list endpoint).
     @SerializedName("cover_image")     val coverImage: String? = null,
     @SerializedName("cover_thumbnail") val coverThumbnail: String? = null,
+    /** List endpoint only: ~60 [lat, lng] pairs of the route, for the card preview. */
+    val preview: List<List<Double>>? = null,
     val body: List<BodyBlock> = emptyList(),
     val places: List<PlacePayload> = emptyList(),
     @SerializedName("planned_stops")   val plannedStops: List<PlannedStop> = emptyList(),
@@ -565,6 +567,8 @@ data class JournalListItem(
     @SerializedName("word_count") val wordCount: Int = 0,
     @SerializedName("location_name") val locationName: String? = null,
     @SerializedName("quick_note") val quickNote: String? = null,
+    /** Coarse [lat, lng] pairs of the day, sent for entries without a photo. */
+    val track: List<List<Double>>? = null,
 )
 
 data class JournalListResponse(val entries: List<JournalListItem> = emptyList())

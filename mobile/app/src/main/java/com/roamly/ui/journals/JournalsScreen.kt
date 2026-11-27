@@ -77,6 +77,7 @@ import com.roamly.ui.kit.PanelTone
 import com.roamly.ui.kit.SectionTitle
 import com.roamly.ui.kit.StatBlock
 import com.roamly.ui.kit.TrackMap
+import com.roamly.ui.kit.TrackSketch
 import com.roamly.ui.kit.dockAwareBottom
 import com.roamly.ui.kit.rememberHaptics
 import com.roamly.ui.kit.tappable
@@ -240,7 +241,9 @@ private fun EntryRow(entry: JournalListItem, cover: String?, onClick: () -> Unit
     Panel(Modifier.fillMaxWidth(), padding = PaddingValues(12.dp), onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(56.dp).clip(SquircleShape(SquircleRadius.control)).background(c.surfaceHigh), contentAlignment = Alignment.Center) {
+                val day = remember(entry.track) { entry.track.orEmpty().filter { it.size >= 2 }.map { it[0] to it[1] } }
                 if (cover != null) AsyncImage(cover, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                else if (day.size >= 2) TrackSketch(listOf(day to c.accent), Modifier.fillMaxSize(), background = c.surfaceHigh, pad = 8.dp, grid = false)
                 else Text(entry.mood.ifBlank { "✏️" }, style = MaterialTheme.typography.headlineSmall)
             }
             Spacer(Modifier.width(14.dp))

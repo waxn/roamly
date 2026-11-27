@@ -89,6 +89,8 @@ fun TrackSketch(
     lines: List<Pair<List<Pair<Double, Double>>, Color>>,
     modifier: Modifier = Modifier,
     background: Color = Atlas.colors.surfaceHigh,
+    pad: androidx.compose.ui.unit.Dp = 20.dp,
+    grid: Boolean = true,
 ) {
     val c = Atlas.colors
     val prepared = remember(lines) {
@@ -107,14 +109,14 @@ fun TrackSketch(
     Canvas(modifier) {
         drawRect(background)
         // A faint graticule so the sketch reads as a map.
-        val grid = c.line
-        for (i in 1..5) {
-            drawLine(grid, Offset(size.width * i / 6f, 0f), Offset(size.width * i / 6f, size.height), 1f)
-            drawLine(grid, Offset(0f, size.height * i / 6f), Offset(size.width, size.height * i / 6f), 1f)
+        val gridColor = c.line
+        if (grid) for (i in 1..5) {
+            drawLine(gridColor, Offset(size.width * i / 6f, 0f), Offset(size.width * i / 6f, size.height), 1f)
+            drawLine(gridColor, Offset(0f, size.height * i / 6f), Offset(size.width, size.height * i / 6f), 1f)
         }
         val p = prepared ?: return@Canvas
         val (sampled, latR, lngR) = p
-        val pad = 20.dp.toPx()
+        val pad = pad.toPx()
         val midLat = Math.toRadians((latR.first + latR.second) / 2)
         val spanX = ((lngR.second - lngR.first) * cos(midLat)).coerceAtLeast(1e-6)
         val spanY = (latR.second - latR.first).coerceAtLeast(1e-6)
