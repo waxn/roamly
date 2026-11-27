@@ -108,7 +108,7 @@ fun YouScreen(
                     add(Hub(Icons.Rounded.Insights, "Stats", "Distance, places, years", c.violet) { onOpen(Routes.STATS) })
                     add(Hub(Icons.Rounded.Flight, "Flights", "Log, map, scan a pass", c.cyan) { onOpen(Routes.FLIGHTS) })
                     add(Hub(Icons.Rounded.FavoriteBorder, "Health", "Steps, sleep, workouts", c.rose) { onOpen(Routes.HEALTH) })
-                    add(Hub(Icons.Rounded.TableRows, "Location data", "Every raw point", c.lime) { onOpen(Routes.LOCATIONS) })
+                    add(Hub(Icons.Rounded.TableRows, "Raw data", "Points, trash, cells and more", c.lime) { onOpen(Routes.LOCATIONS) })
                 }
                 add(Hub(Icons.Rounded.Groups, "Family Circle", "Your people and alerts", c.amber) { onOpen(Routes.FAMILY) })
                 add(Hub(Icons.Rounded.Watch, "Tracker", if (trackerPaired) "Paired" else "Pair over Bluetooth", c.sky) { onOpen(Routes.TRACKER) })

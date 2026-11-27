@@ -74,7 +74,7 @@ private val SORT_OPTIONS = listOf(
 )
 private val RANGE_OPTIONS = listOf("24" to "Last 24h", "72" to "Last 3 days", "168" to "Last week", "720" to "Last 30 days", "all" to "All time")
 
-private enum class Picker { Range, Device, Sort }
+private enum class Picker { Range, Device, Sort, Source }
 
 /** Every raw point, as the web's /data/ page: filter, sort, page, delete. */
 @Composable
@@ -89,20 +89,39 @@ fun LocationTableScreen(
     var picker by remember { mutableStateOf<Picker?>(null) }
 
     val nearEnd by remember {
-        derivedStateOf { (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= state.rows.size - 8 }
+        derivedStateOf { (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= (if (state.source != "locations") state.rawRows.size else state.rows.size) - 8 }
     }
-    LaunchedEffect(nearEnd, state.rows.size, state.hasMore) { if (nearEnd && state.hasMore) viewModel.loadMore() }
+    LaunchedEffect(nearEnd, state.rows.size, state.rawRows.size, state.hasMore) { if (nearEnd && state.hasMore) viewModel.loadMore() }
 
-    PushedScreen(title = "Location data", onBack = onBack) {
+    PushedScreen(title = "Raw data", onBack = onBack) {
+        val raw = state.source != "locations"
+        if (state.sources.size > 1) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
+                Pill(Icons.Rounded.TableRows, state.sourceInfo?.label ?: "Recorded points", Modifier.fillMaxWidth()) { picker = Picker.Source }
+            }
+        }
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Pill(Icons.Rounded.DateRange, RANGE_OPTIONS.firstOrNull { it.first == state.range }?.second ?: "Range", Modifier.weight(1f)) { picker = Picker.Range }
-            Pill(Icons.Rounded.Smartphone, state.deviceId?.let { state.devices[it] } ?: "All devices", Modifier.weight(1f)) { picker = Picker.Device }
-            Pill(if (state.sortDir == "asc") Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
+            if (!raw || state.sourceInfo?.range != false)
+                Pill(Icons.Rounded.DateRange, RANGE_OPTIONS.firstOrNull { it.first == state.range }?.second ?: "Range", Modifier.weight(1f)) { picker = Picker.Range }
+            if (!raw || state.sourceInfo?.device != false)
+                Pill(Icons.Rounded.Smartphone, state.deviceId?.let { state.devices[it] } ?: "All devices", Modifier.weight(1f)) { picker = Picker.Device }
+            if (!raw) Pill(if (state.sortDir == "asc") Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
                 SORT_OPTIONS.firstOrNull { it.first == state.sortKey }?.second ?: "Sort") { picker = Picker.Sort }
         }
         Box(Modifier.fillMaxSize()) {
             when {
                 state.isLoading && state.rows.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = c.accent)
+                raw && state.rawRows.isEmpty() -> EmptyState(Icons.Rounded.TableRows, state.error ?: "Nothing here yet", tint = c.lime)
+                raw -> LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = dockAwareBottom()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(state.rawRows, key = { (it["id"] as? Number)?.toLong() ?: it.hashCode().toLong() }) { row -> RawRow(row, state.rawColumns) }
+                    if (state.isLoadingMore) item {
+                        Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = c.accent) }
+                    }
+                }
                 state.rows.isEmpty() -> EmptyState(Icons.Rounded.TableRows, state.error ?: "No points in this range", tint = c.lime)
                 else -> LazyColumn(
                     state = listState,
@@ -123,9 +142,10 @@ fun LocationTableScreen(
             Picker.Range -> RANGE_OPTIONS
             Picker.Device -> listOf("" to "All devices") + state.devices.map { (id, name) -> id to name }
             Picker.Sort -> SORT_OPTIONS
+            Picker.Source -> state.sources.map { (it.key ?: "") to (it.label ?: it.key.orEmpty()) }
         }
-        val current = when (p) { Picker.Range -> state.range; Picker.Device -> state.deviceId.orEmpty(); Picker.Sort -> state.sortKey }
-        AtlasSheet(onDismiss = { picker = null }, title = when (p) { Picker.Range -> "Range"; Picker.Device -> "Device"; Picker.Sort -> "Sort by" }) {
+        val current = when (p) { Picker.Range -> state.range; Picker.Device -> state.deviceId.orEmpty(); Picker.Sort -> state.sortKey; Picker.Source -> state.source }
+        AtlasSheet(onDismiss = { picker = null }, title = when (p) { Picker.Range -> "Range"; Picker.Device -> "Device"; Picker.Sort -> "Sort by"; Picker.Source -> "Data source" }) {
             LazyColumn(Modifier.heightIn(max = 460.dp)) {
                 items(options) { (value, label) ->
                     ListRow(
@@ -136,6 +156,7 @@ fun LocationTableScreen(
                                 Picker.Range -> viewModel.setRange(value)
                                 Picker.Device -> viewModel.setDevice(value.ifEmpty { null })
                                 Picker.Sort -> viewModel.setSort(value)
+                                Picker.Source -> viewModel.setSource(value)
                             }
                             if (p != Picker.Sort || value != current) picker = null
                         },
@@ -207,6 +228,30 @@ private fun Point(row: LocationTableRow, onDelete: () -> Unit) {
         if (row.device.isNotBlank()) {
             Spacer(Modifier.size(8.dp))
             Text(row.device, style = MaterialTheme.typography.labelMedium, color = c.textFaint)
+        }
+    }
+}
+
+/** One row of any non-location source, drawn from the columns the server describes. */
+@Composable
+private fun RawRow(row: Map<String, Any?>, columns: List<com.roamly.data.api.RawColumn>) {
+    val c = Atlas.colors
+    Panel(Modifier.fillMaxWidth(), padding = PaddingValues(16.dp)) {
+        columns.forEachIndexed { i, col ->
+            val raw = row[col.key]
+            if (raw == null || raw.toString().isBlank()) return@forEachIndexed
+            val text = when (col.type) {
+                "time" -> formatTimestamp(raw.toString())
+                "coord" -> (raw as? Number)?.let { "%.5f".format(it.toDouble()) } ?: raw.toString()
+                "speed" -> (raw as? Number)?.let { "%.1f km/h".format(it.toDouble() * 3.6) } ?: raw.toString()
+                "num" -> (raw as? Number)?.let { n -> if (n.toDouble() % 1.0 == 0.0) "%,d".format(n.toLong()) else "%.2f".format(n.toDouble()) } ?: raw.toString()
+                else -> raw.toString()
+            }
+            if (i > 0) Spacer(Modifier.size(6.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(col.label ?: col.key.orEmpty(), style = MaterialTheme.typography.labelMedium, color = c.textFaint, modifier = Modifier.width(96.dp))
+                Text(text, style = if (col.type == "text") MaterialTheme.typography.bodySmall else AtlasType.mono, color = c.text, modifier = Modifier.weight(1f), maxLines = 4, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }

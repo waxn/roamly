@@ -189,3 +189,5 @@ private fun haversineKm(lat1: Double, lng1: Double, lat2: Double, lng2: Double):
             sin(dLng / 2) * sin(dLng / 2)
     return r * 2 * atan2(sqrt(a), sqrt(1 - a))
 }
+
+internal fun distanceMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double = haversineKm(lat1, lng1, lat2, lng2) * 1000.0

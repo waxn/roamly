@@ -128,6 +128,21 @@ interface RoamlyApi {
         @Query("before_id") beforeId: Int? = null,
     ): Response<LocationTableResponse>
 
+    /** The raw-data sources this account has rows in (web /data/ selector). */
+    @GET("api/data/sources/")
+    suspend fun getRawSources(): Response<RawSourcesResponse>
+
+    /** One page of a non-location raw source, newest first, read-only. */
+    @GET("api/data/source/{key}/")
+    suspend fun getRawSource(
+        @Path("key") key: String,
+        @Query("hours") hours: Int? = null,
+        @Query("all") all: Int? = null,
+        @Query("device_id") deviceId: String? = null,
+        @Query("before_value") beforeValue: String? = null,
+        @Query("before_id") beforeId: Int? = null,
+    ): Response<RawSourceResponse>
+
     /** Delete a single GPS point (ownership-scoped server-side). HTTP DELETE +
      *  csrf-exempt, so the session cookie alone authorises it. */
     @DELETE("api/locations/{id}/delete/")

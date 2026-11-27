@@ -83,6 +83,18 @@ data class LocationTableResponse(
     @SerializedName("next_before_id")    val nextBeforeId: Int? = null,
 )
 
+// Raw data sources. Nullable on purpose: Gson skips Kotlin defaults on response models.
+data class RawSourceInfo(val key: String? = null, val label: String? = null, val device: Boolean? = null, val range: Boolean? = null)
+data class RawSourcesResponse(val sources: List<RawSourceInfo>? = null)
+data class RawColumn(val key: String? = null, val label: String? = null, val type: String? = null)
+data class RawSourceResponse(
+    val columns: List<RawColumn>? = null,
+    val rows: List<Map<String, Any?>>? = null,
+    @SerializedName("has_more") val hasMore: Boolean? = null,
+    @SerializedName("next_before_value") val nextBeforeValue: String? = null,
+    @SerializedName("next_before_id") val nextBeforeId: Double? = null,
+)
+
 data class TrackPoint(
     @SerializedName("c") val coordinates: List<Double>,
     val ts: Long? = null,

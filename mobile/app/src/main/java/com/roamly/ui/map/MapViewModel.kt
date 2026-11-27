@@ -459,6 +459,7 @@ class MapViewModel @Inject constructor(
      */
     fun checkHaveIBeenHere(userLat: Double, userLng: Double, onResult: (NearHereResult) -> Unit) {
         viewModelScope.launch {
+            store.haveIBeenHere(userLat, userLng)?.let { onResult(it); return@launch }
             val pad = 0.1 // ~11 km
             var points = store.allTimeAround(userLat, userLng, pad)
             if (points.isEmpty()) {

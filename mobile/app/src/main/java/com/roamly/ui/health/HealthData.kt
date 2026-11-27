@@ -1,6 +1,7 @@
 package com.roamly.ui.health
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -157,10 +158,11 @@ fun HealthDataSection(viewModel: HealthDataViewModel = hiltViewModel()) {
                 }
                 BarChart(
                     buckets = daily.buckets, metric = metric, selected = selected,
+                    // Dragging a finger along the chart reads out each bar as it passes…
+                    onScrub = { i -> if (i != selected) { haptics.tick(); selected = i } },
+                    // …and lifting it (or a tap) opens that day, when bars are days.
                     onSelect = { i ->
-                        haptics.tick()
                         selected = i
-                        // Day-sized bars open that day; wider bars just report their span.
                         if (daily.granularity == "day") viewModel.openDay(daily.buckets[i].start) else viewModel.closeDay()
                     },
                 )
@@ -182,20 +184,35 @@ private fun prettyDate(iso: String): String = runCatching {
 }.getOrDefault(iso)
 
 @Composable
-private fun BarChart(buckets: List<HealthBucket>, metric: Metric, selected: Int, onSelect: (Int) -> Unit) {
+private fun BarChart(buckets: List<HealthBucket>, metric: Metric, selected: Int, onScrub: (Int) -> Unit, onSelect: (Int) -> Unit) {
     val c = Atlas.colors
     val values = remember(buckets, metric) { buckets.map { it.valueOf(metric) } }
     val max = (values.maxOrNull() ?: 0.0).coerceAtLeast(1e-6)
     Panel(Modifier.fillMaxWidth(), padding = PaddingValues(start = 14.dp, end = 14.dp, top = 16.dp, bottom = 12.dp)) {
-        Text("${fmt(metric, max)} ${unit(metric)} at most", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
+        val sel = buckets.getOrNull(selected)
+        Text(
+            if (sel != null) "${prettyDate(sel.start)}${if (sel.end != sel.start) " – ${prettyDate(sel.end)}" else ""} · ${fmt(metric, sel.valueOf(metric))} ${unit(metric)}"
+            else "${fmt(metric, max)} ${unit(metric)} at most · drag to read a day",
+            style = MaterialTheme.typography.labelMedium, color = if (sel != null) c.text else c.textMuted,
+        )
         Spacer(Modifier.height(10.dp))
         Canvas(
-            Modifier.fillMaxWidth().height(150.dp).pointerInput(buckets) {
-                detectTapGestures { o ->
-                    val i = ((o.x / size.width) * buckets.size).toInt().coerceIn(0, buckets.lastIndex)
-                    onSelect(i)
+            Modifier.fillMaxWidth().height(150.dp)
+                .pointerInput(buckets) {
+                    detectTapGestures { o ->
+                        onSelect(((o.x / size.width) * buckets.size).toInt().coerceIn(0, buckets.lastIndex))
+                    }
                 }
-            },
+                .pointerInput(buckets) {
+                    var last = -1
+                    fun at(x: Float) = ((x / size.width) * buckets.size).toInt().coerceIn(0, buckets.lastIndex)
+                    detectHorizontalDragGestures(
+                        onDragStart = { o -> last = at(o.x); onScrub(last) },
+                        onDragEnd = { if (last >= 0) onSelect(last) },
+                        onDragCancel = { if (last >= 0) onSelect(last) },
+                        onHorizontalDrag = { change, _ -> last = at(change.position.x); onScrub(last) },
+                    )
+                },
         ) {
             val n = values.size
             val slot = size.width / n

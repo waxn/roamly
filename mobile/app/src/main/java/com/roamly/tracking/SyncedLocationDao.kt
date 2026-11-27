@@ -71,6 +71,28 @@ interface SyncedLocationDao {
         minLat: Double, maxLat: Double, minLng: Double, maxLng: Double,
     ): List<SyncedLocation>
 
+    /** Just time + position of every point in a tight box: the cheap read behind "have I been here?". */
+    @Query(
+        "SELECT timestampMs, lat, lng FROM synced_locations WHERE timestampMs < :beforeMs AND " +
+            "lat BETWEEN :minLat AND :maxLat AND lng BETWEEN :minLng AND :maxLng"
+    )
+    suspend fun spotRows(
+        minLat: Double, maxLat: Double, minLng: Double, maxLng: Double, beforeMs: Long,
+    ): List<SpotRow>
+
+    /** Any one labelled point in a box — names the area without scanning it. */
+    @Query(
+        "SELECT city, state FROM synced_locations WHERE city IS NOT NULL AND city != '' AND " +
+            "lat BETWEEN :minLat AND :maxLat AND lng BETWEEN :minLng AND :maxLng LIMIT 1"
+    )
+    suspend fun anyLabel(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double): CityState?
+
+    @Query(
+        "SELECT COUNT(*) FROM synced_locations WHERE city = :city COLLATE NOCASE AND " +
+            "lat BETWEEN :minLat AND :maxLat AND lng BETWEEN :minLng AND :maxLng"
+    )
+    suspend fun countCityInBox(city: String, minLat: Double, maxLat: Double, minLng: Double, maxLng: Double): Int
+
     /** Points within an explicit ms window — for custom date range and single-day views. */
     @Query(
         "SELECT * FROM synced_locations WHERE timestampMs >= :startMs AND timestampMs < :endMs " +
@@ -91,3 +113,6 @@ interface SyncedLocationDao {
     @Query("DELETE FROM synced_locations")
     suspend fun deleteAll()
 }
+
+data class SpotRow(val timestampMs: Long, val lat: Double, val lng: Double)
+data class CityState(val city: String?, val state: String?)

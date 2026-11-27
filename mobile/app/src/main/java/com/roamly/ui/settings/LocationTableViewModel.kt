@@ -3,6 +3,9 @@ package com.roamly.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.roamly.data.api.LocationTableRow
+import com.roamly.data.api.RawColumn
+import com.roamly.data.api.RawSourceInfo
+import com.roamly.data.api.RoamlyApi
 import com.roamly.data.repository.LocationRepository
 import com.roamly.data.repository.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -28,13 +31,21 @@ data class LocationTableUiState(
     val nextBeforeId: Int? = null,
     // device_id -> display name, for the filter dropdown.
     val devices: Map<String, String> = emptyMap(),
-)
+    // Other raw sources (generated, trash, cells, health, recaps…); "locations" is the point table above.
+    val source: String = "locations",
+    val sources: List<RawSourceInfo> = emptyList(),
+    val rawColumns: List<RawColumn> = emptyList(),
+    val rawRows: List<Map<String, Any?>> = emptyList(),
+) {
+    val sourceInfo: RawSourceInfo? get() = sources.firstOrNull { it.key == source }
+}
 
 private const val PAGE_SIZE = 1000
 
 @HiltViewModel
 class LocationTableViewModel @Inject constructor(
     private val repository: LocationRepository,
+    private val api: RoamlyApi,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LocationTableUiState())
@@ -44,13 +55,18 @@ class LocationTableViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(devices = repository.getDeviceNames()) }
         }
+        viewModelScope.launch {
+            val list = runCatching { api.getRawSources().body()?.sources }.getOrNull().orEmpty()
+            _uiState.update { it.copy(sources = list) }
+        }
         load(reset = true)
     }
 
     /** First page (or reload after a filter/sort change). */
     fun load(reset: Boolean = true) {
         val s = _uiState.value
-        _uiState.update { it.copy(isLoading = true, error = null, rows = if (reset) emptyList() else it.rows) }
+        _uiState.update { it.copy(isLoading = true, error = null, rows = if (reset) emptyList() else it.rows, rawRows = if (reset) emptyList() else it.rawRows) }
+        if (s.source != "locations") { loadRaw(s, null, null); return }
         viewModelScope.launch {
             when (val res = repository.getLocationsTable(
                 range = s.range, deviceId = s.deviceId,
@@ -81,6 +97,7 @@ class LocationTableViewModel @Inject constructor(
         val s = _uiState.value
         if (!s.hasMore || s.isLoadingMore || s.isLoading || s.nextBeforeValue == null) return
         _uiState.update { it.copy(isLoadingMore = true) }
+        if (s.source != "locations") { loadRaw(s, s.nextBeforeValue, s.nextBeforeId); return }
         viewModelScope.launch {
             when (val res = repository.getLocationsTable(
                 range = s.range, deviceId = s.deviceId,
@@ -100,6 +117,41 @@ class LocationTableViewModel @Inject constructor(
                 is Result.Error -> _uiState.update { it.copy(isLoadingMore = false, error = res.message) }
             }
         }
+    }
+
+    private fun loadRaw(s: LocationTableUiState, beforeValue: String?, beforeId: Int?) {
+        viewModelScope.launch {
+            val info = s.sourceInfo
+            val resp = runCatching {
+                api.getRawSource(
+                    key = s.source,
+                    hours = if (s.range == "all" || info?.range == false) null else s.range.toIntOrNull(),
+                    all = if (s.range == "all") 1 else null,
+                    deviceId = if (info?.device == false) null else s.deviceId?.ifBlank { null },
+                    beforeValue = beforeValue, beforeId = beforeId,
+                ).body()
+            }.getOrNull()
+            if (resp == null) {
+                _uiState.update { it.copy(isLoading = false, isLoadingMore = false, error = "Couldn't load this data.") }
+                return@launch
+            }
+            _uiState.update {
+                it.copy(
+                    rawColumns = resp.columns.orEmpty().filter { c -> c.type != "hidden" },
+                    rawRows = (if (beforeValue == null) emptyList() else it.rawRows) + resp.rows.orEmpty(),
+                    hasMore = resp.hasMore == true,
+                    nextBeforeValue = resp.nextBeforeValue,
+                    nextBeforeId = resp.nextBeforeId?.toInt(),
+                    isLoading = false, isLoadingMore = false,
+                )
+            }
+        }
+    }
+
+    fun setSource(key: String) {
+        if (key == _uiState.value.source) return
+        _uiState.update { it.copy(source = key, hasMore = false, nextBeforeValue = null, nextBeforeId = null) }
+        load(reset = true)
     }
 
     fun setRange(range: String) {
