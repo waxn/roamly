@@ -1555,21 +1555,56 @@ def _extras(user, metrics):
         logger.exception('achievements: flights')
 
     try:
-        per = (HealthSample.objects.filter(user=user, kind='steps')
+        from .models import HealthWorkout
+        # Per local day, per kind, per source — then the larger source wins, the
+        # same one-source-per-day rule the Health page uses so the two agree.
+        per = (HealthSample.objects.filter(user=user, kind__in=('steps', 'distance', 'calories_active'))
                .annotate(d=TruncDate('start_time')).order_by()
-               .values('d', 'source').annotate(v=Sum('value')))
-        best = {}
+               .values('d', 'kind', 'source').annotate(v=Sum('value')))
+        best = {'steps': {}, 'distance': {}, 'calories_active': {}}
         for r in per.iterator():
-            if r['v'] and r['v'] > best.get(r['d'], 0):
-                best[r['d']] = r['v']
-        if best:
-            bd = max(best.items(), key=lambda kv: kv[1])
-            total = sum(best.values())
-            out['health'] = {'steps': int(total), 'best_day': {'date': bd[0].isoformat(), 'steps': int(bd[1])},
-                             'days': len(best), 'avg': int(total / len(best)),
-                             'days_10k': sum(1 for v in best.values() if v >= 10000)}
-            metrics['steps_total'] = int(total)
-            metrics['best_step_day'] = int(bd[1])
+            if r['v'] and r['v'] > best[r['kind']].get(r['d'], 0):
+                best[r['kind']][r['d']] = r['v']
+        steps = best['steps']
+        workouts = HealthWorkout.objects.filter(user=user).count()
+        if steps or best['calories_active'] or workouts:
+            out['health'] = {'workouts': workouts}
+            if steps:
+                bd = max(steps.items(), key=lambda kv: kv[1])
+                total = sum(steps.values())
+                big = sorted(d for d, v in steps.items() if v >= 10000)
+                run = longest = 0
+                prev = None
+                for d in big:
+                    run = run + 1 if prev is not None and (d - prev).days == 1 else 1
+                    longest = max(longest, run)
+                    prev = d
+                by_year = {}
+                for d, v in steps.items():
+                    by_year[d.year] = by_year.get(d.year, 0) + v
+                out['health'].update({
+                    'steps': int(total), 'best_day': {'date': bd[0].isoformat(), 'steps': int(bd[1])},
+                    'days': len(steps), 'avg': int(total / len(steps)),
+                    'days_10k': len(big), 'streak_10k': longest,
+                    'by_year': [{'year': y, 'steps': int(v)} for y, v in sorted(by_year.items())],
+                })
+                metrics['steps_total'] = int(total)
+                metrics['best_step_day'] = int(bd[1])
+                metrics['steps_10k_days'] = len(big)
+                metrics['steps_10k_streak'] = longest
+            if best['distance']:
+                km_total = sum(best['distance'].values()) / 1000.0
+                out['health']['distance_km'] = round(km_total, 1)
+                metrics['health_distance_km'] = round(km_total, 1)
+            kc = best['calories_active']
+            if kc:
+                kd = max(kc.items(), key=lambda kv: kv[1])
+                out['health']['kcal_total'] = int(sum(kc.values()))
+                out['health']['best_kcal_day'] = {'date': kd[0].isoformat(), 'kcal': int(kd[1])}
+                metrics['kcal_active_total'] = int(sum(kc.values()))
+                metrics['best_kcal_day'] = int(kd[1])
+            if workouts:
+                metrics['workouts'] = workouts
     except Exception:
         logger.exception('achievements: health')
 
@@ -1673,7 +1708,7 @@ def _badges(user, metrics, reach):
 
     timeline = sorted(
         ({'badge': k[0], 'tier': k[1], 'at': _iso(u.unlocked_at),
-          'name': defs.BADGE_BY_ID[k[0]].name, 'emoji': defs.BADGE_BY_ID[k[0]].emoji}
+          'name': defs.BADGE_BY_ID[k[0]].name, 'icon': defs.BADGE_BY_ID[k[0]].icon}
          for k, u in have.items() if k[0] in defs.BADGE_BY_ID),
         key=lambda e: e['at'] or '', reverse=True)
     almost = sorted((r for r in rows if r['available'] and r['next'] is not None and r['progress'] > 0),
@@ -1686,7 +1721,7 @@ def _badges(user, metrics, reach):
         'total': len(rows), 'max_tiers': len(rows) * 4,
         'recent': timeline[:8], 'timeline': timeline[:120],
         'almost': [r['id'] for r in almost],
-        'groups': [{'id': g, 'name': n} for g, n in defs.GROUPS],
+        'groups': [{'id': g, 'name': n} for g, n in defs.GROUPS], 'schema': defs.SCHEMA,
         'tier_names': list(defs.TIER_NAMES), 'tier_xp': list(defs.TIER_XP),
     }
 

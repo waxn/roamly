@@ -74,8 +74,10 @@ DATA_TOOL_SCHEMAS = [
         {"start_date": {"type": "string"}, "end_date": {"type": "string"}},
         ["start_date", "end_date"]),
     _fn("get_achievements",
-        "The user's Achievements: level, XP, badges unlocked, recent unlocks, "
-        "the badges they are closest to, and headline exploration records."),
+        "The user's Achievements: level, XP, every badge with its tier and "
+        "progress (including the Health & Fitness ones: steps, 10k days, "
+        "calories, workouts), recent unlocks, the badges they are closest to, "
+        "and headline exploration and health records."),
     _fn("list_unvisited",
         "Countries, or US states, the user has never recorded a point in. "
         "Useful for trip ideas ('somewhere new').",
@@ -437,11 +439,19 @@ def get_achievements(user, **_):
                "next_at": by_id[i].get('next')} for i in game.get('almost', []) if i in by_id]
     metrics = {k: v for k, v in (p.get('metrics') or {}).items()
                if isinstance(v, (int, float, str)) and not isinstance(v, bool)}
+    tier_names = ['locked'] + list(game.get('tier_names') or [])
+    badges = [{"name": b.get('name'), "group": b.get('group'),
+               "tier": tier_names[b['tier']] if 0 <= b.get('tier', 0) < len(tier_names) else b.get('tier'),
+               "value": b.get('value'), "unit": b.get('unit'), "next_at": b.get('next')}
+              for b in game.get('badges', []) if isinstance(b, dict) and b.get('available')]
+    health = (p.get('extras') or {}).get('health')
+    recent = [{k: v for k, v in r.items() if k != 'icon'} for r in game.get('recent', [])[:8]]
     return {
         "level": game.get('level'), "badges_unlocked": game.get('unlocked'),
         "badges_total": game.get('total'), "tiers_earned": game.get('tiers_earned'),
-        "recent": game.get('recent', [])[:8], "closest_next": almost,
-        "metrics": dict(list(metrics.items())[:60]),
+        "recent": recent, "closest_next": almost, "badges": badges,
+        "health": health,
+        "metrics": dict(list(metrics.items())[:80]),
         "computed_for": p.get('computed_for'),
     }
 
