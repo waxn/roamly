@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.data.api.TripResponse
+import com.roamly.ui.kit.RefreshBox
 import com.roamly.ui.kit.AtlasButton
 import com.roamly.ui.kit.AtlasDialog
 import com.roamly.ui.kit.AtlasField
@@ -84,7 +85,8 @@ fun GroupsScreen(
                 body = "Start a trip to gather your route, photos and stories in one place — and share it with whoever came along.",
                 action = "New trip", onAction = tripsViewModel::showCreateDialog,
             )
-            else -> LazyColumn(
+            else -> RefreshBox(onRefresh = {tripsViewModel.loadTrips()}, modifier = Modifier.fillMaxSize()) {
+LazyColumn(
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = dockAwareBottom(96.dp)),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -92,6 +94,7 @@ fun GroupsScreen(
                     TripCard(trip, onClick = { onTripClick(trip.id) }, onLongClick = { pendingDelete = trip })
                 }
             }
+}
         }
         state.error?.let {
             ErrorNote(it, Modifier.align(Alignment.TopCenter).padding(horizontal = 20.dp), onRetry = tripsViewModel::loadTrips)

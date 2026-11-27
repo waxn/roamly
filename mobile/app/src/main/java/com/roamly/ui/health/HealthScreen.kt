@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.health.HealthConnectManager
+import com.roamly.ui.kit.RefreshBox
 import com.roamly.ui.kit.AtlasButton
 import com.roamly.ui.kit.AtlasDialog
 import com.roamly.ui.kit.ButtonKind
@@ -80,7 +81,8 @@ fun HealthScreen(
 
     Box(Modifier.fillMaxSize()) {
         PushedScreen(title = "Health", onBack = onBack, subtitle = "via Health Connect") {
-            Column(
+            RefreshBox(onRefresh = {viewModel.refresh()}, modifier = Modifier.fillMaxSize()) {
+Column(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = dockAwareBottom()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -170,6 +172,7 @@ fun HealthScreen(
                     }
                 }
             }
+}
         }
         Notice(state.message, viewModel::clearMessage, Modifier.align(Alignment.BottomCenter))
     }

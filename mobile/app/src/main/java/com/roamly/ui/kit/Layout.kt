@@ -470,3 +470,36 @@ fun Foldout(
 @Composable
 fun screenPadding(top: Dp = 4.dp): PaddingValues =
     PaddingValues(start = 20.dp, end = 20.dp, top = top, bottom = dockAwareBottom())
+
+/**
+ * Pull down from the top of a scrolling screen to refresh, with the elastic pull
+ * indicator. [onRefresh] is fire-and-forget (the view-models repaint in place when
+ * the data lands), so the spinner just holds long enough to be seen.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun RefreshBox(
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
+) {
+    var refreshing by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(refreshing) {
+        if (refreshing) { kotlinx.coroutines.delay(900); refreshing = false }
+    }
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = { refreshing = true; onRefresh() },
+        modifier = modifier,
+        indicator = {
+            androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator(
+                state = it,
+                isRefreshing = refreshing,
+                modifier = Modifier.align(Alignment.TopCenter),
+                containerColor = Atlas.colors.surfaceHigh,
+                color = Atlas.colors.accent,
+            )
+        },
+        content = content,
+    )
+}

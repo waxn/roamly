@@ -56,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.roamly.data.api.FlightDto
+import com.roamly.ui.kit.RefreshBox
 import com.roamly.ui.kit.AtlasButton
 import com.roamly.ui.kit.ButtonKind
 import com.roamly.ui.kit.Dot
@@ -117,7 +118,7 @@ fun FlightsScreen(
                 AtlasButton("Match tracks", viewModel::matchAllTracks, kind = ButtonKind.Ghost, compact = true)
             }
         }
-        Box(Modifier.weight(1f)) {
+        RefreshBox(onRefresh = { viewModel.load() }, modifier = Modifier.weight(1f)) {
             when {
                 state.loading && state.flights.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = c.accent) }
                 state.flights.isEmpty() -> Column {

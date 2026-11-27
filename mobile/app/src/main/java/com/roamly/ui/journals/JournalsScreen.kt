@@ -1,5 +1,6 @@
 package com.roamly.ui.journals
 
+import com.roamly.ui.kit.RefreshBox
 import com.roamly.ui.kit.Units
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -105,7 +106,8 @@ fun JournalsScreen(
     val c = Atlas.colors
 
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(
+        RefreshBox(onRefresh = {viewModel.refresh()}, modifier = Modifier.fillMaxSize()) {
+LazyColumn(
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = dockAwareBottom(96.dp)),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -143,6 +145,7 @@ fun JournalsScreen(
                 }
             }
         }
+}
         // With no entries the empty state carries this action instead.
         if (state.recent.isNotEmpty()) {
             AtlasButton(

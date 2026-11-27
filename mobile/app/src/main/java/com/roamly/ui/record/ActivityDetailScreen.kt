@@ -1,5 +1,6 @@
 package com.roamly.ui.record
 
+import com.roamly.ui.kit.RefreshBox
 import com.roamly.ui.kit.Units
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -85,8 +86,8 @@ class ActivityDetailViewModel @Inject constructor(
 
     fun load(id: Int) {
         if (loadedId == id) return
+        if (loadedId != -1 || _state.value.activity != null) { /* refresh: keep what is shown */ } else _state.value = ActivityDetailState()
         loadedId = id
-        _state.value = ActivityDetailState()
         viewModelScope.launch {
             // Last-seen copy first (a finished activity never changes), then refresh.
             val cAct = disk.get<ActivityDto>("activity_$id", ActivityDto::class.java)
@@ -126,6 +127,9 @@ class ActivityDetailViewModel @Inject constructor(
         )
     }
 
+    /** Pull-to-refresh: fetch again, keeping what is on screen meanwhile. */
+    fun reload(id: Int) { if (_state.value.activity == null && _state.value.segments.isEmpty()) _state.value = ActivityDetailState(); loadedId = -1; load(id) }
+
     fun delete(onDone: () -> Unit) {
         val id = loadedId
         viewModelScope.launch {
@@ -153,7 +157,8 @@ fun ActivityDetailScreen(id: Int, onBack: () -> Unit, viewModel: ActivityDetailV
             if (act != null) IconAction(Icons.Rounded.DeleteOutline, "Delete", { confirmDelete = true }, container = c.surfaceHigh)
         },
     ) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        RefreshBox(onRefresh = {viewModel.reload(id)}, modifier = Modifier.fillMaxSize()) {
+Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             state.error?.let { ErrorNote(it) }
             Box(Modifier.fillMaxWidth().height(300.dp).clip(SquircleShape(SquircleRadius.panel))) {
                 when {
@@ -196,6 +201,7 @@ fun ActivityDetailScreen(id: Int, onBack: () -> Unit, viewModel: ActivityDetailV
             }
             Spacer(Modifier.height(24.dp))
         }
+}
     }
 
     if (confirmDelete) {

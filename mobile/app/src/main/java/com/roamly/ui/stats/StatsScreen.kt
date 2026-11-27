@@ -54,6 +54,7 @@ import com.roamly.data.api.CountryVisit
 import com.roamly.data.api.PeriodStats
 import com.roamly.data.api.StatsResponse
 import com.roamly.data.api.YearlyOverviewResponse
+import com.roamly.ui.kit.RefreshBox
 import com.roamly.ui.kit.ErrorNote
 import com.roamly.ui.kit.Eyebrow
 import com.roamly.ui.kit.Feel
@@ -92,7 +93,8 @@ fun StatsScreen(
             return@PushedScreen
         }
         val countryMax = remember(state.topCountries) { state.topCountries.maxOfOrNull { it.locationCount } ?: 1 }
-        LazyColumn(
+        RefreshBox(onRefresh = {viewModel.load()}, modifier = Modifier.fillMaxSize()) {
+LazyColumn(
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = dockAwareBottom()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -132,6 +134,7 @@ fun StatsScreen(
                 itemsIndexed(state.topCities) { i, cv -> CityRow(i + 1, cv) }
             }
         }
+}
     }
 }
 
