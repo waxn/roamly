@@ -40,6 +40,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -481,25 +482,27 @@ fun screenPadding(top: Dp = 4.dp): PaddingValues =
 fun RefreshBox(
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
-    content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
+    content: @Composable () -> Unit,
 ) {
     var refreshing by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(refreshing) {
         if (refreshing) { kotlinx.coroutines.delay(900); refreshing = false }
     }
+    val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = { refreshing = true; onRefresh() },
         modifier = modifier,
+        state = pullState,
         indicator = {
             androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator(
-                state = it,
+                state = pullState,
                 isRefreshing = refreshing,
                 modifier = Modifier.align(Alignment.TopCenter),
                 containerColor = Atlas.colors.surfaceHigh,
                 color = Atlas.colors.accent,
             )
         },
-        content = content,
+        content = { content() },
     )
 }
