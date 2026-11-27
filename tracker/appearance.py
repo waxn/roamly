@@ -10,12 +10,20 @@ separate layer of CSS (and sometimes JS) under tracker/static/tracker/styles/:
   background  what sits behind       backgrounds/<id>.css  html[data-bg]
   extras      small behaviours       extras.css/.js        html[data-fx~=…]
   size, motion                       facets.css            html[data-size|motion]
+  layout      the page frame         layouts/<id>.css+js   html[data-layout]
 
 A preset is just a named set of facet values. Field Journal is the default:
 every facet `field` except the shape, which is `squircle`, so the default
 look sets `data-shape` and loads facets.css. An appearance saved before
 squircle became the default keeps the square `field` shape it stored. Presets never touch size or motion, which are
 personal comfort settings rather than part of a look.
+
+Layout is the odd one out: it is not a look but a different arrangement of the
+app (navigation, the home screen, a few redesigned pages), so it is never part
+of a preset, `matching_preset` ignores it, and `sanitize` always keeps the
+value it was given. `classic` is today's UI and loads nothing. Because layouts
+change markup as well as CSS, the server decides it (tracker/layouts.py) and
+the client only mirrors that value.
 
 Pure Python on purpose (no Django imports): the context processor maps the
 paths through `static()`, and the offline preview harness imports it as is.
@@ -118,6 +126,14 @@ EXTRAS = [
     ('pop', 'Tiles pop in', 'bento', 'entrance'),
 ]
 
+# (id, name, blurb, has_js). Classic is the existing UI and loads nothing.
+LAYOUTS = [
+    ('classic', 'Classic', 'The navigation bar and pages you know.', False),
+    ('atlas', 'Atlas', 'Map first. The map is the home screen and Visits, Places and Journals slide over it.', True),
+    ('chronicle', 'Chronicle', 'Time first. A day-by-day feed of your life beside the map.', True),
+    ('hearth', 'Hearth', 'A home of live cards: today, memories, stats, health and family at a glance.', True),
+]
+
 SIZES = [('s', 'Small'), ('m', 'Default'), ('l', 'Large'), ('xl', 'Extra large')]
 MOTIONS = [('full', 'Full'), ('calm', 'Calm')]
 
@@ -166,13 +182,14 @@ _IDS = {
     'shape': [s[0] for s in SHAPES],
     'type': [t[0] for t in TYPES],
     'bg': [b[0] for b in BACKGROUNDS],
+    'layout': [l[0] for l in LAYOUTS],
     'size': [s[0] for s in SIZES],
     'motion': [m[0] for m in MOTIONS],
 }
 _EXTRA_IDS = [e[0] for e in EXTRAS]
 _EXCLUSIVE = {e[0]: e[3] for e in EXTRAS if e[3]}
 PRESET_IDS = [p[0] for p in PRESETS]
-DEFAULT = dict(PRESETS[0][3], size='m', motion='full')
+DEFAULT = dict(PRESETS[0][3], size='m', motion='full', layout='classic')
 
 
 def preset(pid):
@@ -235,6 +252,9 @@ def registry(static):
         'bg': [{'id': i, 'name': n, 'css': s(f'backgrounds/{i}.css') if i not in ('field',) else '',
                 'js': s(f'backgrounds/{i}.js') if js else ''} for i, n, js in BACKGROUNDS],
         'extras': [{'id': i, 'name': n, 'from': f, 'group': g} for i, n, f, g in EXTRAS],
+        'layout': [{'id': i, 'name': n, 'blurb': b,
+                    'css': s(f'layouts/{i}.css') if i != 'classic' else '',
+                    'js': s(f'layouts/{i}.js') if js else ''} for i, n, b, js in LAYOUTS],
         'size': [{'id': i, 'name': n} for i, n in SIZES],
         'motion': [{'id': i, 'name': n} for i, n in MOTIONS],
         'facets_css': s('facets.css'),
