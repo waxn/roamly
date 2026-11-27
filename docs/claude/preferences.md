@@ -46,3 +46,7 @@ All stored in `localStorage` with `roamly_` prefix:
 | `roamly_cell_towers` | on / off | off (derived tower positions; **always all-time**, never date-filtered) |
 | `roamly_hide_track` | on / off | off (hide the GPS layers so the cell layers read alone) |
 | `roamly_editor_min_gap_s` | 5–900 (seconds) | 60 (map editor: recorded points further apart than this are a gap to fill) |
+| `roamly_atlas_panel_w` | 360–720 (px) | 440 (Atlas layout: width of the map side panel; saved when you drag or key-resize its edge) |
+| `roamly_hearth_collapsed` | 1 / 0 | 0 (Hearth layout: sidebar collapsed to the 64px icon rail) |
+| `roamly_ch_map_hidden` | 1 / 0 | 0 (Chronicle layout, phone: the map strip above the feed is collapsed) |
+| `roamly_ch_date` | YYYY-MM-DD (**sessionStorage**) | unset (Chronicle: the day last selected, so switching sections keeps it; `?d=` wins) |
