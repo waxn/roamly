@@ -169,7 +169,10 @@ class StatsViewModel @Inject constructor(
         val start = from.toString(); val end = to.toString()
         rangeJob = viewModelScope.launch {
             launch {
-                val st = (locationRepository.getStats(startDate = start, endDate = end) as? Result.Success)?.data
+                val st = when (val r = locationRepository.getStats(startDate = start, endDate = end)) {
+                    is Result.Success -> r.data
+                    is Result.Error -> null
+                }
                 if (st != null) _uiState.update { if (it.range == range) it.copy(rangeStats = st) else it }
             }
             launch {
