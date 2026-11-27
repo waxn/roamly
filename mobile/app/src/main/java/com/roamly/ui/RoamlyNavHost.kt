@@ -427,26 +427,30 @@ fun RoamlyNavHost() {
 // slides in from the right over the one beneath, which drifts left and dims.
 
 private const val TAB_MS = 150
-private const val PUSH_MS = 240
+private const val PUSH_MS = 220
+
+// Pages travel the full width on a plain ease so the back gesture drags the page
+// off with the finger and finishes in one move: no shrinking, no stall, no fade.
+private val PushEase = androidx.compose.animation.core.CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabSwap() =
     initialState.isTab() && targetState.isTab()
 
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.enter(): EnterTransition =
     if (tabSwap()) fadeIn(tween(TAB_MS)) + scaleIn(tween(TAB_MS), initialScale = 0.985f)
-    else slideInHorizontally(tween(PUSH_MS)) { it / 3 } + fadeIn(tween(PUSH_MS / 2))
+    else slideInHorizontally(tween(PUSH_MS, easing = PushEase)) { it }
 
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.exit(): ExitTransition =
     if (tabSwap()) fadeOut(tween(TAB_MS / 2))
-    else slideOutHorizontally(tween(PUSH_MS)) { -it / 8 } + fadeOut(tween(PUSH_MS), targetAlpha = 0.4f)
+    else slideOutHorizontally(tween(PUSH_MS, easing = PushEase)) { -it / 5 }
 
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.popEnter(): EnterTransition =
     if (tabSwap()) fadeIn(tween(TAB_MS))
-    else slideInHorizontally(tween(PUSH_MS)) { -it / 8 } + fadeIn(tween(PUSH_MS), initialAlpha = 0.4f)
+    else slideInHorizontally(tween(PUSH_MS, easing = PushEase)) { -it / 5 }
 
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.popExit(): ExitTransition =
     if (tabSwap()) fadeOut(tween(TAB_MS / 2)) + scaleOut(tween(TAB_MS), targetScale = 0.985f)
-    else slideOutHorizontally(tween(PUSH_MS)) { it / 3 } + fadeOut(tween(PUSH_MS / 2))
+    else slideOutHorizontally(tween(PUSH_MS, easing = PushEase)) { it }
 
 /** Walk the ContextWrapper chain to the hosting Activity, if there is one. */
 private fun android.content.Context.findActivity(): android.app.Activity? {

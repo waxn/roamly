@@ -87,6 +87,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.animation.core.tween
+import com.roamly.ui.kit.AtlasSheet
 import com.roamly.ui.kit.EmptyState
 import com.roamly.ui.kit.LocalDockPadding
 import com.roamly.ui.kit.ScreenHeader
@@ -125,7 +126,7 @@ fun RecordScreen(
     viewModel: RecordViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
-    var kind by rememberSaveable { mutableStateOf("ride") }
+    var pickKind by remember { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<ActivityDto?>(null) }
     val haptics = rememberHaptics()
@@ -152,7 +153,6 @@ fun RecordScreen(
             Box(Modifier.fillMaxSize().background(Atlas.colors.bg)) {
                 Column(Modifier.fillMaxSize()) {
                     ScreenHeader(title = "Activity")
-                    KindRow(kind) { haptics.select(); kind = it }
                     state.error?.let { ErrorNote(it, Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
                     when {
                         state.recent.isEmpty() && state.loadingRecent -> Box(Modifier.fillMaxWidth().padding(20.dp)) {
@@ -160,7 +160,7 @@ fun RecordScreen(
                         }
                         state.recent.isEmpty() -> EmptyState(
                             Icons.Rounded.DirectionsRun, "Nothing recorded yet",
-                            body = "Pick what you're doing and press Start. Your rides, runs and walks will gather here.",
+                            body = "Press Record, pick what you're doing and go. Your rides, runs and walks will gather here.",
                         )
                         else -> LazyVerticalGrid(
                             columns = GridCells.Fixed(2),
@@ -176,10 +176,17 @@ fun RecordScreen(
                     }
                 }
                 StartBar(
-                    label = "Start ${(KINDS.firstOrNull { it.slug == kind }?.label ?: "activity").lowercase()}",
+                    label = "Record an activity",
                     modifier = Modifier.align(Alignment.BottomCenter).padding(start = 20.dp, end = 20.dp, bottom = dock + 10.dp),
-                ) { haptics.thud(); viewModel.start(kind) }
+                ) { haptics.thud(); pickKind = true }
             }
+        }
+    }
+
+    if (pickKind) {
+        AtlasSheet(onDismiss = { pickKind = false }, title = "What are you doing?") {
+            KindGrid { k -> pickKind = false; haptics.thud(); viewModel.start(k.slug) }
+            Spacer(Modifier.height(16.dp))
         }
     }
 
@@ -209,26 +216,21 @@ fun RecordScreen(
     }
 }
 
-/** What you're about to do: one row of tiles that scrolls sideways. */
+/** Pick the activity: choosing a kind starts recording straight away. */
 @Composable
-private fun KindRow(selected: String, onSelect: (String) -> Unit) {
+private fun KindGrid(onPick: (Kind) -> Unit) {
     val c = Atlas.colors
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        KINDS.forEach { k ->
-            val on = k.slug == selected
-            Panel(
-                Modifier.width(78.dp),
-                tone = if (on) PanelTone.Accent else PanelTone.Raised,
-                padding = PaddingValues(vertical = 12.dp),
-                onClick = { onSelect(k.slug) },
-            ) {
-                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(k.icon, null, tint = if (on) c.accent else c.textMuted, modifier = Modifier.size(26.dp))
-                    Spacer(Modifier.height(6.dp))
-                    Text(k.label, style = MaterialTheme.typography.labelLarge, color = if (on) c.accent else c.text)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        KINDS.chunked(3).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { k ->
+                    Panel(Modifier.weight(1f), tone = PanelTone.Raised, padding = PaddingValues(vertical = 14.dp), onClick = { onPick(k) }) {
+                        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(k.icon, null, tint = c.accent, modifier = Modifier.size(28.dp))
+                            Spacer(Modifier.height(6.dp))
+                            Text(k.label, style = MaterialTheme.typography.labelLarge, color = c.text)
+                        }
+                    }
                 }
             }
         }

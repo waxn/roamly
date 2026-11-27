@@ -54,9 +54,9 @@ fun TripsTabScreen(
 ) {
     var page by rememberSaveable { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize().background(Atlas.colors.bg)) {
-        ScreenHeader(title = if (page == 0) "Adventures" else "Journal", eyebrow = "Trips")
+        ScreenHeader(title = if (page == 0) "Adventures" else "Daily journal", eyebrow = if (page == 0) "Trips" else "Day by day")
         SegmentedSwitch(
-            options = listOf("Adventures", "Journal"),
+            options = listOf("Adventures", "Days"),
             selected = page,
             onSelect = { page = it },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),

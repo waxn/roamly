@@ -179,7 +179,7 @@ private fun Composer(value: String, onValueChange: (String) -> Unit, enabled: Bo
             )
         }
         Box(
-            Modifier.size(44.dp).clip(SquircleShape(50)).background(if (canSend) c.accent else c.surfaceHighest)
+            Modifier.size(44.dp).clip(SquircleShape(SquircleRadius.panel - 6.dp)).background(if (canSend) c.accent else c.surfaceHighest)
                 .tappable(enabled = canSend, feel = Feel.None, pressedScale = 0.85f, onClick = onSend),
             contentAlignment = Alignment.Center,
         ) {
