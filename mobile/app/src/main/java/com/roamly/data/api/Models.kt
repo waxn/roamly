@@ -904,6 +904,14 @@ data class ActivityTrackResponse(
     @SerializedName("point_count") val pointCount: Int = 0,
     val start: List<Double>? = null,
     val end: List<Double>? = null,
+    /** Even-in-time series for the speed/elevation charts (per segment, like [segments]). */
+    val chart: ActivityChartSeries? = null,
+)
+
+data class ActivityChartSeries(
+    val times: List<List<Double?>>? = null,
+    val speeds: List<List<Double?>>? = null,
+    val elevations: List<List<Double?>>? = null,
 )
 
 // --- Family Circle (mutual location sharing + place enter/exit alerts) ---

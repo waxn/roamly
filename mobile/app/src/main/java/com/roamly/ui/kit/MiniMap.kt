@@ -100,7 +100,13 @@ fun MapView.fitTo(points: List<GeoPoint>, paddingPx: Int = 64) {
         }
         invalidate()
     }
-    if (width > 0 && height > 0) run() else post { run() }
+    if (width > 0 && height > 0) run()
+    else {
+        // Not measured yet (a map swapped in after its data arrived): framing now would
+        // fit to a 0×0 box and leave the map on world zoom, so wait for the first layout.
+        addOnFirstLayoutListener { _, _, _, _, _ -> run() }
+        post { if (width > 0 && height > 0) run() }
+    }
 }
 
 /** A single track on a static map: the journal day card, a recording summary. */
