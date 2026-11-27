@@ -460,3 +460,5 @@ private fun android.content.Context.findActivity(): android.app.Activity? {
 
 internal val DOCK_HEIGHT = 68.dp
 internal val DOCK_MARGIN = 14.dp
+/** Same side inset as the map's controls, so the dock lines up with them. */
+internal val DOCK_SIDE = 14.dp

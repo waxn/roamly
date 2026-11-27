@@ -17,12 +17,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -44,8 +45,6 @@ import com.roamly.ui.kit.rememberHaptics
 import com.roamly.ui.kit.tappable
 import com.roamly.ui.theme.Atlas
 import com.roamly.ui.theme.SquircleShape
-
-private val SLOT = 76.dp
 
 /**
  * The floating bar: a frosted pill hovering at the bottom with one slot per
@@ -75,7 +74,8 @@ internal fun FloatingNav(
         Box(
             Modifier
                 .navigationBarsPadding()
-                .padding(bottom = DOCK_MARGIN)
+                .padding(start = DOCK_SIDE, end = DOCK_SIDE, bottom = DOCK_MARGIN)
+                .fillMaxWidth()
                 .shadow(8.dp, shape, ambientColor = c.shadow.copy(alpha = 0.35f), spotColor = c.shadow.copy(alpha = 0.35f))
                 .clip(shape)
                 .background(c.glass)
@@ -83,20 +83,23 @@ internal fun FloatingNav(
                 .height(DOCK_HEIGHT)
                 .padding(horizontal = 6.dp),
         ) {
-            val x by animateDpAsState(SLOT * selectedSlot, AtlasMotion.glide(), label = "navIndicator")
-            if (selected != null) {
-                Box(
-                    Modifier
-                        .offset(x = x + 5.dp)
-                        .align(Alignment.CenterStart)
-                        .size(width = SLOT - 10.dp, height = DOCK_HEIGHT - 14.dp)
-                        .clip(SquircleShape(50))
-                        .background(c.accentSoft)
-                )
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                val slot = maxWidth / tabs.size.coerceAtLeast(1)
+                val x by animateDpAsState(slot * selectedSlot, AtlasMotion.glide(), label = "navIndicator")
+                if (selected != null) {
+                    Box(
+                        Modifier
+                            .offset(x = x + 5.dp)
+                            .align(Alignment.CenterStart)
+                            .size(width = slot - 10.dp, height = DOCK_HEIGHT - 14.dp)
+                            .clip(SquircleShape(50))
+                            .background(c.accentSoft)
+                    )
+                }
             }
-            Row(Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                 tabs.forEach { tab ->
-                    NavItem(tab, tab == selected, live = recording && tab == Tab.Record) {
+                    NavItem(tab, tab == selected, live = recording && tab == Tab.Record, Modifier.weight(1f)) {
                         if (tab != selected) haptics.select()
                         onSelect(tab)
                     }
@@ -107,13 +110,12 @@ internal fun FloatingNav(
 }
 
 @Composable
-private fun NavItem(tab: Tab, selected: Boolean, live: Boolean, onClick: () -> Unit) {
+private fun NavItem(tab: Tab, selected: Boolean, live: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val c = Atlas.colors
     val tint by animateColorAsState(if (selected) c.accent else c.textMuted, label = "navTint")
     val lift by animateFloatAsState(if (selected) 1.08f else 1f, AtlasMotion.snappy(), label = "navLift")
     Column(
-        Modifier
-            .width(SLOT)
+        modifier
             .fillMaxHeight()
             .clip(SquircleShape(50))
             .tappable(feel = Feel.None, pressedScale = 0.88f, role = Role.Tab, onClick = onClick)

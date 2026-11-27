@@ -411,12 +411,12 @@ fun MapScreen(
         )
 
         // ── Bottom: record + been-here, above the sheet's peek ──────────
-        Column(
-            Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = dock + 12.dp),
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (!simpleMode) RecordFab(recording) { haptics.thud(); onRecord() }
+        if (!simpleMode) {
+            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = dock + 12.dp)) {
+                RecordFab(recording) { haptics.thud(); onRecord() }
+            }
+        }
+        Box(Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = dock + 12.dp)) {
             BeenHereButton(checking = checkingHere, onClick = askBeenHere)
         }
 

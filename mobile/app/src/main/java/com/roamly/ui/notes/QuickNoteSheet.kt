@@ -76,7 +76,8 @@ fun QuickNotePill(state: QuickNotesUiState, onClick: () -> Unit, modifier: Modif
             .background(c.glass)
             .border(1.dp, c.lineStrong, shape)
             .tappable(pressedScale = 0.95f, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 9.dp),
+            .height(46.dp)
+            .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Rounded.EditNote, null, tint = c.accent, modifier = Modifier.size(17.dp))
