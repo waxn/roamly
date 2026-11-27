@@ -6582,8 +6582,12 @@ def trips_api(request):
     return JsonResponse({"trips": data})
 
 
+# Sample size of the route previews; part of the cache key so a change takes effect at once.
+_TRIP_PREVIEW_POINTS = 200
+
+
 def _trip_preview(trip, loc_count):
-    """A coarse polyline ([[lat, lng], ...], ~60 points) so the app can draw a
+    """A coarse polyline ([[lat, lng], ...], ~200 points) so the app can draw a
     route preview on each Adventures card without fetching the whole track.
     Sampled by id stride in the database and cached; an ongoing trip's entry
     also rolls over hourly so it keeps growing."""
@@ -6591,7 +6595,7 @@ def _trip_preview(trip, loc_count):
         return []
     now = timezone.now()
     live = trip.end_time > now - timedelta(days=1)
-    key = f'trip_preview:{trip.id}:{trip.end_time.timestamp():.0f}:{loc_count}' + (f':{now:%Y%m%d%H}' if live else '')
+    key = f'trip_preview:{_TRIP_PREVIEW_POINTS}:{trip.id}:{trip.end_time.timestamp():.0f}:{loc_count}' + (f':{now:%Y%m%d%H}' if live else '')
     cached = cache.get(key)
     if cached is not None:
         return cached
@@ -6599,13 +6603,14 @@ def _trip_preview(trip, loc_count):
     # The exact size (loc_count is capped), so a long trip's stride spans the whole
     # route rather than just its first stretch. Paid only on a cache miss.
     total = qs.count()
-    stride = max(1, total // 60)
+    n = _TRIP_PREVIEW_POINTS
+    stride = max(1, total // n)
     if stride > 1:
         qs = qs.annotate(_stride=F('id') % stride).filter(_stride=0)
-    out = [[round(la, 5), round(lo, 5)] for la, lo in qs.values_list('latitude', 'longitude')[:400]]
-    if len(out) > 120:  # id-stride is only roughly even; thin it to ~60 evenly
-        step = len(out) / 60.0
-        out = [out[int(i * step)] for i in range(60)] + [out[-1]]
+    out = [[round(la, 5), round(lo, 5)] for la, lo in qs.values_list('latitude', 'longitude')[:n * 7]]
+    if len(out) > n * 2:  # id-stride is only roughly even; thin it to ~n evenly
+        step = len(out) / float(n)
+        out = [out[int(i * step)] for i in range(n)] + [out[-1]]
     cache.set(key, out, 6 * 3600)
     return out
 
@@ -12877,11 +12882,11 @@ def journal_search_api(request):
     return JsonResponse({'entries': entries, 'count': len(entries)})
 
 
-def _journal_day_preview(user, d, tz_offset=0, n=60):
+def _journal_day_preview(user, d, tz_offset=0, n=150):
     """A coarse [[lat, lng], ...] of one day for the journal list's map snapshot
     (shown when the entry has no photo). Id-stride sampled in the database and
     cached, so a long list does not pay for each day's full track."""
-    key = f'jprev:{user.id}:{d.isoformat()}:{tz_offset}'
+    key = f'jprev:{n}:{user.id}:{d.isoformat()}:{tz_offset}'
     cached = cache.get(key)
     if cached is not None:
         return cached
