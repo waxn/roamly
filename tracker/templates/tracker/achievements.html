@@ -4,18 +4,37 @@
 
 {% block extra_css %}
 .ach { --t1: #b08d57; --t2: #a9b2ba; --t3: #d4a93a; --t4: #8fd3dc; }
-.ach-bar { display:flex; align-items:center; gap:0.6rem; justify-content:flex-end; margin:-0.5rem 0 1rem; flex-wrap:wrap; }
-.ach-bar .muted { font-size:0.75rem; color:var(--text-muted); font-weight:600; }
-.ach-job { flex:1 1 220px; max-width:360px; display:none; }
-.ach-job .track { background:var(--bg-input); height:6px; overflow:hidden; margin-bottom:0.25rem; }
+.ach svg.rico { flex:none; vertical-align:-0.2em; }
+.ach-actions { justify-content:flex-end; }
+.ach-actions .muted { font-size:0.75rem; color:var(--text-muted); font-weight:600; }
+.ach-actions .btn { gap:0.35rem; }
+.ach-job { flex:1 1 200px; width:220px; max-width:300px; display:none; }
+.ach-job .track { background:var(--bg-input); height:6px; overflow:hidden; margin-bottom:0.25rem; border-radius:var(--r-auto, 0); }
 .ach-job .fill { height:100%; width:0; background:var(--primary); transition:width 0.4s ease; }
 .ach-job .lbl { font-size:0.75rem; color:var(--text-muted); }
 
+/* Filter row: one button per category (single choice), plus a collapse toggle. */
+.ach-filters { display:flex; flex-wrap:wrap; gap:0.4rem; align-items:center; margin:1.25rem 0 0; }
+.ach-filter { display:inline-flex; align-items:center; gap:0.35rem; background:var(--bg-card); color:var(--text-muted);
+    border:1px solid var(--border); border-radius:var(--r-auto, 0); padding:0.3rem 0.65rem; cursor:pointer;
+    font-family:var(--font-body); font-size:0.75rem; font-weight:600; transition:background 0.15s, color 0.15s, border-color 0.15s; }
+.ach-filter:hover { color:var(--text); border-color:var(--border-strong); }
+.ach-filter.on { background:var(--primary-soft); color:var(--text); border-color:var(--border-bright); }
+.ach-filter.fold { margin-left:auto; background:transparent; }
+
 .sec { margin-top:2.25rem; }
-.sec-h { display:flex; align-items:baseline; gap:0.75rem; margin-bottom:0.9rem; border-bottom:1px solid var(--border); padding-bottom:0.45rem; }
+.sec-h { display:flex; align-items:center; gap:0.75rem; margin-bottom:0.9rem; border-bottom:1px solid var(--border); padding-bottom:0.45rem; cursor:pointer; user-select:none; }
+.sec-h:focus-visible { outline:2px solid var(--border-bright); outline-offset:3px; }
+.sec-h:hover h2 { color:var(--primary); }
 .sec-h h2 { font-family:var(--font-display); font-size:1.35rem; margin:0; color:var(--text); }
-.sec-h .em { font-size:1.3rem; }
+.sec-h .em { display:inline-flex; color:var(--primary); }
 .sec-h .sub { font-size:0.8125rem; color:var(--text-muted); margin-left:auto; text-align:right; }
+.sec-h .chev { display:inline-flex; color:var(--text-muted); transition:transform 0.2s; }
+/* Collapsed by height, not display:none — canvases and maps inside keep their
+   real width, so they are still drawn correctly when the section is reopened. */
+.sec.collapsed .sec-body { height:0; overflow:hidden; visibility:hidden; }
+.sec.collapsed .sec-h { margin-bottom:0; }
+.sec.collapsed .sec-h .chev { transform:rotate(-90deg); }
 .card h3 { font-size:0.8125rem; font-weight:600; color:var(--text-muted); margin:0 0 0.6rem; font-family:var(--font-body); }
 .mono { font-family:var(--font-mono); }
 .big { font-family:var(--font-display); font-size:2.2rem; line-height:1.05; color:var(--text); }
@@ -27,8 +46,8 @@
 .kv dd { margin:0; font-family:var(--font-mono); color:var(--text); text-align:right; }
 .kv dd a { color:inherit; text-decoration:underline dotted; }
 
-.pbar { background:var(--bg-input); height:8px; overflow:hidden; }
-.pbar > span { display:block; height:100%; background:var(--primary); transition:width 0.6s ease; }
+.pbar { background:var(--bg-input); height:8px; overflow:hidden; border-radius:var(--r-auto, 0); }
+.pbar > span { display:block; height:100%; background:var(--primary); transition:width 0.6s ease; border-radius:var(--r-auto, 0); }
 .pct-tile .big { font-size:2.6rem; }
 .pct-tile .of { font-size:0.8125rem; color:var(--text-muted); margin:0.25rem 0 0.6rem; font-family:var(--font-mono); }
 
@@ -46,17 +65,22 @@
 .hero-stats div { font-size:0.75rem; color:var(--text-muted); }
 .hero-stats b { display:block; font-family:var(--font-display); font-size:1.4rem; color:var(--text); font-weight:600; }
 .strip { display:flex; gap:0.5rem; flex-wrap:wrap; }
-.chip { display:inline-flex; align-items:center; gap:0.35rem; border:1px solid var(--border); padding:0.25rem 0.55rem; font-size:0.75rem; background:var(--bg-elevated); }
+.chip { display:inline-flex; align-items:center; gap:0.35rem; border:1px solid var(--border); border-radius:var(--r-auto, 0); padding:0.25rem 0.55rem; font-size:0.75rem; background:var(--bg-elevated); }
 .chip .pip { width:8px; height:8px; border-radius:50%; }
 
 /* Badges */
 .badge-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:0.75rem; }
+/* Tiles take the panel radius and hover edge the .card plate has, so they follow
+   the shape facet instead of staying square in a rounded theme. */
+.bdg, .tile, .compass .c, .alpha .L, .hemi div { border-radius:var(--r-3, var(--radius, 0)); transition:border-color 0.2s; }
+.bdg:hover, .tile:hover, .compass .c:hover, .alpha .L:hover { border-color:var(--border-strong); }
+.tag-list span, .stamp, .mapbox, .map-tip, .hw .c, .bdg .pips i, .bdg .nextp { border-radius:var(--r-auto, 0); }
 .bdg { border:1px solid var(--border); background:var(--bg-card); padding:0.8rem 0.75rem 0.7rem; position:relative; display:flex; flex-direction:column; gap:0.35rem; min-height:150px; }
-.bdg .medal { width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:1.45rem; border:3px solid var(--border); background:var(--bg-elevated); }
+.bdg .medal { width:46px; height:46px; border-radius:var(--r-auto, 50%); display:flex; align-items:center; justify-content:center; color:var(--text); border:3px solid var(--border); background:var(--bg-elevated); }
 .bdg[data-tier="1"] .medal { border-color:var(--t1); }
 .bdg[data-tier="2"] .medal { border-color:var(--t2); }
-.bdg[data-tier="3"] .medal { border-color:var(--t3); box-shadow:0 0 0 3px rgba(212,169,58,0.18); }
-.bdg[data-tier="4"] .medal { border-color:var(--t4); box-shadow:0 0 0 4px rgba(143,211,220,0.22); }
+.bdg[data-tier="3"] .medal { border-color:var(--t3); box-shadow:0 0 0 3px color-mix(in srgb, var(--t3) 20%, transparent); }
+.bdg[data-tier="4"] .medal { border-color:var(--t4); box-shadow:0 0 0 4px color-mix(in srgb, var(--t4) 24%, transparent); }
 .bdg[data-tier="0"] { opacity:0.62; }
 .bdg[data-tier="0"] .medal { filter:grayscale(1); }
 .bdg .nm { font-weight:600; font-size:0.875rem; color:var(--text); }
@@ -69,6 +93,8 @@
 .bdg .tiername { position:absolute; top:0.6rem; right:0.6rem; font-size:0.62rem; font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); }
 .bdg .nextp { height:3px; background:var(--bg-input); } .bdg .nextp span { display:block; height:100%; background:var(--primary); }
 .bdg-group-h { font-size:0.8125rem; font-weight:600; color:var(--text-muted); margin:1.2rem 0 0.55rem; }
+.kv dt svg { margin-right:0.2rem; }
+.card h3 svg { margin-right:0.15rem; color:var(--primary); }
 
 /* Tables */
 .tbl { width:100%; border-collapse:collapse; font-size:0.8125rem; }
@@ -109,7 +135,7 @@
 .compass .c { border:1px solid var(--border); padding:0.6rem 0.4rem; font-size:0.75rem; background:var(--bg-elevated); }
 .compass .c b { display:block; font-family:var(--font-display); font-size:1.05rem; color:var(--text); }
 .compass .c a { color:inherit; }
-.compass .mid { display:flex; align-items:center; justify-content:center; font-size:2rem; border:0; background:none; }
+.compass .mid { display:flex; align-items:center; justify-content:center; color:var(--primary); border:0; background:none; }
 
 .alpha { display:grid; grid-template-columns:repeat(auto-fill, minmax(52px, 1fr)); gap:0.4rem; }
 .alpha .L { border:1px solid var(--border); text-align:center; padding:0.4rem 0.2rem; background:var(--bg-elevated); }
@@ -124,7 +150,7 @@
 .lines { display:flex; flex-wrap:wrap; gap:0.4rem; margin-top:0.6rem; }
 
 .record { display:flex; gap:0.75rem; align-items:flex-start; }
-.record .ic { font-size:1.6rem; line-height:1; }
+.record .ic { line-height:1; color:var(--primary); flex:none; }
 .record .t { font-size:0.75rem; color:var(--text-muted); }
 .record .v { font-family:var(--font-display); font-size:1.4rem; color:var(--text); }
 .record .d { font-size:0.75rem; color:var(--text-muted); }
@@ -132,7 +158,8 @@
 
 .tile-row { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:0.75rem; }
 .tile { border:1px solid var(--border); background:var(--bg-card); padding:0.8rem; }
-.tile .ic { font-size:1.4rem; }
+.tile a { color:var(--link); }
+.tile .ic { line-height:1; color:var(--primary); margin-bottom:0.25rem; }
 .tile .v { font-family:var(--font-display); font-size:1.6rem; color:var(--text); }
 .tile .t { font-size:0.75rem; color:var(--text-muted); }
 .tile .s { font-size:0.7rem; color:var(--text-muted); margin-top:0.2rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -159,12 +186,12 @@
         <div>
             <h1>Achievements</h1>
         </div>
-    </div>
-    <div class="ach-bar">
-        <div class="ach-job" id="ach-job"><div class="track"><div class="fill" id="ach-job-fill"></div></div><div class="lbl" id="ach-job-lbl"></div></div>
-        <span class="muted" id="ach-updated">loading…</span>
-        <button class="btn btn-outline btn-sm" id="ach-rescan" title="Run the scan again now">↻ rescan</button>
-        <button class="btn btn-outline btn-sm" id="ach-stop" style="display:none;">stop</button>
+        <div class="toolbar-actions ach-actions">
+            <div class="ach-job" id="ach-job"><div class="track"><div class="fill" id="ach-job-fill"></div></div><div class="lbl" id="ach-job-lbl"></div></div>
+            <span class="muted" id="ach-updated">loading…</span>
+            <button class="btn btn-outline btn-sm" id="ach-rescan" title="Run the scan again now"><span data-ic="refresh" data-size="14"></span> rescan</button>
+            <button class="btn btn-outline btn-sm" id="ach-stop" style="display:none;"><span data-ic="stop" data-size="12"></span> stop</button>
+        </div>
     </div>
 
     <div id="ach-pending" style="display:none;" class="card">
@@ -188,10 +215,12 @@
             </div>
         </div>
 
+        <div class="ach-filters" id="ach-filters" role="toolbar" aria-label="Filter achievements"></div>
+
         <!-- Explorer -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">🧭</span><h2>Explorer</h2><span class="sub" id="exp-sub"></span></div>
-            <div class="grid grid-4" id="exp-tiles">
+        <section class="sec" data-key="explorer" data-cat="explorer" data-label="Explorer" data-group="explorer">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="compass" data-size="22"></span><h2>Explorer</h2><span class="sub" id="exp-sub"></span><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div class="grid grid-4" id="exp-tiles">
                 <div class="card pct-tile"><h3>Countries</h3><div class="big skeleton skel-statval"></div></div>
                 <div class="card pct-tile"><h3>US states</h3><div class="big skeleton skel-statval"></div></div>
                 <div class="card pct-tile"><h3>US counties</h3><div class="big skeleton skel-statval"></div></div>
@@ -211,108 +240,133 @@
                 <div class="card"><h3>Countries</h3><div class="tbl-wrap" id="country-table"></div></div>
             </div>
             <div id="abroad"></div>
+            </div>
         </section>
 
         <!-- Road Warrior -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">🛣️</span><h2>Road Warrior</h2><span class="sub" id="road-sub"></span></div>
-            <div id="roads"></div>
+        <section class="sec" data-key="roads" data-cat="roads" data-label="Roads" data-group="roads">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="road" data-size="22"></span><h2>Road Warrior</h2><span class="sub" id="road-sub"></span><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div id="roads"></div>
+            </div>
         </section>
 
         <!-- Speed & Distance -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">🏎️</span><h2>Speed &amp; Distance</h2></div>
-            <div class="grid grid-3" id="speed"></div>
+        <section class="sec" data-key="speed" data-cat="speed" data-label="Speed" data-group="distance">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="gauge" data-size="22"></span><h2>Speed &amp; Distance</h2><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div class="grid grid-3" id="speed"></div>
+            </div>
         </section>
 
         <!-- How You Move -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">🚶</span><h2>How You Move</h2><span class="sub" id="move-sub"></span></div>
-            <div class="grid grid-2" id="move"></div>
+        <section class="sec" data-key="move" data-cat="move" data-label="Movement">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="route" data-size="22"></span><h2>How You Move</h2><span class="sub" id="move-sub"></span><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div class="grid grid-2" id="move"></div>
+            </div>
         </section>
 
         <!-- Extremes -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">🧊</span><h2>Extremes</h2></div>
-            <div class="grid grid-2" id="extremes"></div>
+        <section class="sec" data-key="extremes" data-cat="extremes" data-label="Extremes">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="thermo" data-size="22"></span><h2>Extremes</h2><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div class="grid grid-2" id="extremes"></div>
+            </div>
         </section>
 
         <!-- Regulars -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">☕</span><h2>Your Regulars</h2><span class="sub" id="reg-sub"></span></div>
-            <div id="regulars"></div>
+        <section class="sec" data-key="regulars" data-cat="regulars" data-label="Regulars" data-group="regulars">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="coffee" data-size="22"></span><h2>Your Regulars</h2><span class="sub" id="reg-sub"></span><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div id="regulars"></div>
+            </div>
         </section>
 
         <!-- Rhythm -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">⏰</span><h2>Rhythm</h2></div>
-            <div class="grid grid-2" id="rhythm"></div>
+        <section class="sec" data-key="rhythm" data-cat="rhythm" data-label="Rhythm" data-group="rhythm">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="clock" data-size="22"></span><h2>Rhythm</h2><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div class="grid grid-2" id="rhythm"></div>
+            </div>
         </section>
 
         <!-- Big Days -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">🌪️</span><h2>Big Days</h2></div>
-            <div class="grid grid-3" id="bigdays"></div>
+        <section class="sec" data-key="bigdays" data-cat="bigdays" data-label="Big days" data-group="bigdays">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="wind" data-size="22"></span><h2>Big Days</h2><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div class="grid grid-3" id="bigdays"></div>
+            </div>
         </section>
 
         <!-- Climber -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">🏔️</span><h2>Climber</h2></div>
-            <div class="grid grid-3" id="climber"></div>
+        <section class="sec" data-key="climber" data-cat="climber" data-label="Climber" data-group="climber">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="mountain" data-size="22"></span><h2>Climber</h2><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div class="grid grid-3" id="climber"></div>
+            </div>
         </section>
 
         <!-- Journeys -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">🧳</span><h2>Epic Journeys</h2><span class="sub" id="jr-sub"></span></div>
-            <div class="grid grid-3" id="journeys"></div>
+        <section class="sec" data-key="journeys" data-cat="journeys" data-label="Journeys" data-group="journeys">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="suitcase" data-size="22"></span><h2>Epic Journeys</h2><span class="sub" id="jr-sub"></span><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div class="grid grid-3" id="journeys"></div>
+            </div>
         </section>
 
         <!-- Globe -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">🌐</span><h2>Globe-trotter</h2></div>
-            <div class="grid grid-3" id="globe"></div>
+        <section class="sec" data-key="globe" data-cat="globe" data-label="Globe" data-group="globe">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="globe" data-size="22"></span><h2>Globe-trotter</h2><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div class="grid grid-3" id="globe"></div>
+            </div>
         </section>
 
         <!-- Town collector -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">🔤</span><h2>Town Collector</h2><span class="sub" id="col-sub"></span></div>
-            <div id="collector"></div>
+        <section class="sec" data-key="collector" data-cat="collector" data-label="Collector" data-group="collector">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="letters" data-size="22"></span><h2>Town Collector</h2><span class="sub" id="col-sub"></span><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div id="collector"></div>
+            </div>
         </section>
 
         <!-- Nature & Culture -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">🌲</span><h2>Nature &amp; Culture</h2></div>
-            <div id="nature"></div>
+        <section class="sec" data-key="nature" data-cat="nature" data-label="Nature" data-group="nature">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="tree" data-size="22"></span><h2>Nature &amp; Culture</h2><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div id="nature"></div>
+            </div>
+        </section>
+
+        <!-- Health & Fitness -->
+        <section class="sec" data-key="health" data-cat="health" data-label="Health" data-group="health" id="health-sec">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="pulse" data-size="22"></span><h2>Health &amp; Fitness</h2><span class="sub" id="health-sub"></span><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div id="health"></div>
+            </div>
         </section>
 
         <!-- Sky & Body -->
-        <section class="sec" id="sky-sec">
-            <div class="sec-h"><span class="em">✈️</span><h2>Sky &amp; Body</h2></div>
-            <div class="tile-row" id="sky"></div>
+        <section class="sec" data-key="sky" data-cat="sky" data-label="Sky" data-group="sky" id="sky-sec">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="plane" data-size="22"></span><h2>Sky &amp; Signals</h2><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div class="tile-row" id="sky"></div>
+            </div>
         </section>
 
         <!-- Seasons & Years -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">🍂</span><h2>Seasons &amp; Years</h2></div>
-            <div class="grid grid-2" id="years"></div>
+        <section class="sec" data-key="years" data-cat="years" data-label="Years" data-group="years">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="calendar" data-size="22"></span><h2>Seasons &amp; Years</h2><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div class="grid grid-2" id="years"></div>
+            </div>
         </section>
 
         <!-- Timeline -->
-        <section class="sec">
-            <div class="sec-h"><span class="em">📜</span><h2>Milestones</h2><span class="sub">badges as you earned them</span></div>
-            <div class="card"><ul class="timeline" id="timeline"></ul></div>
+        <section class="sec" data-key="milestones" data-cat="badges" data-label="Badges">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="list" data-size="22"></span><h2>Milestones</h2><span class="sub">badges as you earned them</span><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div class="card"><ul class="timeline" id="timeline"></ul></div>
+            </div>
         </section>
 
         <!-- Badge wall -->
-        <section class="sec" style="margin-bottom:3rem;">
-            <div class="sec-h"><span class="em">🏅</span><h2>Badge Wall</h2><span class="sub" id="wall-sub"></span></div>
-            <div id="wall"></div>
+        <section class="sec" data-key="wall" data-cat="badges" data-label="Badges" style="margin-bottom:3rem;">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="true"><span class="em" data-ic="medal" data-size="22"></span><h2>Badge Wall</h2><span class="sub" id="wall-sub"></span><span class="chev" data-ic="chevron" data-size="18"></span></div>
+            <div class="sec-body">            <div id="wall"></div>
+            </div>
         </section>
     </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% static 'tracker/icons.js' %}"></script>
 <script>
 (function () {
 const WORLD_URL = "{% static 'tracker/data/world-countries.json' %}";
@@ -344,6 +398,8 @@ const PALETTE = () => ['--primary', '--clay-sky', '--clay-mint', '--clay-amber',
 const card = (title, body, extra = '') => `<div class="card" ${extra}><h3>${title}</h3>${body}</div>`;
 const pbar = (p, color) => `<div class="pbar"><span style="width:${Math.max(0, Math.min(100, p || 0))}%;${color ? 'background:' + color : ''}"></span></div>`;
 const dpr = () => window.devicePixelRatio || 1;
+// Line icons (static/tracker/icons.js); an unknown name draws a medal.
+const icon = (name, size = 18) => window.RoamlyIcons ? window.RoamlyIcons.svg(name, size) : '';
 
 function prepCanvas(c) {
     const r = c.getBoundingClientRect();
@@ -521,7 +577,7 @@ function choropleth(containerId, tipId, data, matchProp, visitedSet, opts = {}) 
         map.on('mousemove', 'f', e => {
             const p = e.features[0].properties;
             const v = opts.flag ? p.v : visitedSet.has(p[matchProp]);
-            tip.innerHTML = `<strong>${esc(p.name)}</strong>${p.state ? ', ' + esc(p.state) : ''}<br>${v ? '✓ visited' : 'not yet'}`;
+            tip.innerHTML = `<strong>${esc(p.name)}</strong>${p.state ? ', ' + esc(p.state) : ''}<br>${v ? icon('tick', 12) + ' visited' : 'not yet'}`;
             tip.style.opacity = '1'; tip.style.left = (e.point.x + 12) + 'px'; tip.style.top = (e.point.y + 12) + 'px';
         });
         map.on('mouseleave', 'f', () => { tip.style.opacity = '0'; });
@@ -555,6 +611,97 @@ function sortableTable(el, cols, rows) {
     render();
 }
 
+// ── Page chrome: icons, collapsible sections, category filter ─────────────
+const LS_FILTER = 'roamly_ach_filter', LS_FOLDED = 'roamly_ach_collapsed';
+const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } };
+let filter = lsGet(LS_FILTER, 'all');
+let folded = new Set((() => { try { return JSON.parse(lsGet(LS_FOLDED, '[]')); } catch (e) { return []; } })());
+const secs = () => [...document.querySelectorAll('#ach-root .sec')];
+
+// Sections with nothing to show (no flights, no health data…) are not offered
+// as filters and stay hidden whatever the filter says.
+function setEmpty(id, empty) { const el = $(id); if (el) { el.dataset.empty = empty ? '1' : ''; } }
+
+function hydrateIcons() {
+    document.querySelectorAll('[data-ic]').forEach(el => { el.innerHTML = icon(el.dataset.ic, +el.dataset.size || 18); });
+}
+
+function setFolded(sec, on) {
+    sec.classList.toggle('collapsed', on);
+    sec.querySelector('.sec-h').setAttribute('aria-expanded', on ? 'false' : 'true');
+    if (on) folded.add(sec.dataset.key); else folded.delete(sec.dataset.key);
+    lsSet(LS_FOLDED, JSON.stringify([...folded]));
+}
+
+function initSections() {
+    secs().forEach(sec => {
+        const head = sec.querySelector('.sec-h');
+        if (folded.has(sec.dataset.key)) { sec.classList.add('collapsed'); head.setAttribute('aria-expanded', 'false'); }
+        const toggle = e => {
+            if (e.target.closest('a')) return;           // links in a header stay links
+            setFolded(sec, !sec.classList.contains('collapsed'));
+            buildFilters();
+        };
+        head.addEventListener('click', toggle);
+        head.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); } });
+    });
+}
+
+function buildFilters() {
+    const seen = new Map();
+    secs().forEach(sec => {
+        if (sec.dataset.empty === '1' || seen.has(sec.dataset.cat)) return;
+        seen.set(sec.dataset.cat, { label: sec.dataset.label, ic: sec.querySelector('.em').dataset.ic });
+    });
+    if (filter !== 'all' && !seen.has(filter)) filter = 'all';
+    const chip = (f, label, ic) => `<button type="button" class="ach-filter${filter === f ? ' on' : ''}" data-f="${esc(f)}" aria-pressed="${filter === f}">${ic ? icon(ic, 14) : ''}${esc(label)}</button>`;
+    const visible = secs().filter(s => s.style.display !== 'none');
+    const allFolded = visible.length > 0 && visible.every(s => s.classList.contains('collapsed'));
+    $('ach-filters').innerHTML = chip('all', 'All', '') +
+        [...seen].map(([f, v]) => chip(f, v.label, v.ic)).join('') +
+        `<button type="button" class="ach-filter fold" data-fold="${allFolded ? 'open' : 'close'}">${icon('chevron', 14)}${allFolded ? 'Expand all' : 'Collapse all'}</button>`;
+}
+
+// One category at a time, or everything. Picking a category also opens it, and
+// the badge wall narrows to that category's badges so the page reads as one topic.
+function applyFilter() {
+    const groupOf = {};
+    secs().forEach(sec => { if (sec.dataset.group) groupOf[sec.dataset.cat] = sec.dataset.group; });
+    secs().forEach(sec => {
+        const cat = sec.dataset.cat, key = sec.dataset.key;
+        let show = filter === 'all' || cat === filter;
+        if (key === 'wall' && filter !== 'all' && filter !== 'badges') show = !!groupOf[filter];
+        if (key === 'milestones' && filter !== 'all' && filter !== 'badges') show = false;
+        sec.style.display = (sec.dataset.empty === '1' || !show) ? 'none' : '';
+    });
+    document.querySelectorAll('#wall .bdg-group').forEach(g => {
+        g.style.display = (filter === 'all' || filter === 'badges' || g.dataset.group === groupOf[filter]) ? '' : 'none';
+    });
+    document.querySelectorAll('#ach-filters .ach-filter[data-f]').forEach(b => {
+        const on = b.dataset.f === filter;
+        b.classList.toggle('on', on); b.setAttribute('aria-pressed', on);
+    });
+}
+
+$('ach-filters').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.fold) {
+        const close = b.dataset.fold === 'close';
+        secs().filter(s => s.style.display !== 'none').forEach(s => setFolded(s, close));
+        buildFilters();
+        return;
+    }
+    filter = b.dataset.f;
+    lsSet(LS_FILTER, filter);
+    if (filter !== 'all') secs().filter(s => s.dataset.cat === filter).forEach(s => setFolded(s, false));
+    applyFilter();
+    buildFilters();
+});
+hydrateIcons();
+initSections();
+
 // ── Sections ───────────────────────────────────────────────────────────────
 function renderHero(g, d) {
     const L = g.level;
@@ -571,10 +718,10 @@ function renderHero(g, d) {
     ].map(([v, l]) => `<div><b>${v}</b>${l}</div>`).join('');
     const byId = Object.fromEntries(g.badges.map(b => [b.id, b]));
     $('hero-recent').innerHTML = g.recent.length ? g.recent.map(r =>
-        `<span class="chip" title="${esc(fmtDate(r.at))}"><span class="pip" style="background:${tierColor(r.tier)}"></span>${r.emoji} ${esc(r.name)} <span class="note">${TIERS[r.tier]}</span></span>`).join('')
+        `<span class="chip" title="${esc(fmtDate(r.at))}"><span class="pip" style="background:${tierColor(r.tier)}"></span>${icon(r.icon, 14)} ${esc(r.name)} <span class="note">${TIERS[r.tier]}</span></span>`).join('')
         : '<span class="note">Nothing yet. Go somewhere new!</span>';
     $('hero-almost').innerHTML = g.almost.map(id => byId[id]).filter(Boolean).map(b =>
-        `<span class="chip">${b.emoji} ${esc(b.name)} <span class="mono">${Math.round(b.progress * 100)}%</span> → ${TIERS[b.tier + 1]}</span>`).join('') || '<span class="note">—</span>';
+        `<span class="chip">${icon(b.icon, 14)} ${esc(b.name)} <span class="mono">${Math.round(b.progress * 100)}%</span> → ${TIERS[b.tier + 1]}</span>`).join('') || '<span class="note">—</span>';
 }
 
 function pctTile(title, v, t, p, extra) {
@@ -621,7 +768,7 @@ function renderExplorer(d) {
     const rows = (us.rows || []);
     if (rows.length) {
         sortableTable($('state-table'), [
-            { key: 'state', label: 'State', fmt: r => `${r.visited ? '✓ ' : ''}${r.visited ? placeLink(r.state, { state: r.state }) : esc(r.state)}` },
+            { key: 'state', label: 'State', fmt: r => `${r.visited ? icon('tick', 12) + ' ' : ''}${r.visited ? placeLink(r.state, { state: r.state }) : esc(r.state)}` },
             { key: 'place_v', label: 'Towns', num: true, fmt: r => r.place_t ? `${r.place_v}/${r.place_t}` : r.place_v },
             { key: 'cousub_v', label: 'Townships', num: true, fmt: r => r.cousub_t ? `${r.cousub_v}/${r.cousub_t}` : '—' },
             { key: 'county_v', label: 'Counties', num: true, fmt: r => r.county_t ? `${r.county_v}/${r.county_t}` : '—' },
@@ -665,7 +812,7 @@ function renderExplorer(d) {
         if (gj) choropleth(`map-ab-${a.cc}`, `tip-ab-${a.cc}`, gj, 'name', null, { flag: true, fitAll: true, maxZoom: 7, link: unitUrl });
         if ((a.regions || []).length) {
             sortableTable($(`tbl-ab-${a.cc}`), [
-                { key: 'name', label: 'Region', fmt: r => `${(a.visited_regions || []).includes(r.name) ? '✓ ' : ''}${esc(r.name)}` },
+                { key: 'name', label: 'Region', fmt: r => `${(a.visited_regions || []).includes(r.name) ? icon('tick', 12) + ' ' : ''}${esc(r.name)}` },
                 { key: 'adm2_v', label: 'Districts', num: true, fmt: r => `${r.adm2_v}/${r.adm2_t}` },
             ], a.regions);
         } else {
@@ -699,7 +846,7 @@ function renderRoads(d) {
     </div>
     <div class="grid grid-2" style="margin-top:1rem;">
         ${card('Big towns you have barely explored', r.barely.length ? `<ul class="rank">${r.barely.map(a => `<li><span>${placeLink(a.name, { city: a.name, state: a.state })}<span class="sub">${esc(a.state)}</span></span><span class="n">${pctS(a.pct)} of ${km(a.total_km)}</span></li>`).join('')}</ul>` : '<div class="empty">None. You get around.</div>')}
-        ${card(`Completionist <span class="note">— 90%+ of roads</span>`, r.completionist.length ? `<div class="tag-list">${r.completionist.map(n => `<span>✅ ${esc(n)}</span>`).join('')}</div>` : '<div class="empty">No town at 90% yet. The closest are at the top of the list.</div>')}
+        ${card(`Completionist <span class="note">— 90%+ of roads</span>`, r.completionist.length ? `<div class="tag-list">${r.completionist.map(n => `<span>${icon('check', 12)} ${esc(n)}</span>`).join('')}</div>` : '<div class="empty">No town at 90% yet. The closest are at the top of the list.</div>')}
     </div>
     <p class="note" style="margin-top:0.6rem;">Percentages count only roads Roamly has mapped. Road data is downloaded around where people on this instance travel, so the edges of a county can be missing.</p>`;
     const types = r.types.filter(t => t.km > 0);
@@ -726,10 +873,10 @@ function renderSpeed(d) {
             <div class="note" style="text-align:center;">${mx ? `${dayLink(localDay(mx.ts))} · ${ptLink(mx.lat, mx.lon, 'where', 16, mx.ts)}` : 'No trustworthy speed readings yet.'}</div>
             <div class="note" style="text-align:center;margin-top:0.25rem;">Taken from five readings in a row that agree with how far you actually moved, so one glitch can't set the record.</div></div>
         ${card('Fastest by way of travel', `<dl class="kv">
-            <dt>🚶 Walking</dt><dd>${bm.walk ? kmh(bm.walk.kmh) : '—'}</dd>
-            <dt>🚲 Cycling</dt><dd>${bm.cycle ? kmh(bm.cycle.kmh) : '—'}</dd>
-            <dt>🚗 Vehicle</dt><dd>${bm.vehicle ? kmh(bm.vehicle.kmh) : '—'}</dd>
-            <dt>✈️ Flying</dt><dd>${s.plane ? kmh(s.plane.kmh) : '—'}</dd></dl>
+            <dt>${icon('walk', 14)} Walking</dt><dd>${bm.walk ? kmh(bm.walk.kmh) : '—'}</dd>
+            <dt>${icon('bike', 14)} Cycling</dt><dd>${bm.cycle ? kmh(bm.cycle.kmh) : '—'}</dd>
+            <dt>${icon('car', 14)} Vehicle</dt><dd>${bm.vehicle ? kmh(bm.vehicle.kmh) : '—'}</dd>
+            <dt>${icon('plane', 14)} Flying</dt><dd>${s.plane ? kmh(s.plane.kmh) : '—'}</dd></dl>
             <p class="note" style="margin-top:0.6rem;">Modes come from <strong>Detect Transport Modes</strong> in Settings.</p>`)}
         ${card('Odometer', `<div class="big">${km(dist.total_km)}</div>
             <dl class="kv" style="margin-top:0.6rem;">
@@ -771,13 +918,13 @@ function renderExtremes(d) {
     const lon = (k, label) => e[k] ? `<div class="c">${label}<b>${num(Math.abs(e[k].v), 3)}°${e[k].v >= 0 ? 'E' : 'W'}</b>${ptLink(e[k].lat, e[k].lon, e[k].place || 'see it', 11, e[k].ts)}</div>` : `<div class="c">${label}<b>—</b></div>`;
     $('extremes').innerHTML = `${card('Compass', `<div class="compass">
             <div></div>${lat('n', 'Northernmost')}<div></div>
-            ${lon('w', 'Westernmost')}<div class="mid">🧭</div>${lon('e', 'Easternmost')}
+            ${lon('w', 'Westernmost')}<div class="mid">${icon('compass', 34)}</div>${lon('e', 'Easternmost')}
             <div></div>${lat('s', 'Southernmost')}<div></div></div>`)}
         ${card('Up, down and away', `<dl class="kv">
-            <dt>⛰️ Highest on the ground</dt><dd>${e.hi ? `${m(e.hi.v)} · ${ptLink(e.hi.lat, e.hi.lon, e.hi.place || 'where', 14, e.hi.ts)}` : '—'}</dd>
-            <dt>🌊 Lowest</dt><dd>${e.lo ? `${m(e.lo.v)} · ${ptLink(e.lo.lat, e.lo.lon, e.lo.place || 'where', 14, e.lo.ts)}` : '—'}</dd>
-            <dt>🏠 Farthest from home</dt><dd>${e.far ? `${km(e.far.v)} · ${ptLink(e.far.lat, e.far.lon, 'where', 9)}` : '—'}</dd>
-            <dt>📐 North–south span</dt><dd>${e.n && e.s ? km((e.n.v - e.s.v) * 111.2) : '—'}</dd>
+            <dt>${icon('mountain', 14)} Highest on the ground</dt><dd>${e.hi ? `${m(e.hi.v)} · ${ptLink(e.hi.lat, e.hi.lon, e.hi.place || 'where', 14, e.hi.ts)}` : '—'}</dd>
+            <dt>${icon('wave', 14)} Lowest</dt><dd>${e.lo ? `${m(e.lo.v)} · ${ptLink(e.lo.lat, e.lo.lon, e.lo.place || 'where', 14, e.lo.ts)}` : '—'}</dd>
+            <dt>${icon('home', 14)} Farthest from home</dt><dd>${e.far ? `${km(e.far.v)} · ${ptLink(e.far.lat, e.far.lon, 'where', 9)}` : '—'}</dd>
+            <dt>${icon('ruler', 14)} North–south span</dt><dd>${e.n && e.s ? km((e.n.v - e.s.v) * 111.2) : '—'}</dd>
             </dl><p class="note" style="margin-top:0.6rem;">Altitude uses accurate fixes only, and flights don't count.</p>`)}`;
 }
 
@@ -798,18 +945,18 @@ function renderRegulars(d) {
     const visits = i => `${num(i.visits)}×`;
     const sub = i => [i.city, i.hours ? `${num(i.hours, 1)} h` : ''].filter(Boolean).join(' · ');
     el.innerHTML = `<div class="grid grid-3">
-        <div class="card record" style="grid-column:span 1;"><span class="ic">🛒</span><div><div class="t">The store you go to most</div>
+        <div class="card record" style="grid-column:span 1;"><span class="ic">${icon('cart', 26)}</span><div><div class="t">The store you go to most</div>
             <div class="v">${top ? esc(top.name) : '—'}</div><div class="d">${top ? `${num(top.visits)} visits${top.city ? ' · ' + esc(top.city) : ''}` : ''}</div></div></div>
-        ${recordCard('🔗', 'Chain loyalty', p.chains && p.chains[0] ? esc(p.chains[0].name) : '—', p.chains && p.chains[0] ? `${p.chains[0].branches} branches · ${num(p.chains[0].visits)} visits` : 'Visit two branches of one chain')}
-        ${recordCard('🔁', 'Commute king', p.commute ? `${num(p.commute.count)}×` : '—', p.commute ? `${esc(p.commute.from)} → ${esc(p.commute.to)}${p.commute.back ? ` (and back ${num(p.commute.back)}×)` : ''}` : '')}
+        ${recordCard(icon('link', 26), 'Chain loyalty', p.chains && p.chains[0] ? esc(p.chains[0].name) : '—', p.chains && p.chains[0] ? `${p.chains[0].branches} branches · ${num(p.chains[0].visits)} visits` : 'Visit two branches of one chain')}
+        ${recordCard(icon('repeat', 26), 'Commute king', p.commute ? `${num(p.commute.count)}×` : '—', p.commute ? `${esc(p.commute.from)} → ${esc(p.commute.to)}${p.commute.back ? ` (and back ${num(p.commute.back)}×)` : ''}` : '')}
     </div>
     <div class="grid grid-3" style="margin-top:1rem;">
-        ${card('🛍️ Stores', rankList(t.store, sub, visits))}
-        ${card('🥫 Groceries', rankList(t.grocery, sub, visits))}
-        ${card('☕ Cafés', rankList(t.cafe, sub, visits))}
-        ${card('🍽️ Food', rankList(t.food, sub, visits))}
-        ${card('🍺 Bars', rankList(t.bar, sub, visits))}
-        ${card('⛽ Fuel', rankList(t.fuel, sub, visits))}
+        ${card(icon('cart', 15) + ' Stores', rankList(t.store, sub, visits))}
+        ${card(icon('cart', 15) + ' Groceries', rankList(t.grocery, sub, visits))}
+        ${card(icon('coffee', 15) + ' Cafés', rankList(t.cafe, sub, visits))}
+        ${card(icon('utensils', 15) + ' Food', rankList(t.food, sub, visits))}
+        ${card(icon('glass', 15) + ' Bars', rankList(t.bar, sub, visits))}
+        ${card(icon('fuel', 15) + ' Fuel', rankList(t.fuel, sub, visits))}
     </div>
     <div class="grid grid-2" style="margin-top:1rem;">
         ${card('Most-visited places overall', rankList(p.overall, sub, visits))}
@@ -834,10 +981,10 @@ function renderRhythm(d) {
     $('rhythm').innerHTML = `${card('When you move', grid + `<div class="note" style="margin-top:0.6rem;">${b ? `Your busiest hour is <strong>${DOW[b.dow]} ${b.hour}:00</strong>.` : ''}</div>`)}
         <div class="grid" style="gap:1rem;">
             <div class="grid grid-2" style="gap:1rem;">
-                ${recordCard('🌅', 'Early bird', `${num(r.early_bird_days)} days`, 'on the move between 3 and 6 am')}
-                ${recordCard('🦉', 'Night owl', `${num(r.night_owl_days)} days`, 'still moving after midnight')}
-                ${recordCard('📅', 'Days tracked', num(r.days_tracked), r.first_day ? `since ${fmtDate(r.first_day)}` : '')}
-                ${recordCard('🔗', 'Longest tracking streak', `${num(r.track_streak)} days`, r.track_streak_end ? `ended ${fmtDate(r.track_streak_end)}` : '')}
+                ${recordCard(icon('sunrise', 26), 'Early bird', `${num(r.early_bird_days)} days`, 'on the move between 3 and 6 am')}
+                ${recordCard(icon('moon', 26), 'Night owl', `${num(r.night_owl_days)} days`, 'still moving after midnight')}
+                ${recordCard(icon('calendar', 26), 'Days tracked', num(r.days_tracked), r.first_day ? `since ${fmtDate(r.first_day)}` : '')}
+                ${recordCard(icon('link', 26), 'Longest tracking streak', `${num(r.track_streak)} days`, r.track_streak_end ? `ended ${fmtDate(r.track_streak_end)}` : '')}
             </div>
             ${card('Weekdays vs weekends', `<div class="vs"><div><b>${km(wk)}</b>per weekday</div><div><b>${km(we)}</b>per weekend day</div><div><b>${num(r.nights_away)}</b>nights away</div></div>
                 <p class="note" style="margin-top:0.5rem;">${we > wk * 1.2 ? 'A weekend wanderer.' : wk > we * 1.2 ? 'Your weekdays do the heavy lifting.' : 'Steady all week.'}</p>`)}
@@ -849,9 +996,9 @@ function renderBigDays(d) {
     const one = (ic, title, x, unit) => x ? `<div class="card record"><span class="ic">${ic}</span><div><div class="t">${title}</div><div class="v">${num(x.count)} ${unit}</div>
         <div class="d">${dayLink(x.date)}</div><div class="tag-list" style="margin-top:0.4rem;">${x.items.slice(0, 18).map(i => `<span>${esc(i)}</span>`).join('')}</div></div></div>`
         : recordCard(ic, title, '—', '');
-    $('bigdays').innerHTML = one('🌪️', 'Most towns in a day', b.towns, 'towns') +
-        one('🛂', 'Most states or regions in a day', b.states, '') +
-        one('🍽️', 'Most countries in a day', b.countries, 'countries');
+    $('bigdays').innerHTML = one(icon('wind', 26), 'Most towns in a day', b.towns, 'towns') +
+        one(icon('passport', 26), 'Most states or regions in a day', b.states, '') +
+        one(icon('utensils', 26), 'Most countries in a day', b.countries, 'countries');
 }
 
 function renderClimber(d) {
@@ -859,8 +1006,8 @@ function renderClimber(d) {
     const ev = c.everests || 0;
     $('climber').innerHTML = `<div class="card pct-tile"><h3>Total climbed</h3><div class="big">${m(c.climbed_m)}</div>
             <div class="of">${num(ev, 2)} Everests</div>${pbar((ev % 1) * 100, 'var(--clay-sky)')}<div class="note" style="margin-top:0.3rem;">progress toward your next Everest (8,849 m)</div></div>
-        ${recordCard('🧗', 'Biggest climbing day', c.best_day ? m(c.best_day.m) : '—', c.best_day ? dayLink(c.best_day.date) : '')}
-        ${recordCard('⛰️', 'Highest point reached', c.highest ? m(c.highest.v) : '—', c.highest ? ptLink(c.highest.lat, c.highest.lon, c.highest.place || 'where', 14, c.highest.ts) : '')}`;
+        ${recordCard(icon('trend', 26), 'Biggest climbing day', c.best_day ? m(c.best_day.m) : '—', c.best_day ? dayLink(c.best_day.date) : '')}
+        ${recordCard(icon('mountain', 26), 'Highest point reached', c.highest ? m(c.highest.v) : '—', c.highest ? ptLink(c.highest.lat, c.highest.lon, c.highest.place || 'where', 14, c.highest.ts) : '')}`;
 }
 
 function renderJourneys(d) {
@@ -871,10 +1018,10 @@ function renderJourneys(d) {
         const route = x.from && x.to && x.from !== x.to ? `${esc(x.from)} → ${esc(x.to)}` : esc(x.from || '');
         return recordCard(ic, title, `${km(x.km, 1)}`, `${num(x.hours, 1)} h · ${rangeLink(x.start, x.end, fmtDate(x.date))}${route ? '<br>' + route : ''}`);
     };
-    $('journeys').innerHTML = one('🚗', 'Longest non-stop journey', j.longest) +
+    $('journeys').innerHTML = one(icon('car', 26), 'Longest non-stop journey', j.longest) +
         one('⏱️', 'Longest time on the move', j.longest_time) +
-        one('🛻', 'Longest drive', j.drive) + one('🥾', 'Longest walk', j.walk) +
-        one('🚴', 'Longest ride', j.ride) + one('🚄', 'Longest high-speed run', j.rail_speed);
+        one(icon('truck', 26), 'Longest drive', j.drive) + one(icon('feet', 26), 'Longest walk', j.walk) +
+        one(icon('bike', 26), 'Longest ride', j.ride) + one(icon('gauge', 26), 'Longest high-speed run', j.rail_speed);
 }
 
 const LINES = { equator: 'Equator', tropic_cancer: 'Tropic of Cancer', tropic_capricorn: 'Tropic of Capricorn', arctic: 'Arctic Circle', antarctic: 'Antarctic Circle', dateline: 'Date line' };
@@ -882,9 +1029,9 @@ function renderGlobe(d) {
     const g = d.globe || {};
     const H = new Set(g.hemispheres || []);
     const rings = g.home_rings;
-    $('globe').innerHTML = `${card(`🕰️ ${num((g.timezones || []).length)} time zones`, `<div class="tag-list">${(g.timezones || []).map(z => `<span>${esc(z.replace(/_/g, ' '))}</span>`).join('') || '<span>—</span>'}</div>`)}
+    $('globe').innerHTML = `${card(`${icon('clock', 15)} ${num((g.timezones || []).length)} time zones`, `<div class="tag-list">${(g.timezones || []).map(z => `<span>${esc(z.replace(/_/g, ' '))}</span>`).join('') || '<span>—</span>'}</div>`)}
         ${card('Hemispheres & lines', `<div class="hemi">${['N', 'S', 'E', 'W'].map(x => `<div class="${H.has(x) ? 'on' : ''}">${{ N: 'North', S: 'South', E: 'East', W: 'West' }[x]}</div>`).join('')}</div>
-            <div class="lines">${Object.keys(LINES).map(k => `<span class="chip" style="${g.crossings && g.crossings[k] ? '' : 'opacity:0.35'}">${g.crossings && g.crossings[k] ? '✓' : '·'} ${LINES[k]}</span>`).join('')}</div>`)}
+            <div class="lines">${Object.keys(LINES).map(k => `<span class="chip" style="${g.crossings && g.crossings[k] ? '' : 'opacity:0.35'}">${g.crossings && g.crossings[k] ? icon('tick', 12) : '·'} ${LINES[k]}</span>`).join('')}</div>`)}
         ${card('Home radius', rings ? `<div style="display:grid;grid-template-columns:150px 1fr;gap:1rem;align-items:center;"><canvas id="rings" style="width:150px;height:150px;"></canvas>
             <dl class="kv"><dt>within ${km(10)}</dt><dd>${pctS(rings['10'])}</dd><dt>within ${km(100)}</dt><dd>${pctS(rings['100'])}</dd><dt>within ${km(1000)}</dt><dd>${pctS(rings['1000'])}</dd>
             <dt>farthest</dt><dd>${g.farthest ? km(g.farthest.v) : '—'}</dd></dl></div><p class="note">Share of your tracked time spent near home. Home is where you most often are overnight.</p>` : '<div class="empty">Not enough overnight data to find home yet.</div>')}`;
@@ -898,12 +1045,12 @@ function renderCollector(d) {
     const letters = Object.keys(A).map(L => `<div class="L ${A[L].count ? '' : 'off'}" title="${esc(A[L].top || '')}"><b>${L}</b><span>${A[L].count ? esc(A[L].top) : '—'}</span></div>`).join('');
     $('collector').innerHTML = `${card(`The alphabet <span class="note">— ${num(Object.values(A).filter(a => a.count).length)}/26 letters</span>`, `<div class="alpha">${letters}</div>`)}
     <div class="grid grid-3" style="margin-top:1rem;">
-        ${card('🏠 Your most-visited towns', c.top_towns && c.top_towns.length ? `<ul class="rank">${c.top_towns.map(t => `<li><span>${placeLink(t.name, { city: t.city, state: t.state })}</span><span class="n">${num(t.days)} days</span></li>`).join('')}</ul>` : '<div class="empty">—</div>')}
-        ${card('👯 Namesakes', c.namesakes && c.namesakes.length ? `<ul class="rank">${c.namesakes.map(n => `<li><span>${esc(n.name)}<span class="sub">${(n.links || n.places.map(p => ({ label: p }))).map(p => placeLink(p.label, { city: p.city, state: p.state })).join(' · ')}</span></span><span class="n">${n.count}×</span></li>`).join('')}</ul>` : '<div class="empty">No two towns share a name yet.</div>')}
+        ${card(icon('home', 15) + ' Your most-visited towns', c.top_towns && c.top_towns.length ? `<ul class="rank">${c.top_towns.map(t => `<li><span>${placeLink(t.name, { city: t.city, state: t.state })}</span><span class="n">${num(t.days)} days</span></li>`).join('')}</ul>` : '<div class="empty">—</div>')}
+        ${card(icon('users', 15) + ' Namesakes', c.namesakes && c.namesakes.length ? `<ul class="rank">${c.namesakes.map(n => `<li><span>${esc(n.name)}<span class="sub">${(n.links || n.places.map(p => ({ label: p }))).map(p => placeLink(p.label, { city: p.city, state: p.state })).join(' · ')}</span></span><span class="n">${n.count}×</span></li>`).join('')}</ul>` : '<div class="empty">No two towns share a name yet.</div>')}
         <div class="grid" style="gap:1rem;">
-            ${recordCard('🔙', 'Longest comeback', c.comeback ? `${num(c.comeback.days)} days` : '—', c.comeback ? `${placeLink(c.comeback.name, { city: c.comeback.city, state: c.comeback.state })}: left ${fmtDate(c.comeback.left)}, back ${fmtDate(c.comeback.returned)}` : '')}
-            ${recordCard('👋', 'One and done', `${num(c.one_and_done)} towns`, c.one_and_done_sample && c.one_and_done_sample.length ? esc(c.one_and_done_sample.slice(0, 5).join(', ')) + '…' : 'visited on exactly one day')}
-            ${recordCard('📏', 'Longest and shortest names', c.longest_name ? esc(c.longest_name) : '—', c.shortest_name ? `shortest: ${esc(c.shortest_name)}` : '')}
+            ${recordCard(icon('undo', 26), 'Longest comeback', c.comeback ? `${num(c.comeback.days)} days` : '—', c.comeback ? `${placeLink(c.comeback.name, { city: c.comeback.city, state: c.comeback.state })}: left ${fmtDate(c.comeback.left)}, back ${fmtDate(c.comeback.returned)}` : '')}
+            ${recordCard(icon('flag', 26), 'One and done', `${num(c.one_and_done)} towns`, c.one_and_done_sample && c.one_and_done_sample.length ? esc(c.one_and_done_sample.slice(0, 5).join(', ')) + '…' : 'visited on exactly one day')}
+            ${recordCard(icon('ruler', 26), 'Longest and shortest names', c.longest_name ? esc(c.longest_name) : '—', c.shortest_name ? `shortest: ${esc(c.shortest_name)}` : '')}
         </div>
     </div>`;
 }
@@ -912,13 +1059,49 @@ function renderNature(d) {
     const p = d.places || {};
     const t = p.tops || {};
     const cnt = p.counts || {};
-    const tile = (ic, title, n, top) => `<div class="tile"><div class="ic">${ic}</div><div class="v">${num(n || 0)}</div><div class="t">${title}</div><div class="s">${top && top[0] ? '★ ' + esc(top[0].name) : ''}</div></div>`;
+    const tile = (ic, title, n, top) => `<div class="tile"><div class="ic">${ic}</div><div class="v">${num(n || 0)}</div><div class="t">${title}</div><div class="s">${top && top[0] ? icon('star', 11) + ' ' + esc(top[0].name) : ''}</div></div>`;
     if (!p.has_visits) { $('nature').innerHTML = '<div class="card empty">Appears once your visits are matched to named places.</div>'; return; }
-    $('nature').innerHTML = `<div class="tile-row">${tile('🌲', 'parks & nature', cnt.park, t.park)}${tile('🏛️', 'museums & landmarks', cnt.culture, t.culture)}${tile('🏖️', 'beaches', cnt.beach, t.beach)}${tile('🍜', 'places to eat & drink', cnt.food, t.food)}</div>
+    $('nature').innerHTML = `<div class="tile-row">${tile(icon('tree', 26), 'parks & nature', cnt.park, t.park)}${tile(icon('landmark', 26), 'museums & landmarks', cnt.culture, t.culture)}${tile(icon('umbrella', 26), 'beaches', cnt.beach, t.beach)}${tile(icon('utensils', 26), 'places to eat & drink', cnt.food, t.food)}</div>
         <div class="grid grid-3" style="margin-top:1rem;">
-        ${card('🌲 Favourite outdoors', rankList(t.park, i => i.city || '', i => `${num(i.visits)}×`))}
-        ${card('🏛️ Culture', rankList(t.culture, i => i.city || '', i => `${num(i.visits)}×`))}
-        ${card('🏖️ Beaches', rankList(t.beach, i => i.city || '', i => `${num(i.visits)}×`))}</div>`;
+        ${card(icon('tree', 15) + ' Favourite outdoors', rankList(t.park, i => i.city || '', i => `${num(i.visits)}×`))}
+        ${card(icon('landmark', 15) + ' Culture', rankList(t.culture, i => i.city || '', i => `${num(i.visits)}×`))}
+        ${card(icon('umbrella', 15) + ' Beaches', rankList(t.beach, i => i.city || '', i => `${num(i.visits)}×`))}</div>`;
+}
+
+function renderHealth(d) {
+    const x = d.extras || {};
+    const h = x.health, a = x.activities;
+    if (!h && !a) { setEmpty('health-sec', true); return; }
+    setEmpty('health-sec', false);
+    const tile = (ic, v, t, s) => `<div class="tile"><div class="ic">${icon(ic, 24)}</div><div class="v">${v}</div><div class="t">${t}</div>${s ? `<div class="s" title="${esc(s.replace(/<[^>]+>/g, ''))}">${s}</div>` : ''}</div>`;
+    const dayHealth = (day, label) => day ? `<a href="/health/?day=${esc(day)}">${esc(label || fmtDate(day))}</a>` : '';
+    const tiles = [];
+    if (h) {
+        if (h.steps) {
+            tiles.push(tile('feet', num(h.steps), 'steps', `${num(h.avg)} a day on average`));
+            tiles.push(tile('bolt', num(h.best_day.steps), 'best step day', dayHealth(h.best_day.date)));
+            tiles.push(tile('check', num(h.days_10k), '10k-step days', h.streak_10k ? `longest run ${num(h.streak_10k)} days` : ''));
+        }
+        if (h.distance_km != null) tiles.push(tile('route', km(h.distance_km, 0), 'walked & run', 'as counted by your phone or watch'));
+        if (h.kcal_total) {
+            tiles.push(tile('flame', num(h.kcal_total), 'active kcal burned', ''));
+            if (h.best_kcal_day) tiles.push(tile('flame', num(h.best_kcal_day.kcal), 'best calorie day', dayHealth(h.best_kcal_day.date)));
+        }
+        if (h.workouts) tiles.push(tile('dumbbell', num(h.workouts), 'workouts imported', ''));
+    }
+    if (a) {
+        tiles.push(tile('medal', num(a.count), 'activities recorded', Object.entries(a.by_kind || {}).map(([k, n]) => `${n} ${k}`).join(' · ')));
+        if (a.longest) tiles.push(tile('bike', km(a.longest.km, 1), 'longest activity', `${esc(a.longest.title || a.longest.kind)} · ${fmtDate(a.longest.date)}`));
+    }
+    $('health-sub').innerHTML = h && h.days ? `${num(h.days)} days of step data · <a href="/health/">open Health</a>` : '<a href="/health/">open Health</a>';
+    const years = (h && h.by_year) || [];
+    $('health').innerHTML = `<div class="tile-row">${tiles.join('')}</div>` +
+        (years.length > 1 ? `<div class="card" style="margin-top:1rem;"><h3>Steps by year</h3><div class="chart-box"><canvas id="health-years"></canvas></div></div>` : '');
+    requestAnimationFrame(() => {
+        if (years.length > 1) drawBars($('health-years'), years.map(r => String(r.year)), [
+            { name: 'steps', values: years.map(r => r.steps), color: css('--primary') },
+        ], v => num(v));
+    });
 }
 
 function renderSky(d) {
@@ -927,26 +1110,15 @@ function renderSky(d) {
     const tile = (ic, v, t, s) => `<div class="tile"><div class="ic">${ic}</div><div class="v">${v}</div><div class="t">${t}</div>${s ? `<div class="s" title="${esc(s.replace(/<[^>]+>/g, ''))}">${s}</div>` : ''}</div>`;
     if (x.flights) {
         const f = x.flights;
-        tiles.push(tile('✈️', num(f.count), 'flights', `${num(f.airports)} airports · ${num(f.airlines)} airlines`));
-        tiles.push(tile('🌤️', km(f.km), 'flown', f.longest ? `longest ${esc(f.longest.route)}` : ''));
-        if (f.top_route) tiles.push(tile('🔁', `${f.top_route.count}×`, 'favourite route', esc(f.top_route.route)));
-        if (f.aircraft) tiles.push(tile('🛩️', num(f.aircraft), 'aircraft types', ''));
+        tiles.push(tile(icon('plane', 26), num(f.count), 'flights', `${num(f.airports)} airports · ${num(f.airlines)} airlines`));
+        tiles.push(tile(icon('cloud', 26), km(f.km), 'flown', f.longest ? `longest ${esc(f.longest.route)}` : ''));
+        if (f.top_route) tiles.push(tile(icon('repeat', 26), `${f.top_route.count}×`, 'favourite route', esc(f.top_route.route)));
+        if (f.aircraft) tiles.push(tile(icon('plane', 26), num(f.aircraft), 'aircraft types', ''));
     }
-    if (x.health) {
-        const h = x.health;
-        tiles.push(tile('👟', num(h.steps), 'steps', `${num(h.avg)} a day on average`));
-        tiles.push(tile('🚶', num(h.best_day.steps), 'best step day', dayLink(h.best_day.date)));
-        tiles.push(tile('🔟', num(h.days_10k), '10k-step days', ''));
-    }
-    if (x.activities) {
-        const a = x.activities;
-        tiles.push(tile('🏅', num(a.count), 'activities', Object.entries(a.by_kind || {}).map(([k, n]) => `${n} ${k}`).join(' · ')));
-        if (a.longest) tiles.push(tile('🚴', km(a.longest.km, 1), 'longest activity', `${esc(a.longest.title || a.longest.kind)} · ${fmtDate(a.longest.date)}`));
-    }
-    if (x.cells) tiles.push(tile('📡', num(x.cells.towers), 'cell sites seen', esc((x.cells.carriers || []).join(', '))));
-    if (x.journal) tiles.push(tile('📓', `${num(x.journal.longest)} days`, 'longest journal streak', `${num(x.journal.total)} entries`));
-    if (!tiles.length) { $('sky-sec').style.display = 'none'; return; }
-    $('sky').innerHTML = tiles.join('');
+    if (x.cells) tiles.push(tile(icon('tower', 26), num(x.cells.towers), 'cell sites seen', esc((x.cells.carriers || []).join(', '))));
+    if (x.journal) tiles.push(tile(icon('book', 26), `${num(x.journal.longest)} days`, 'longest journal streak', `${num(x.journal.total)} entries`));
+    setEmpty('sky-sec', !tiles.length);
+    if (tiles.length) $('sky').innerHTML = tiles.join('');
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -963,7 +1135,7 @@ function renderYears(d) {
             <p class="note" style="margin-top:0.5rem;">${bm ? `Busiest month ever: <strong>${MONTHS[bm.month - 1]} ${bm.year}</strong> with ${km(bm.km)}.` : ''}</p>`)}
         ${card('This year vs last year, to date', `<div class="vs"><div><b>${km(y.ytd_km)}</b>${new Date().getFullYear()}</div><div><b>${km(y.last_ytd_km)}</b>${new Date().getFullYear() - 1}</div>
             <div><b style="color:${diff >= 0 ? 'var(--success)' : 'var(--danger)'}">${diff >= 0 ? '+' : '−'}${km(Math.abs(diff))}</b>difference</div></div>
-            ${y.personal_bests && y.personal_bests.length ? `<p class="note" style="margin-top:0.6rem;">📈 Personal bests this year: <strong>${y.personal_bests.map(esc).join(', ')}</strong></p>` : ''}`)}
+            ${y.personal_bests && y.personal_bests.length ? `<p class="note" style="margin-top:0.6rem;">${icon('trend', 13)} Personal bests this year: <strong>${y.personal_bests.map(esc).join(', ')}</strong></p>` : ''}`)}
         ${card('Personal records by year', rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Year</th><th>Distance</th><th>Towns</th><th>New</th><th>Countries</th><th>Best day</th></tr></thead><tbody>${
             [...rows].reverse().map(r => `<tr><td>${r.year}</td><td class="n">${km(r.km)}</td><td class="n">${num(r.towns)}</td><td class="n">${num(r.new_towns)}</td><td class="n">${num(r.countries)}</td><td class="n">${km(r.best_day_km)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">—</div>')}`;
     requestAnimationFrame(() => {
@@ -978,7 +1150,7 @@ function renderYears(d) {
 
 function renderTimeline(g) {
     const tl = g.timeline || [];
-    $('timeline').innerHTML = tl.length ? tl.map(e => `<li style="--tc:${tierColor(e.tier)}"><span class="when">${fmtDate(e.at)}</span>${e.emoji} <strong>${esc(e.name)}</strong> <span class="note">${TIERS[e.tier]}</span></li>`).join('')
+    $('timeline').innerHTML = tl.length ? tl.map(e => `<li style="--tc:${tierColor(e.tier)}"><span class="when">${fmtDate(e.at)}</span>${icon(e.icon, 14)} <strong>${esc(e.name)}</strong> <span class="note">${TIERS[e.tier]}</span></li>`).join('')
         : '<li>No badges yet.</li>';
 }
 
@@ -993,16 +1165,16 @@ function renderWall(g) {
     $('wall').innerHTML = g.groups.map(gr => {
         const bs = g.badges.filter(b => b.group === gr.id);
         if (!bs.length) return '';
-        return `<div class="bdg-group-h">${esc(gr.name)}</div><div class="badge-grid">${bs.map(b => `
+        return `<div class="bdg-group" data-group="${esc(gr.id)}"><div class="bdg-group-h">${esc(gr.name)}</div><div class="badge-grid">${bs.map(b => `
             <div class="bdg" data-tier="${b.tier}" title="${esc(b.tiers.map((t, i) => `${TIERS[i + 1]}: ${num(t)}`).join(' · '))}">
                 <span class="tiername">${b.tier ? TIERS[b.tier] : 'locked'}</span>
-                <div class="medal">${b.emoji}</div>
+                <div class="medal">${icon(b.icon, 24)}</div>
                 <div class="nm">${esc(b.name)}</div>
                 <div class="bl">${esc(b.blurb)}</div>
                 <div class="val">${fmtV(b)}</div>
                 <div class="pips">${[1, 2, 3, 4].map(t => `<i class="${b.tier >= t ? 'on' + t : ''}"></i>`).join('')}</div>
                 ${b.next != null ? `<div class="nextp"><span style="width:${(b.progress * 100).toFixed(0)}%"></span></div>` : ''}
-            </div>`).join('')}</div>`;
+            </div>`).join('')}</div></div>`;
     }).join('');
 }
 
@@ -1026,10 +1198,13 @@ function render(d) {
     safe(renderGlobe, d);
     safe(renderCollector, d);
     safe(renderNature, d);
+    safe(renderHealth, d);
     safe(renderSky, d);
     safe(renderYears, d);
     safe(renderTimeline, g);
     safe(renderWall, g);
+    safe(buildFilters);
+    safe(applyFilter);
 }
 
 // ── Load + job status ──────────────────────────────────────────────────────
@@ -1094,7 +1269,7 @@ window.addEventListener('resize', () => {
     rt = setTimeout(() => {
         const d = lastData;
         safe(() => drawRing($('lvl-ring'), d.game.level.progress));
-        [renderRoads, renderSpeed, renderMove, renderGlobe, renderYears].forEach(f => safe(f, d));
+        [renderRoads, renderSpeed, renderMove, renderGlobe, renderYears, renderHealth].forEach(f => safe(f, d));
     }, 250);
 });
 load();

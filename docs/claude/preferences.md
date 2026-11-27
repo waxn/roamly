@@ -9,7 +9,9 @@ All stored in `localStorage` with `roamly_` prefix:
 | Key | Values | Default |
 |-----|--------|---------|
 | `roamly_theme` | dark / light | dark |
-| `roamly_speed_unit` | kmh / mph | kmh |
+| `roamly_speed_unit` | kmh / mph | kmh. Also picks the clock on Health: mph → 12-hour, kmh → 24-hour |
+| `roamly_ach_filter` | Achievements category filter (`all` or a section's `data-cat`) | all |
+| `roamly_ach_collapsed` | JSON array of minimised Achievements section keys | `[]` |
 | `roamly_map_renderer` | vector / classic | vector |
 | `roamly_speed_gradient` | on / off | on |
 | `roamly_connect_lines` | on / off | off (Trip Lines mode on `/map/`: selective road-snapped lines + dwell blobs; a simpler accumulated-layer line overlay on `/editor/`) |
