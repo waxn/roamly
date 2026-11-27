@@ -1,0 +1,66 @@
+/* MapLibre zoom/navigation control styling to match app theme */
+
+.maplibregl-ctrl-group {
+    background: transparent !important;
+    border-radius: 8px;
+}
+
+.maplibregl-ctrl-group:not(:empty)::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    transition: background 0.2s ease;
+}
+
+.maplibregl-ctrl-group:hover {
+    background: rgba(255, 255, 255, 0.15) !important;
+}
+
+.maplibregl-ctrl-group .maplibregl-ctrl {
+    display: flex;
+    gap: 4px;
+}
+
+.maplibregl-ctrl-group button {
+    background-color: transparent !important;
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 8px !important;
+    transition: all 0.2s ease;
+}
+
+.maplibregl-ctrl-group button:hover {
+    background: rgba(255, 255, 255, 0.15) !important;
+    transform: scale(1.05);
+}
+
+.maplibregl-ctrl-group button:active {
+    transform: scale(0.95);
+}
+
+/* Navigation control (compass, rotate) positioning */
+.maplibregl-ctrl button.maplibregl-ctrl-compass,
+.maplibregl-ctrl button.maplibregl-ctrl-rotate {
+    background-color: transparent !important;
+}
+
+/* Attribution control styling */
+.maplibregl-ctrl-attrib {
+    background: rgba(255, 255, 255, 0.9) !important;
+    border-radius: 8px !important;
+    padding: 6px !important;
+}
+
+.maplibregl-ctrl-attrib li {
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+}
+
+.maplibregl-ctrl-attrib a {
+    color: #333 !important;
+}
