@@ -189,10 +189,17 @@ interface RoamlyApi {
 
     /** Distance and time split by transport mode. */
     @GET("api/transport/breakdown/")
-    suspend fun getTransport(@Query("all") all: Int? = 1): Response<TransportResponse>
+    suspend fun getTransport(
+        @Query("all") all: Int? = 1,
+        @Query("start_date") startDate: String? = null,
+        @Query("end_date") endDate: String? = null,
+    ): Response<TransportResponse>
 
     @GET("api/visits/")
-    suspend fun getVisits(): Response<VisitsResponse>
+    suspend fun getVisits(
+        @Query("start_date") startDate: String? = null,
+        @Query("end_date") endDate: String? = null,
+    ): Response<VisitsResponse>
 
     @GET("api/search/")
     suspend fun search(

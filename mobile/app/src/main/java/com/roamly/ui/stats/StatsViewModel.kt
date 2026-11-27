@@ -25,11 +25,23 @@ import javax.inject.Inject
 
 data class DayCount(val day: Int, val points: Int)
 
+/** The window every section below the lifetime hero follows. */
+enum class StatsRange(val label: String, val days: Int?) {
+    Week("7d", 7), Month("30d", 30), Quarter("90d", 90), Year("1y", 365), All("All", null);
+
+    /** First and last local day of the window, or null for all time. */
+    fun window(today: LocalDate = LocalDate.now()): Pair<LocalDate, LocalDate>? =
+        days?.let { today.minusDays(it - 1L) to today }
+}
+
 data class StatsUiState(
     val stats: StatsResponse? = null,
     val yearly: YearlyOverviewResponse? = null,
     val topCountries: List<CountryVisit> = emptyList(),
     val topCities: List<CityVisit> = emptyList(),
+    val range: StatsRange = StatsRange.All,
+    /** Totals for just the chosen range (null for All, where the hero says it). */
+    val rangeStats: StatsResponse? = null,
     val distance: DistanceResponse? = null,
     val transport: TransportResponse? = null,
     val isLoading: Boolean = false,
@@ -50,6 +62,10 @@ class StatsViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(StatsUiState())
     val uiState: StateFlow<StatsUiState> = _uiState
+
+    private var distanceAll: DistanceResponse? = null
+    private var transportAll: TransportResponse? = null
+    private var rangeJob: kotlinx.coroutines.Job? = null
 
     init {
         if (!cache.hasData) hydrateFromDisk()
@@ -85,11 +101,14 @@ class StatsViewModel @Inject constructor(
         // Distance and transport are independent of the rest, so they land as they arrive.
         viewModelScope.launch {
             val d = runCatching { api.getDistance().body() }.getOrNull()
-            if (d != null) _uiState.update { it.copy(distance = d) }
+            if (d != null) { distanceAll = d; _uiState.update { it.copy(distance = filterDistance(d, it.range)) } }
         }
         viewModelScope.launch {
             val t = runCatching { api.getTransport().body() }.getOrNull()
-            if (t != null) _uiState.update { it.copy(transport = t) }
+            if (t != null) {
+                transportAll = t
+                _uiState.update { if (it.range == StatsRange.All) it.copy(transport = t) else it }
+            }
         }
         viewModelScope.launch {
             when (val r = locationRepository.getStats()) {
@@ -114,12 +133,68 @@ class StatsViewModel @Inject constructor(
                     cache.topCities = r.data.cities.take(15)
                     cache.hasData = true
                     disk.put(DiskCache.VISITS, r.data)
-                    _uiState.update { it.copy(topCountries = cache.topCountries, topCities = cache.topCities) }
+                    _uiState.update {
+                        if (it.range == StatsRange.All) it.copy(topCountries = cache.topCountries, topCities = cache.topCities) else it
+                    }
                 }
                 is Result.Error -> { }
             }
             if (cache.stats != null) cache.hasData = true
         }
+        loadRange()
+    }
+
+    /** Pick the window the whole page below the hero follows. */
+    fun setRange(range: StatsRange) {
+        if (_uiState.value.range == range) return
+        _uiState.update {
+            it.copy(
+                range = range, distance = distanceAll?.let { d -> filterDistance(d, range) },
+                // Keep the old lists until the new ones land, except where All has them ready.
+                transport = if (range == StatsRange.All) transportAll ?: it.transport else it.transport,
+                topCountries = if (range == StatsRange.All) cache.topCountries else it.topCountries,
+                topCities = if (range == StatsRange.All) cache.topCities else it.topCities,
+                rangeStats = if (range == StatsRange.All) null else it.rangeStats,
+                selectedMonth = null, monthDrilldown = emptyList(),
+            )
+        }
+        loadRange()
+    }
+
+    /** Fetch what is range-specific: totals, transport split and places. All uses the cached lifetime copies. */
+    private fun loadRange() {
+        rangeJob?.cancel()
+        val range = _uiState.value.range
+        val (from, to) = range.window() ?: return
+        val start = from.toString(); val end = to.toString()
+        rangeJob = viewModelScope.launch {
+            launch {
+                val st = (locationRepository.getStats(startDate = start, endDate = end) as? Result.Success)?.data
+                if (st != null) _uiState.update { if (it.range == range) it.copy(rangeStats = st) else it }
+            }
+            launch {
+                val t = runCatching { api.getTransport(all = null, startDate = start, endDate = end).body() }.getOrNull()
+                if (t != null) _uiState.update { if (it.range == range) it.copy(transport = t) else it }
+            }
+            launch {
+                val v = runCatching { api.getVisits(startDate = start, endDate = end).body() }.getOrNull()
+                if (v != null) _uiState.update {
+                    if (it.range == range) it.copy(topCountries = v.countries.take(10), topCities = v.cities.take(15)) else it
+                }
+            }
+        }
+    }
+
+    /** The lifetime daily-distance series cut to [range], totals recomputed to match. */
+    private fun filterDistance(d: DistanceResponse, range: StatsRange): DistanceResponse {
+        val (from, to) = range.window() ?: return d
+        val days = d.days.orEmpty(); val km = d.distances.orEmpty()
+        val keep = days.indices.filter { i ->
+            val day = runCatching { LocalDate.parse(days[i].take(10)) }.getOrNull()
+            day != null && !day.isBefore(from) && !day.isAfter(to)
+        }
+        val kept = keep.map { km.getOrElse(it) { 0.0 } }
+        return DistanceResponse(days = keep.map { days[it] }, distances = kept, totalKm = kept.sum())
     }
 
     fun selectMonth(month: Int) {

@@ -6281,11 +6281,18 @@ def _visits_dwell_gap(prev, cur, level):
 
 @login_required
 def visits_api(request):
-    """Aggregated city/state/country visit statistics."""
-    device_id = request.GET.get("device_id")
+    """Aggregated city/state/country visit statistics.
 
-    # Default all-time view (no device filter) → serve the precomputed snapshot.
-    if not device_id:
+    Optional ``start_date``/``end_date`` (ISO dates) narrow it to a range, as the
+    Stats range picker in the app does; without both it is the all-time view.
+    """
+    device_id = request.GET.get("device_id")
+    start_date = request.GET.get("start_date")
+    end_date = request.GET.get("end_date")
+    ranged = bool(start_date and end_date)
+
+    # Default all-time view (no device or range filter) → serve the precomputed snapshot.
+    if not device_id and not ranged:
         snap = _get_snapshot_or_kick(request.user)
         if snap:
             return _snapshot_response(snap, 'visits_json')
@@ -6299,6 +6306,17 @@ def visits_api(request):
         return JsonResponse(cached)
 
     locations = Location.objects.filter(device__user=request.user).exclude(city='')
+    if ranged:
+        try:
+            start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
+            end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
+            if timezone.is_naive(start):
+                start = aware_local(start)
+            if timezone.is_naive(end):
+                end = aware_local(end, end_of_day=True)
+            locations = locations.filter(timestamp__gte=start, timestamp__lte=end)
+        except (ValueError, TypeError):
+            pass
     if device_id:
         locations = locations.filter(device__device_id=device_id)
 

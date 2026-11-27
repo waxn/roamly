@@ -60,6 +60,7 @@ import com.roamly.ui.kit.Feel
 import com.roamly.ui.kit.Panel
 import com.roamly.ui.kit.PushedScreen
 import com.roamly.ui.kit.SectionTitle
+import com.roamly.ui.kit.SegmentedSwitch
 import com.roamly.ui.kit.Skeleton
 import com.roamly.ui.kit.StatBlock
 import com.roamly.ui.kit.dockAwareBottom
@@ -96,15 +97,21 @@ fun StatsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             state.error?.let { item { ErrorNote(it, onRetry = viewModel::load) } }
+            // Lifetime, whatever the range below says.
             state.stats?.let { item { Hero(it) } }
+            item { RangePicker(state.range, viewModel::setRange) }
+            state.rangeStats?.takeIf { state.range != StatsRange.All }?.let { item { RangeSummary(state.range, it) } }
+            val window = state.range.window()
             state.distance?.takeIf { !it.days.isNullOrEmpty() }?.let { d ->
                 item { DistanceTiles(d) }
-                item { DistanceChart(d) }
-                item { YearHeatmap(d) }
+                item { DistanceChart(d, from = window?.first, to = window?.second) }
+                // A year-per-page grid only reads as a year when the range is a year or more.
+                if (state.range == StatsRange.Year || state.range == StatsRange.All) item { YearHeatmap(d) }
             }
             state.transport?.takeIf { !it.modes.isNullOrEmpty() }?.let { item { TransportBreakdown(it) } }
-            state.yearly?.let { y ->
-                item { Periods(y) }
+            // Calendar-year figures: only meaningful for a year or all time.
+            state.yearly?.takeIf { state.range == StatsRange.Year || state.range == StatsRange.All }?.let { y ->
+                if (state.range == StatsRange.All) item { Periods(y) }
                 item {
                     Monthly(y, state.selectedMonth, viewModel::selectMonth)
                 }
@@ -151,6 +158,36 @@ private fun Hero(stats: StatsResponse) {
                     StatBlock("%,d".format(stats.totalPoints), "points", small = true)
                 }
             }
+        }
+    }
+}
+
+/** One switch that moves everything below it; the hero above stays lifetime. */
+@Composable
+private fun RangePicker(range: StatsRange, onPick: (StatsRange) -> Unit) {
+    val c = Atlas.colors
+    Column(Modifier.padding(top = 4.dp)) {
+        Text("Time range", style = MaterialTheme.typography.labelMedium, color = c.textMuted, modifier = Modifier.padding(bottom = 6.dp, start = 2.dp))
+        SegmentedSwitch(
+            options = StatsRange.entries.map { it.label },
+            selected = range.ordinal,
+            onSelect = { onPick(StatsRange.entries[it]) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+/** Totals for the chosen range only. */
+@Composable
+private fun RangeSummary(range: StatsRange, s: StatsResponse) {
+    val c = Atlas.colors
+    Panel(Modifier.fillMaxWidth(), padding = PaddingValues(18.dp)) {
+        Eyebrow("Last ${range.days} days")
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            StatBlock("%,d".format(s.totalPoints), "points", color = c.accent)
+            StatBlock("%,d".format(s.countries), if (s.countries == 1) "country" else "countries", small = true)
+            StatBlock("%,d".format(s.cities), if (s.cities == 1) "city" else "cities", small = true)
         }
     }
 }

@@ -80,21 +80,18 @@ internal fun DistanceTiles(d: DistanceResponse) {
     }
 }
 
-private val RANGES = listOf(30 to "30 days", 90 to "90 days", 365 to "1 year", 0 to "All")
-
 /** Distance by day as bars; drag a finger along to read each one. */
 @Composable
-internal fun DistanceChart(d: DistanceResponse) {
+internal fun DistanceChart(d: DistanceResponse, from: LocalDate? = null, to: LocalDate? = null) {
+    val fromDay = from; val toDay = to
     val c = Atlas.colors
     val haptics = rememberHaptics()
     val all = remember(d) { d.series() }
-    var rangeIdx by rememberSaveable { mutableIntStateOf(1) }
-    var sel by remember(rangeIdx) { mutableIntStateOf(-1) }
-    val days = RANGES[rangeIdx].first
+    var sel by remember(d) { mutableIntStateOf(-1) }
     // Bars are one day each up to ~120 of them; past that, a bar is several days summed.
-    val bars = remember(all, rangeIdx) {
-        val end = all.lastOrNull()?.date ?: LocalDate.now()
-        val from = if (days == 0) all.firstOrNull()?.date ?: end else end.minusDays(days - 1L)
+    val bars = remember(all, fromDay, toDay) {
+        val end = toDay ?: all.lastOrNull()?.date ?: LocalDate.now()
+        val from = fromDay ?: all.firstOrNull()?.date ?: end
         val byDay = all.associate { it.date to it.km }
         val span = java.time.temporal.ChronoUnit.DAYS.between(from, end).toInt() + 1
         val stride = ((span + 119) / 120).coerceAtLeast(1)
@@ -116,10 +113,6 @@ internal fun DistanceChart(d: DistanceResponse) {
             else "${km(max)} km at most · drag to read a day",
             style = MaterialTheme.typography.bodySmall, color = if (s != null) c.accent else c.textMuted,
         )
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            RANGES.forEachIndexed { i, (_, label) -> AtlasChip(label, i == rangeIdx, { haptics.select(); rangeIdx = i }) }
-        }
         Spacer(Modifier.height(12.dp))
         Canvas(
             Modifier.fillMaxWidth().height(150.dp)
