@@ -1,5 +1,6 @@
 package com.roamly.ui.health
 
+import com.roamly.ui.kit.Units
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -104,7 +105,7 @@ private enum class Metric(val label: String) { Steps("Steps"), Distance("Distanc
 
 private fun HealthBucket.valueOf(m: Metric): Double = when (m) {
     Metric.Steps -> steps
-    Metric.Distance -> distance / 1000.0
+    Metric.Distance -> Units.dist(distance / 1000.0)
     Metric.Calories -> caloriesActive
 }
 
@@ -114,7 +115,7 @@ private fun fmt(m: Metric, v: Double): String = when (m) {
     Metric.Calories -> "%,d".format(v.toLong())
 }
 
-private fun unit(m: Metric) = when (m) { Metric.Steps -> "steps"; Metric.Distance -> "km"; Metric.Calories -> "kcal" }
+private fun unit(m: Metric) = when (m) { Metric.Steps -> "steps"; Metric.Distance -> Units.distUnit; Metric.Calories -> "kcal" }
 
 private val RANGES = listOf(7 to "7 days", 30 to "30 days", 90 to "90 days", 365 to "1 year")
 
@@ -149,7 +150,7 @@ fun HealthDataSection(viewModel: HealthDataViewModel = hiltViewModel()) {
                 Panel(Modifier.fillMaxWidth(), padding = PaddingValues(18.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         StatBlock("%,d".format(t.steps.toLong()), "steps", small = true)
-                        StatBlock(String.format(Locale.US, "%.1f", t.distanceM / 1000.0), "km", small = true)
+                        StatBlock(String.format(Locale.US, "%.1f", Units.dist(t.distanceM / 1000.0)), Units.distUnit, small = true)
                         StatBlock("%,d".format(t.caloriesActive.toLong()), "active kcal", small = true)
                     }
                     Spacer(Modifier.height(4.dp))
@@ -248,7 +249,7 @@ private fun DayDetail(day: HealthDayResponse, metric: Metric) {
     Panel(Modifier.fillMaxWidth(), padding = PaddingValues(18.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             StatBlock("%,d".format((day.totals["steps"] ?: 0.0).toLong()), "steps", small = true)
-            StatBlock(String.format(Locale.US, "%.1f", (day.totals["distance"] ?: 0.0) / 1000.0), "km", small = true)
+            StatBlock(String.format(Locale.US, "%.1f", Units.dist((day.totals["distance"] ?: 0.0) / 1000.0)), Units.distUnit, small = true)
             StatBlock("%,d".format((day.totals["calories_active"] ?: 0.0).toLong()), "active kcal", small = true)
         }
         if (hourly.size == 24 && hourly.any { it > 0 }) {
@@ -273,7 +274,7 @@ private fun DayDetail(day: HealthDayResponse, metric: Metric) {
             Text(
                 listOfNotNull(
                     w.durationS?.let { "${it / 60} min" },
-                    w.distanceM?.takeIf { it > 0 }?.let { String.format(Locale.US, "%.1f km", it / 1000.0) },
+                    w.distanceM?.takeIf { it > 0 }?.let { String.format(Locale.US, "%.1f %s", Units.dist(it / 1000.0), Units.distUnit) },
                     w.caloriesKcal?.takeIf { it > 0 }?.let { "${it.toInt()} kcal" },
                     w.avgHeartRate?.takeIf { it > 0 }?.let { "${it.toInt()} bpm" },
                 ).joinToString(" · "),

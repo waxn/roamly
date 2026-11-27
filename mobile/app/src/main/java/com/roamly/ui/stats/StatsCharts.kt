@@ -37,6 +37,7 @@ import com.roamly.data.api.TransportResponse
 import com.roamly.ui.kit.AtlasChip
 import com.roamly.ui.kit.Panel
 import com.roamly.ui.kit.StatBlock
+import com.roamly.ui.kit.Units
 import com.roamly.ui.kit.rememberHaptics
 import com.roamly.ui.theme.Atlas
 import com.roamly.ui.theme.AtlasType
@@ -57,7 +58,8 @@ private fun DistanceResponse.series(): List<DayKm> {
     }
 }
 
-private fun km(v: Double) = if (v >= 100) "%,.0f".format(Locale.US, v) else String.format(Locale.US, "%.1f", v)
+private fun km(raw: Double): String { val v = Units.dist(raw); return kmFmt(v) }
+private fun kmFmt(v: Double) = if (v >= 100) "%,.0f".format(Locale.US, v) else String.format(Locale.US, "%.1f", v)
 private val DAY_FMT = DateTimeFormatter.ofPattern("EEE d MMM yyyy", Locale.getDefault())
 
 /** Total, active days, the typical active day and the best one. */
@@ -69,12 +71,12 @@ internal fun DistanceTiles(d: DistanceResponse) {
     val best = active.maxByOrNull { it.km }
     Panel(Modifier.fillMaxWidth(), padding = PaddingValues(18.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            StatBlock(km(d.totalKm ?: series.sumOf { it.km }), "km travelled", color = c.accent)
+            StatBlock(km(d.totalKm ?: series.sumOf { it.km }), "${Units.distUnit} travelled", color = c.accent)
             StatBlock("%,d".format(active.size), "active days", small = true)
         }
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            StatBlock(if (active.isEmpty()) "—" else km(active.sumOf { it.km } / active.size), "km per active day", small = true)
+            StatBlock(if (active.isEmpty()) "—" else km(active.sumOf { it.km } / active.size), "${Units.distUnit} per active day", small = true)
             StatBlock(best?.let { km(it.km) } ?: "—", best?.date?.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault()))?.let { "best · $it" } ?: "best day", small = true)
         }
     }
@@ -109,8 +111,8 @@ internal fun DistanceChart(d: DistanceResponse, from: LocalDate? = null, to: Loc
         Text("Distance travelled", style = MaterialTheme.typography.titleMedium, color = c.text)
         val s = bars.getOrNull(sel)
         Text(
-            if (s != null) "${s.first.format(DAY_FMT)}${if (s.second != s.first) " – ${s.second.format(DAY_FMT)}" else ""} · ${km(s.third)} km"
-            else "${km(max)} km at most · drag to read a day",
+            if (s != null) "${s.first.format(DAY_FMT)}${if (s.second != s.first) " – ${s.second.format(DAY_FMT)}" else ""} · ${km(s.third)} ${Units.distUnit}"
+            else "${km(max)} ${Units.distUnit} at most · drag to read a day",
             style = MaterialTheme.typography.bodySmall, color = if (s != null) c.accent else c.textMuted,
         )
         Spacer(Modifier.height(12.dp))
@@ -173,7 +175,7 @@ internal fun YearHeatmap(d: DistanceResponse) {
                 Text("Daily distance", style = MaterialTheme.typography.titleMedium, color = c.text)
                 val s = sel
                 Text(
-                    if (s != null) "${s.format(DAY_FMT)} · ${km(byDay[s] ?: 0.0)} km"
+                    if (s != null) "${s.format(DAY_FMT)} · ${km(byDay[s] ?: 0.0)} ${Units.distUnit}"
                     else "${byDay.count { it.value > 0.05 }} active days in $year",
                     style = MaterialTheme.typography.bodySmall, color = if (s != null) c.accent else c.textMuted,
                 )
@@ -268,7 +270,7 @@ internal fun TransportBreakdown(t: TransportResponse) {
             val tone = tones[i % tones.size]
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text(modeLabel(m.mode), style = MaterialTheme.typography.titleSmall, color = c.text, modifier = Modifier.weight(1f))
-                Text("${km(m.km ?: 0.0)} km", style = MaterialTheme.typography.labelLarge, color = tone)
+                Text("${km(m.km ?: 0.0)} ${Units.distUnit}", style = MaterialTheme.typography.labelLarge, color = tone)
                 Text("  ·  ${String.format(Locale.US, "%.1f", m.hours ?: 0.0)} h", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
             }
             Spacer(Modifier.height(6.dp))

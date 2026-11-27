@@ -1,5 +1,6 @@
 package com.roamly.ui.settings
 
+import com.roamly.ui.kit.Units
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -243,7 +244,7 @@ private fun RawRow(row: Map<String, Any?>, columns: List<com.roamly.data.api.Raw
             val text = when (col.type) {
                 "time" -> formatTimestamp(raw.toString())
                 "coord" -> (raw as? Number)?.let { "%.5f".format(it.toDouble()) } ?: raw.toString()
-                "speed" -> (raw as? Number)?.let { "%.1f km/h".format(it.toDouble() * 3.6) } ?: raw.toString()
+                "speed" -> (raw as? Number)?.let { "%.1f %s".format(Units.speed(it.toDouble() * 3.6), Units.speedUnit) } ?: raw.toString()
                 "num" -> (raw as? Number)?.let { n -> if (n.toDouble() % 1.0 == 0.0) "%,d".format(n.toLong()) else "%.2f".format(n.toDouble()) } ?: raw.toString()
                 else -> raw.toString()
             }

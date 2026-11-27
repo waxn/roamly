@@ -1,5 +1,6 @@
 package com.roamly.ui.health
 
+import com.roamly.ui.kit.Units
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -88,7 +89,7 @@ private fun Workout(row: WorkoutRow, onImport: () -> Unit) {
                 Text(
                     buildString {
                         append(formatDuration(row.durationS))
-                        row.distanceM?.let { append(" · ${"%.1f".format(it / 1000)} km") }
+                        row.distanceM?.let { append(" · ${"%.1f".format(Units.dist(it / 1000.0))} ${Units.distUnit}") }
                         row.caloriesKcal?.let { append(" · ${it.toInt()} kcal") }
                         row.steps?.let { append(" · %,d steps".format(it)) }
                     },

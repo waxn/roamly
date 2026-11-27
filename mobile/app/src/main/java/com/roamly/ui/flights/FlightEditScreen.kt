@@ -1,5 +1,6 @@
 package com.roamly.ui.flights
 
+import com.roamly.ui.kit.Units
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -291,7 +292,7 @@ private fun TrackCard(
                     " · ${state.pendingTrack.message} Not saved yet — press Save to keep it."
                 d.id == null -> "Find a track with the buttons below. Nothing is kept until you press Save."
                 else -> when (d.trackSource) {
-                    "recorded" -> "Recorded track, from your own points or an uploaded KML" + (d.trackDistanceKm?.let { " · %,d km flown".format(it.toLong()) } ?: "")
+                    "recorded" -> "Recorded track, from your own points or an uploaded KML" + (d.trackDistanceKm?.let { " · %,d %s flown".format(Units.dist(it).toLong(), Units.distUnit) } ?: "")
                     "opensky" -> "OpenSky track · ${d.openskyMessage} Upload a KML to replace it."
                     else -> "No track yet — showing the great-circle route. " + when (d.openskyStatus) {
                         "pending" -> "OpenSky: waiting for the flight to land."

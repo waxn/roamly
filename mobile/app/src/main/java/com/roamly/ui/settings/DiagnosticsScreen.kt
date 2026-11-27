@@ -1,5 +1,6 @@
 package com.roamly.ui.settings
 
+import com.roamly.ui.kit.Units
 import android.content.Intent
 import android.os.Build
 import androidx.compose.foundation.Canvas
@@ -138,7 +139,7 @@ fun DiagnosticsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                             StatBlock(d.count.fmt(), "points", small = true)
                             StatBlock(d.pointsPerHour?.let { "%.0f".format(it) } ?: "—", "per hour", small = true)
                             StatBlock(fmtDuration(d.gaps.medianS), "median gap", small = true)
-                            StatBlock(d.distanceKm?.let { "%.1f".format(it) } ?: "—", "km", small = true)
+                            StatBlock(d.distanceKm?.let { "%.1f".format(Units.dist(it)) } ?: "—", Units.distUnit, small = true)
                         }
                         if (d.span.start != null && d.span.end != null) {
                             Spacer(Modifier.height(12.dp))

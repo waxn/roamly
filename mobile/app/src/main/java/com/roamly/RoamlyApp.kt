@@ -33,6 +33,7 @@ class RoamlyApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
+        com.roamly.ui.kit.Units.init(this)
         // Capture counters must be readable in Diagnostics even when the tracking service
         // has never started this process.
         CaptureStats.init(this)

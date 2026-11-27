@@ -191,6 +191,7 @@ fun RoamlyNavHost() {
             updateViewModel.checkOnLaunch()
             authViewModel.refreshFeaturedTrip()
             authViewModel.registerPush()
+            authViewModel.refreshUnits()
         }
     }
 
@@ -338,8 +339,7 @@ fun RoamlyNavHost() {
                     StatsScreen(viewModel = vm, onNavigateToMap = toMapDate, onBack = back)
                 }
                 composable(Routes.FLIGHTS) {
-                    // No unit setting of its own: follow the phone's region.
-                    val useMiles = java.util.Locale.getDefault().country in setOf("US", "LR", "MM")
+                    val useMiles by com.roamly.ui.kit.Units.miles.collectAsState()
                     FlightsScreen(
                         viewModel = flightsViewModel,
                         useMiles = useMiles,

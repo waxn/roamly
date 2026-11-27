@@ -1,5 +1,6 @@
 package com.roamly.ui.map
 
+import com.roamly.ui.kit.Units
 import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
@@ -766,7 +767,7 @@ private fun PointSheet(pt: LocationPoint, deviceName: String?, onDismiss: () -> 
             val pairs = buildList {
                 deviceName?.takeIf { it.isNotBlank() }?.let { add("Device" to it) }
                 add("Coordinates" to "%.5f, %.5f".format(pt.lat, pt.lng))
-                pt.speed?.let { add("Speed" to "%.1f km/h".format(it * 3.6)) }
+                pt.speed?.let { add("Speed" to "%.1f %s".format(Units.speed(it * 3.6), Units.speedUnit)) }
                 pt.accuracy?.let { add("Accuracy" to "${it.toInt()} m") }
                 pt.altitude?.let { add("Altitude" to "${it.toInt()} m") }
                 pt.battery?.let { add("Battery" to "${it.toInt()}%") }

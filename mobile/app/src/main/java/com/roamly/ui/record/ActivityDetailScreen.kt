@@ -1,5 +1,6 @@
 package com.roamly.ui.record
 
+import com.roamly.ui.kit.Units
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -152,13 +153,13 @@ fun ActivityDetailScreen(id: Int, onBack: () -> Unit, viewModel: ActivityDetailV
             if (act != null) {
                 Panel(Modifier.fillMaxWidth(), padding = PaddingValues(20.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                        StatBlock(String.format(Locale.US, "%.2f", act.distanceKm ?: 0.0), "distance", unit = "km", color = c.accent)
+                        StatBlock(String.format(Locale.US, "%.2f", Units.dist(act.distanceKm ?: 0.0)), "distance", unit = Units.distUnit, color = c.accent)
                         StatBlock(formatDuration((act.movingSeconds ?: act.elapsedSeconds) * 1000L), "moving")
                     }
                     Spacer(Modifier.height(16.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                        StatBlock(String.format(Locale.US, "%.1f", act.avgSpeedKmh ?: 0.0), "avg km/h", small = true)
-                        StatBlock(String.format(Locale.US, "%.1f", act.maxSpeedKmh ?: 0.0), "max km/h", small = true)
+                        StatBlock(String.format(Locale.US, "%.1f", Units.speed(act.avgSpeedKmh ?: 0.0)), "avg ${Units.speedUnit}", small = true)
+                        StatBlock(String.format(Locale.US, "%.1f", Units.speed(act.maxSpeedKmh ?: 0.0)), "max ${Units.speedUnit}", small = true)
                         StatBlock(String.format(Locale.US, "%.0f", act.elevationGainM ?: 0.0), "climb m", small = true)
                     }
                 }
@@ -170,7 +171,7 @@ fun ActivityDetailScreen(id: Int, onBack: () -> Unit, viewModel: ActivityDetailV
                     }
                 }
                 if (state.chartSpeeds.count { it != null } > 1) {
-                    ChartPanel("Speed", state.chartTimes, state.chartSpeeds, "km/h", c.accent, floorZero = true)
+                    ChartPanel("Speed", state.chartTimes, state.chartSpeeds.map { v -> v?.let { Units.speed(it) } }, Units.speedUnit, c.accent, floorZero = true)
                 }
                 if (state.chartElev.count { it != null } > 1) {
                     ChartPanel("Elevation", state.chartTimes, state.chartElev, "m", c.lime, floorZero = false)

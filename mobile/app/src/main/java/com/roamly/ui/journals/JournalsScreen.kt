@@ -1,5 +1,6 @@
 package com.roamly.ui.journals
 
+import com.roamly.ui.kit.Units
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
@@ -412,7 +413,7 @@ private fun DayTrackCard(track: JournalTrack, onExpand: (() -> Unit)?) {
             }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-            StatBlock("%.1f".format(track.distanceKm), "distance", unit = "km", small = true)
+            StatBlock("%.1f".format(Units.dist(track.distanceKm)), "distance", unit = Units.distUnit, small = true)
             StatBlock("%,d".format(track.pointCount), "points", small = true)
             if (track.cities.isNotEmpty()) StatBlock("${track.cities.size}", "places", small = true)
         }

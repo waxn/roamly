@@ -1,5 +1,6 @@
 package com.roamly.ui.record
 
+import com.roamly.ui.kit.Units
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -270,7 +271,7 @@ private fun ActivityCard(act: ActivityDto, onClick: () -> Unit, onLongClick: () 
             // Null until the server computes stats: say so, not a confident zero.
             Text(
                 if (act.computedAt == null) "Waiting for points"
-                else String.format(Locale.US, "%.1f km · %s", act.distanceKm ?: 0.0, formatDuration((act.movingSeconds ?: 0) * 1000L)),
+                else String.format(Locale.US, "%.1f %s · %s", Units.dist(act.distanceKm ?: 0.0), Units.distUnit, formatDuration((act.movingSeconds ?: 0) * 1000L)),
                 style = MaterialTheme.typography.labelLarge, color = c.text, maxLines = 1,
             )
         }
@@ -307,13 +308,13 @@ private fun Recording(state: RecordUiState, onBack: () -> Unit, onStop: () -> Un
                     modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                 Spacer(Modifier.height(14.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                    StatBlock(formatKm(state.distanceM), "distance", unit = "km", color = c.accent)
-                    StatBlock(formatSpeed(state.currentSpeedMps ?: 0f), "speed", unit = "km/h")
+                    StatBlock(formatKm(state.distanceM), "distance", unit = Units.distUnit, color = c.accent)
+                    StatBlock(formatSpeed(state.currentSpeedMps ?: 0f), "speed", unit = Units.speedUnit)
                 }
                 Spacer(Modifier.height(14.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                    StatBlock(formatSpeed(state.avgSpeedMps), "avg km/h", small = true)
-                    StatBlock(formatSpeed(state.maxSpeedMps), "max km/h", small = true)
+                    StatBlock(formatSpeed(state.avgSpeedMps), "avg ${Units.speedUnit}", small = true)
+                    StatBlock(formatSpeed(state.maxSpeedMps), "max ${Units.speedUnit}", small = true)
                     StatBlock(formatDuration(state.movingMs), "moving", small = true)
                 }
                 Spacer(Modifier.height(18.dp))
@@ -414,7 +415,7 @@ internal fun formatDuration(ms: Long): String {
     return if (h > 0) String.format(Locale.US, "%d:%02d:%02d", h, m, s) else String.format(Locale.US, "%d:%02d", m, s)
 }
 
-private fun formatKm(metres: Double): String = String.format(Locale.US, "%.2f", metres / 1000.0)
+private fun formatKm(metres: Double): String = String.format(Locale.US, "%.2f", Units.dist(metres / 1000.0))
 
 private fun formatSpeed(mps: Float): String =
-    ((mps * 3.6f) * 10).roundToInt().let { String.format(Locale.US, "%.1f", it / 10f) }
+    ((Units.speed(mps * 3.6).toFloat()) * 10).roundToInt().let { String.format(Locale.US, "%.1f", it / 10f) }

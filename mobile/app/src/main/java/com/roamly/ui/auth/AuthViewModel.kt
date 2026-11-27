@@ -47,6 +47,8 @@ class AuthViewModel @Inject constructor(
     private val store: LocationStore,
     private val tripBlogs: TripBlogRepository,
     private val pushRegistrar: com.roamly.family.PushRegistrar,
+    private val api: com.roamly.data.api.RoamlyApi,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LoginUiState())
@@ -88,6 +90,14 @@ class AuthViewModel @Inject constructor(
     /** Re-register this phone for Family Circle push (self-healing; see PushRegistrar). */
     fun registerPush() {
         viewModelScope.launch { runCatching { pushRegistrar.registerCurrent() } }
+    }
+
+    /** Pick up the unit saved on the web; silent on failure (the last one, or the phone's region, stays). */
+    fun refreshUnits() {
+        viewModelScope.launch {
+            val unit = runCatching { api.getDistanceUnit().body()?.distanceUnit }.getOrNull() ?: return@launch
+            com.roamly.ui.kit.Units.apply(appContext, unit)
+        }
     }
 
     fun refreshFeaturedTrip() {

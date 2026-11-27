@@ -56,6 +56,10 @@ interface RoamlyApi {
     // --- AI "Ask" ---
 
     /** Whether the user has AI Ask enabled/configured — gates the Ask tab. */
+    /** The distance unit chosen on the web ("kmh" / "mph"; blank when never chosen). */
+    @GET("api/profile/distance-unit/")
+    suspend fun getDistanceUnit(): Response<DistanceUnitResponse>
+
     @GET("api/profile/ai-config/")
     suspend fun getAiConfig(): Response<AiConfigResponse>
 

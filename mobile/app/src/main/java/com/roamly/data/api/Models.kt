@@ -134,6 +134,8 @@ data class DistanceResponse(
     @SerializedName("total_km") val totalKm: Double? = null,
 )
 
+data class DistanceUnitResponse(@SerializedName("distance_unit") val distanceUnit: String? = null)
+
 data class TransportMode(val mode: String? = null, val km: Double? = null, val points: Int? = null, val hours: Double? = null)
 data class TransportResponse(val modes: List<TransportMode>? = null, val unclassified: Int? = null)
 
