@@ -49,6 +49,20 @@ fun rememberAtlasMapView(interactive: Boolean = false): MapView {
             isTilesScaledToDpi = true
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
             if (!interactive) setOnTouchListener { _, _ -> true }
+            else {
+                // Inside a scrolling page the map must win the gesture, or a drag scrolls the
+                // page instead of panning and a pinch never reaches it.
+                setOnTouchListener { v, e ->
+                    when (e.actionMasked) {
+                        android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_POINTER_DOWN, android.view.MotionEvent.ACTION_MOVE ->
+                            v.parent?.requestDisallowInterceptTouchEvent(true)
+                        android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL ->
+                            v.parent?.requestDisallowInterceptTouchEvent(false)
+                    }
+                    false
+                }
+                setBuiltInZoomControls(false)
+            }
             controller.setZoom(12.0)
         }
     }

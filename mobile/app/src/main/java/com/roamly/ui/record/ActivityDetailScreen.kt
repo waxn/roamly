@@ -16,6 +16,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -203,7 +205,13 @@ private fun ActivityMap(segments: List<List<GeoPoint>>) {
         segments.forEach { mapView.addGlowLine(it, color, width = 8f) }
         mapView.fitTo(segments.flatten())
     }
-    MapViewHost(mapView, Modifier.fillMaxSize())
+    Box(Modifier.fillMaxSize()) {
+        MapViewHost(mapView, Modifier.fillMaxSize())
+        Column(Modifier.align(Alignment.BottomEnd).padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            IconAction(Icons.Rounded.Add, "Zoom in", { mapView.controller.zoomIn() }, container = Atlas.colors.glass)
+            IconAction(Icons.Rounded.Remove, "Zoom out", { mapView.controller.zoomOut() }, container = Atlas.colors.glass)
+        }
+    }
 }
 
 /** A value-over-time chart you can drag a finger along to read each moment. */
