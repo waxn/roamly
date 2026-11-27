@@ -126,9 +126,10 @@
             mouse.ty = -(e.clientY / innerHeight * 2 - 1);
         }, { passive: true });
         document.addEventListener('pointerleave', function () { mouse.tx = mouse.ty = 9; });
-        var scale = 0.6, frames = 0, slow = 0, last = performance.now(), t0 = last, hidden = false;
+        // Start sharp (about CSS-pixel resolution, capped), and step down only if frames run long.
+        var scale = 1, frames = 0, slow = 0, last = performance.now(), t0 = last, hidden = false;
         function size() {
-            var w = Math.min(1100, Math.round(innerWidth * scale)), h = Math.round(w * innerHeight / innerWidth);
+            var w = Math.min(2000, Math.round(innerWidth * scale)), h = Math.round(w * innerHeight / innerWidth);
             if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
         }
         function covered() {
@@ -152,7 +153,7 @@
         (function frame(now) {
             var dt = now - last; last = now;
             if (++frames % 90 === 0) {
-                if (slow > 45 && scale > 0.3) scale = 0.32;
+                if (slow > 45 && scale > 0.3) scale = scale > 0.7 ? 0.6 : scale > 0.45 ? 0.45 : 0.32;
                 slow = 0; hidden = covered(); cv.style.display = hidden ? 'none' : '';
             }
             if (dt > 28) slow++;
