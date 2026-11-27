@@ -201,7 +201,8 @@ class SecurityHeadersMiddleware:
             f"connect-src 'self' blob: {tiles} {self._TURNSTILE} {extra}".strip(),
             "worker-src 'self' blob:",
             "media-src 'self' blob:",
-            f"frame-src {self._TURNSTILE}",
+            # 'self' for the Atlas layout's panels, which iframe our own pages.
+            f"frame-src 'self' {self._TURNSTILE}",
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self'",
@@ -213,10 +214,16 @@ class SecurityHeadersMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
+        embed = request.GET.get('embed') == '1'
         # Never override a policy a view set for itself, and leave the Django
         # admin alone — it is a separate app with its own inline assets.
         if 'Content-Security-Policy' not in response and not request.path.startswith('/admin/'):
-            response[self.header] = self.policy
+            # An Atlas panel frames our own page with ?embed=1. Allow exactly
+            # that: our own origin, and only for responses asked for as embeds.
+            response[self.header] = (self.policy.replace("frame-ancestors 'none'", "frame-ancestors 'self'")
+                                     if embed else self.policy)
+        if embed:
+            response['X-Frame-Options'] = 'SAMEORIGIN'
         response.setdefault('Permissions-Policy',
                             'geolocation=(self), camera=(), microphone=(), payment=()')
         response.setdefault('X-Content-Type-Options', 'nosniff')
