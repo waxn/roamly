@@ -18,6 +18,7 @@ _Read when: Templates, CSS, appearance layers, RoamlyForms/Dialog/Toast/Intro, s
 | shape | `facets.css` | `html[data-shape]` | `--r-1..4`, `--r-pill`, `--rk`, `corner-shape: squircle` |
 | type | `facets.css` | `html[data-type]` | font tokens only |
 | background | `backgrounds/<id>.css` (+ `.js`) | `html[data-bg]` | what sits behind the page |
+| icons | `static/tracker/icons.js` (not a facet) | `window.RoamlyIcons.svg(name, size)` | ~70 hand-drawn 24×24 `currentColor` line icons for pages that would otherwise reach for emoji (Achievements, Health). Add a glyph to the `P` map; unknown names draw a medal |
 | extras | `extras.css` / `extras.js` | `html[data-fx~=id]` | 30 small behaviours, one module each |
 | size, motion | `facets.css` | `html[data-size]`, `html[data-motion]` | comfort settings; presets never change them |
 
