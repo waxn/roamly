@@ -11784,6 +11784,15 @@ def achievements_api(request):
         return JsonResponse({'status': 'pending', 'job': st})
     payload = dict(AchievementSnapshot.objects.filter(pk=snap.pk)
                    .values_list('payload_json', flat=True).first() or {})
+    from . import achievement_defs as _adefs
+    game = payload.get('game')
+    if isinstance(game, dict):
+        stale = (game.get('schema') or 0) < _adefs.SCHEMA
+        _adefs.compat_game(game)
+        if stale and get_status(request.user.id)['status'] != 'running':
+            # Badge set changed since this snapshot: serve it patched, and have
+            # one scan bring the new badges in rather than waiting for tonight.
+            start_achievement_scan(request.user.id)
     payload['computed_at'] = snap.computed_at.isoformat()
     payload['status'] = 'ready'
     payload['job'] = get_status(request.user.id)
@@ -16091,6 +16100,7 @@ def _health_workout_payload(w):
     return {
         'id': w.id,
         'external_id': w.external_id,
+        'recorded': False,
         'start': w.start_time.isoformat(),
         'end': w.end_time.isoformat(),
         'exercise_type': w.exercise_type,
@@ -16105,6 +16115,81 @@ def _health_workout_payload(w):
         'source': w.source,
         'imported_at': w.imported_at.isoformat() if w.imported_at else None,
     }
+
+
+# Roamly's own recorded activities, shown beside imported Health Connect
+# sessions. The slug is what the web page's icon lookup and the app both key on.
+_ACTIVITY_WORKOUT_SLUG = {
+    'ride': 'biking', 'run': 'running', 'walk': 'walking', 'hike': 'hiking',
+    'row': 'rowing', 'other': 'workout',
+}
+
+
+def _health_window_totals(user, start, end, preferred=''):
+    """Steps / calories / distance the phone recorded between two instants.
+
+    "Calories for the times the workout was happening and steps from that
+    time": a recorded activity has no Health Connect totals of its own, so they
+    are read back out of HealthSample. Records that straddle a window edge are
+    pro-rated by overlap (a Zepp remainder row spans the whole day, a step
+    record can start before Start was tapped), and one source is chosen per kind
+    exactly as the daily view does, so a walk is not counted by two apps at once.
+    """
+    qs = (HealthSample.objects
+          .filter(user=user, start_time__lt=end, end_time__gt=start)
+          .order_by().values_list('start_time', 'end_time', 'kind', 'value', 'source'))
+    per = defaultdict(float)           # (kind, source) -> value inside the window
+    for st, en, kind, value, source in qs.iterator(chunk_size=2000):
+        if value is None:
+            continue
+        span = (en - st).total_seconds()
+        if span <= 0:
+            frac = 1.0
+        else:
+            overlap = (min(en, end) - max(st, start)).total_seconds()
+            frac = max(0.0, min(1.0, overlap / span))
+        per[(kind, source or '')] += float(value) * frac
+    by_kind = defaultdict(dict)
+    for (kind, source), total in per.items():
+        by_kind[kind][source] = total
+    out = {}
+    for kind, by_source in by_kind.items():
+        source = preferred if preferred in by_source else max(by_source, key=lambda x: by_source[x])
+        out[kind] = by_source[source]
+    return out
+
+
+def _health_activity_payload(act, preferred=''):
+    """An Activity shaped like _health_workout_payload, flagged ``recorded``."""
+    totals = _health_window_totals(act.user, act.start_time, act.end_time, preferred)
+    kcal = totals.get('calories_active') or totals.get('calories_total')
+    steps = totals.get('steps')
+    dist_m = act.distance_km * 1000 if act.distance_km else (totals.get('distance') or None)
+    return {
+        'id': act.id,
+        'external_id': f'activity:{act.id}',
+        'recorded': True,
+        'kind': act.kind,
+        'start': act.start_time.isoformat(),
+        'end': act.end_time.isoformat(),
+        'exercise_type': 0,
+        'exercise_slug': _ACTIVITY_WORKOUT_SLUG.get(act.kind, 'workout'),
+        'title': act.title,
+        'notes': act.notes,
+        'duration_s': act.elapsed_seconds or int((act.end_time - act.start_time).total_seconds()),
+        'steps': int(round(steps)) if steps else None,
+        'distance_m': dist_m,
+        'calories_kcal': round(kcal, 1) if kcal else None,
+        'avg_heart_rate': None,
+        'source': 'Roamly',
+        'imported_at': None,
+        'url': f'/activities/{act.id}/',
+    }
+
+
+def _health_preferred(user):
+    profile = getattr(user, 'profile', None)
+    return getattr(profile, 'health_preferred_source', '') or ''
 
 
 # ── Health page ──────────────────────────────────────────────────────────────
@@ -16470,13 +16555,21 @@ def _health_day_api_inner(request, date_str):
     workouts = (HealthWorkout.objects
                 .filter(user=request.user, start_time__gte=start, start_time__lte=end)
                 .order_by('start_time'))
+    # Activities recorded in Roamly sit in the same list, with their calories
+    # and steps read back out of the samples for their own time window.
+    activities = (Activity.objects
+                  .filter(user=request.user, start_time__gte=start, start_time__lte=end)
+                  .select_related('user').order_by('start_time'))
+    day_workouts = [_health_workout_payload(w) for w in workouts]
+    day_workouts += [_health_activity_payload(a, preferred) for a in activities]
+    day_workouts.sort(key=lambda w: w['start'])
 
     payload = {
         'date': date_str,
         'hourly': hourly,
         'totals': {kind: round(sum(hourly[kind]), 2) for kind in hourly},
         'raw': raw,
-        'workouts': [_health_workout_payload(w) for w in workouts],
+        'workouts': day_workouts,
         'cities': _health_day_cities(request.user, start, end),
         'tz_offset': tz_offset,
     }
@@ -16486,22 +16579,38 @@ def _health_day_api_inner(request, date_str):
 
 @login_required
 def health_workouts_api(request):
-    qs = HealthWorkout.objects.filter(user=request.user)
+    """Imported Health Connect sessions *and* activities recorded in Roamly.
+
+    The two are merged newest-first. Paging merges after fetching ``offset +
+    limit`` from each side, which is exact for a merge of two sorted lists and
+    cheap at the sizes involved (a person's workouts, not their location points).
+    """
     start, end = _health_range(request)
+    wqs = HealthWorkout.objects.filter(user=request.user)
+    aqs = Activity.objects.filter(user=request.user).select_related('user')
     if start:
-        qs = qs.filter(start_time__gte=start)
+        wqs = wqs.filter(start_time__gte=start)
+        aqs = aqs.filter(start_time__gte=start)
     if end:
-        qs = qs.filter(start_time__lte=end)
+        wqs = wqs.filter(start_time__lte=end)
+        aqs = aqs.filter(start_time__lte=end)
     try:
         limit = min(int(request.GET.get('limit', 200)), 1000)
         offset = max(int(request.GET.get('offset', 0)), 0)
     except (TypeError, ValueError):
         limit, offset = 200, 0
-    total = qs.count()
-    rows = qs.order_by('-start_time')[offset:offset + limit]
+    w_total, a_total = wqs.count(), aqs.count()
+    total = w_total + a_total
+    preferred = _health_preferred(request.user)
+    merged = [_health_workout_payload(w) for w in wqs.order_by('-start_time')[:offset + limit]]
+    merged += [_health_activity_payload(a, preferred)
+               for a in aqs.order_by('-start_time')[:offset + limit]]
+    merged.sort(key=lambda w: w['start'], reverse=True)
     return JsonResponse({
-        'workouts': [_health_workout_payload(w) for w in rows],
+        'workouts': merged[offset:offset + limit],
         'count': total,
+        'imported_count': w_total,
+        'recorded_count': a_total,
         'has_more': offset + limit < total,
     })
 
