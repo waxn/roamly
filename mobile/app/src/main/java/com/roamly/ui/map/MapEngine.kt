@@ -161,6 +161,9 @@ internal fun pixelsToDegrees(px: Float, zoom: Double): Double {
     return (px / worldPx) * 360.0
 }
 
+/** The heat glow is only drawn below this zoom (fading out over the last level); dots take over. */
+internal const val HEAT_MAX_ZOOM = 9.0
+
 internal class HeatmapOverlay : Overlay() {
     private var points: List<LocationPoint> = emptyList()
     private var sprite: android.graphics.Bitmap? = null
@@ -193,15 +196,12 @@ internal class HeatmapOverlay : Overlay() {
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow || points.isEmpty()) return
+        val zoom = mapView.zoomLevelDouble
+        // Only a glow when zoomed well out; from here down it is plain dots.
+        if (zoom >= HEAT_MAX_ZOOM) return
         ensureSprite()
         val s = sprite ?: return
-        val zoom = mapView.zoomLevelDouble
-        val alphaFrac = when {
-            zoom >= 15 -> 0.04f
-            zoom >= 13 -> 0.16f
-            zoom >= 11 -> 0.50f
-            else -> 0.70f
-        }
+        val alphaFrac = 0.70f * (HEAT_MAX_ZOOM - zoom).coerceIn(0.0, 1.0).toFloat()
         val spriteSize = when {
             zoom < 6 -> 26f
             zoom < 10 -> 44f
@@ -226,6 +226,10 @@ internal class HeatmapOverlay : Overlay() {
 
 // ---- Speed-graded coloured dots; larger and more visible at detail zoom ----
 
+/** Dots start here; below it the heat glow is what you see. */
+internal const val DOT_MIN_ZOOM = 9.0
+private const val MAX_DOTS_DRAWN = 6_000
+
 internal class PointsOverlay : Overlay() {
     private var points: List<LocationPoint> = emptyList()
     private val spritePaint = Paint(Paint.FILTER_BITMAP_FLAG)
@@ -234,6 +238,7 @@ internal class PointsOverlay : Overlay() {
     private val dst = android.graphics.RectF()
     private val src = android.graphics.Rect()
     private val sprites = arrayOfNulls<android.graphics.Bitmap>(SPEED_COLORS.size)
+    private var grid = BooleanArray(0)
     var onPointTapped: ((LocationPoint) -> Unit)? = null
 
     fun setPoints(p: List<LocationPoint>) { points = p }
@@ -241,27 +246,20 @@ internal class PointsOverlay : Overlay() {
     /** A soft dot: a solid core inside a faint halo, pre-rendered once per speed band so a frame is just blits. */
     private fun sprite(band: Int): android.graphics.Bitmap {
         sprites[band]?.let { return it }
-        val size = 48
+        val size = 32
         val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
         val cv = Canvas(bmp)
         val c = SPEED_COLORS[band]
         val mid = size / 2f
-        val halo = android.graphics.RadialGradient(
-            mid, mid, mid,
-            intArrayOf(Color.argb(110, Color.red(c), Color.green(c), Color.blue(c)), Color.argb(0, Color.red(c), Color.green(c), Color.blue(c))),
-            floatArrayOf(0.35f, 1f), android.graphics.Shader.TileMode.CLAMP,
-        )
-        cv.drawCircle(mid, mid, mid, Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = halo })
-        cv.drawCircle(mid, mid, size * 0.2f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = c })
-        cv.drawCircle(mid, mid, size * 0.2f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE; strokeWidth = 1.5f; color = Color.argb(150, 255, 255, 255)
-        })
+        // A crisp dot: solid fill and a thin dark rim so it holds on the night map.
+        cv.drawCircle(mid, mid, size * 0.42f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(170, 8, 12, 14) })
+        cv.drawCircle(mid, mid, size * 0.34f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = c })
         sprites[band] = bmp
         return bmp
     }
 
     override fun onSingleTapConfirmed(e: android.view.MotionEvent, mapView: MapView): Boolean {
-        if (mapView.zoomLevelDouble < 11.0 || points.isEmpty()) return false
+        if (mapView.zoomLevelDouble < DOT_MIN_ZOOM || points.isEmpty()) return false
         val projection = mapView.projection
         val tapX = e.x; val tapY = e.y
         val tapRadiusPx = 40f  // generous tap target
@@ -288,23 +286,37 @@ internal class PointsOverlay : Overlay() {
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow || points.isEmpty()) return
         val zoom = mapView.zoomLevelDouble
-        if (zoom < 11.0) return
-        // Fades in between zoom 11 and 13 so the heat glow hands over to dots smoothly.
-        spritePaint.alpha = (255 * ((zoom - 11.0) / 2.0).coerceIn(0.35, 1.0)).toInt()
+        if (zoom < DOT_MIN_ZOOM) return
+        // Fades in as the heat glow fades out.
+        spritePaint.alpha = (255 * ((zoom - (DOT_MIN_ZOOM - 0.5)) / 1.0).coerceIn(0.0, 1.0)).toInt()
         val density = mapView.resources.displayMetrics.density
         val half = when {
-            zoom < 12 -> 7f
-            zoom < 13 -> 9f
-            zoom < 15 -> 12f
-            else -> 15f
+            zoom < 11 -> 2.5f
+            zoom < 13 -> 3f
+            zoom < 15 -> 3.5f
+            else -> 4.5f
         } * density
         val projection: Projection = mapView.projection
         val cull = ViewportCull(mapView, pixelsToDegrees(half + 20f, zoom))
+        // Thin out in screen space: at most one dot per cell, so a spot you sit at
+        // all day stays a readable few dots instead of a solid blob (and costs less).
+        val cell = (half * 1.6f).coerceAtLeast(1f)
+        val cols = (mapView.width / cell).toInt() + 3
+        val rows = (mapView.height / cell).toInt() + 3
+        if (grid.size < cols * rows) grid = BooleanArray(cols * rows) else java.util.Arrays.fill(grid, 0, cols * rows, false)
+        var drawn = 0
         for (i in points.indices) {
             val p = points[i]
             if (!cull.contains(p.lat, p.lng)) continue
             scratch.setCoords(p.lat, p.lng)
             projection.toPixels(scratch, out)
+            val cx = (out.x / cell).toInt() + 1
+            val cy = (out.y / cell).toInt() + 1
+            if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) continue
+            val gi = cy * cols + cx
+            if (grid[gi]) continue
+            grid[gi] = true
+            if (++drawn > MAX_DOTS_DRAWN) break
             val sp = sprite(speedBand(p.speed))
             src.set(0, 0, sp.width, sp.height)
             dst.set(out.x - half, out.y - half, out.x + half, out.y + half)
@@ -313,13 +325,13 @@ internal class PointsOverlay : Overlay() {
     }
 }
 
-/** Calm, muted speed bands: still, on foot, cycling, driving, fast. */
+/** Speed bands (still, on foot, cycling, driving, fast): saturated enough to read on the night map. */
 private val SPEED_COLORS = intArrayOf(
-    Color.rgb(141, 169, 196),
-    Color.rgb(157, 191, 158),
-    Color.rgb(212, 180, 140),
-    Color.rgb(217, 143, 111),
-    Color.rgb(207, 127, 134),
+    Color.rgb(77, 142, 224),
+    Color.rgb(52, 184, 120),
+    Color.rgb(232, 186, 48),
+    Color.rgb(236, 112, 52),
+    Color.rgb(224, 60, 92),
 )
 
 private fun speedBand(speed: Double?): Int {

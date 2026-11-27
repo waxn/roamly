@@ -45,7 +45,7 @@ class UserPreferences @Inject constructor(
         private val KEY_MAPBOX_TOKEN = stringPreferencesKey("mapbox_token")
         // Selected map basemap (label shared with the web map, e.g. "Streets",
         // "Satellite", "Dark", "Mapbox Streets"). Per-device UI choice.
-        private val KEY_MAP_BASEMAP = stringPreferencesKey("map_basemap")
+        private val KEY_MAP_BASEMAP = stringPreferencesKey("map_basemap_v2")
         // Map options sheet toggles (fog, filled gaps, outliers, transport…), MapLayers.encode().
         private val KEY_MAP_LAYERS = stringPreferencesKey("map_layers")
         // Cached "is AI Ask configured on the server" flag, so the bottom nav

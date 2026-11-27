@@ -58,7 +58,9 @@ private const val PERIOD_LOAD_LIMIT = 20_000
 /** points loaded for a single zoomed-in bbox request */
 private const val BBOX_LOAD_LIMIT = 8_000
 /** zoom level above which we start fetching detailed dots */
-internal const val DETAIL_ZOOM = 12.0
+internal const val DETAIL_ZOOM = 10.0
+/** Most points held across pans; past this, the ones outside the current view are dropped. */
+private const val MAX_ACCUMULATED = 60_000
 /**
  * Debounce for viewport-change-triggered queries.
  *
@@ -498,6 +500,12 @@ class MapViewModel @Inject constructor(
             if (detail.isEmpty()) return@launch
             var added = 0
             detail.forEach { pt -> if (accumulator.put(pt.id, pt) == null) added++ }
+            if (accumulator.size > MAX_ACCUMULATED) {
+                val padLat = (maxLat - minLat) / 2; val padLng = (maxLng - minLng) / 2
+                accumulator.values.removeAll { it.lat !in (minLat - padLat)..(maxLat + padLat) || it.lng !in (minLng - padLng)..(maxLng + padLng) }
+                lastQueried = null
+                added = added.coerceAtLeast(1)
+            }
             if (added > 0) _uiState.update { it.copy(locations = accumulator.values.toList()) }
         }
     }
