@@ -1,2 +1,118 @@
-{% comment %}hearth layout shell. Placeholder until the real chrome lands.{% endcomment %}
-<nav class="lx-stub"><a href="{% url 'tracker:map' %}">Map</a> <a href="{% url 'tracker:settings' %}#appearance">Settings</a> <a href="{% url 'tracker:logout' %}">Logout</a></nav>
+{% load static %}{% comment %}
+  Hearth layout shell: owns all navigation chrome (base.html includes it in place
+  of the classic navbar + bottom nav). One <aside> serves as the desktop sidebar
+  (232px, collapsible to a 64px rail) and, at <=768px, as the full-height drawer
+  opened from the phone header or the bottom bar's "More". The yago chip and the
+  notification bell are included exactly once (base.html wires them by id); the
+  bell is moved between the sidebar foot and the phone header by the script at
+  the end of this file and by hearth.js. Behaviour lives in styles/layouts/hearth.js.
+{% endcomment %}<script>
+/* Before first paint: the rail state, so the page never jumps sideways after load.
+   No stored choice on a tablet-width window starts as the rail (not saved). */
+(function () {
+    var de = document.documentElement, v = null;
+    try { v = localStorage.getItem('roamly_hearth_collapsed'); } catch (e) {}
+    if (v === '1' || (v === null && window.matchMedia && window.matchMedia('(min-width: 769px) and (max-width: 1100px)').matches)) {
+        de.setAttribute('data-hearth-collapsed', '');
+    }
+})();
+</script>
+{% with u=request.resolver_match.url_name %}
+<header class="lx-he-top" aria-label="Roamly">
+    <a class="lx-he-brand" href="{% url 'tracker:layout_home' %}" aria-label="Roamly home">
+        <img class="lx-he-brand-mark" src="{% static 'tracker/roamlymark.svg' %}" alt="" width="28" height="28">
+        <span class="lx-he-brand-word">Roamly</span>
+    </a>
+    <div class="lx-he-top-actions">
+        <div class="lx-he-bell-slot" id="lx-he-bell-top"></div>
+        <button type="button" class="lx-he-iconbtn" id="lx-he-menu-btn" aria-controls="lx-he-side" aria-expanded="false" aria-label="Open menu">{% include 'tracker/layouts/hearth/_icon.html' with name='menu' %}</button>
+    </div>
+</header>
+
+<div class="lx-he-scrim" id="lx-he-scrim" hidden></div>
+
+<aside class="lx-he-side" id="lx-he-side" aria-label="Main">
+    <div class="lx-he-side-head">
+        <a class="lx-he-brand" href="{% url 'tracker:layout_home' %}" aria-label="Roamly home">
+            <img class="lx-he-brand-mark" src="{% static 'tracker/roamlymark.svg' %}" alt="" width="28" height="28">
+            <span class="lx-he-brand-word">Roamly</span>
+        </a>
+        <button type="button" class="lx-he-iconbtn lx-he-collapse" id="lx-he-collapse" aria-controls="lx-he-side" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar">{% include 'tracker/layouts/hearth/_icon.html' with name='sidebar' %}</button>
+        <button type="button" class="lx-he-iconbtn lx-he-close" id="lx-he-close" aria-label="Close menu">{% include 'tracker/layouts/hearth/_icon.html' with name='close' %}</button>
+    </div>
+
+    <nav class="lx-he-nav" aria-label="Main navigation">
+        <div class="lx-he-group">
+            <div class="lx-he-group-title">Home</div>
+            <a class="lx-he-link{% if u == 'layout_home' %} is-active{% endif %}" href="{% url 'tracker:layout_home' %}" data-tip="Home"{% if u == 'layout_home' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='home' %}<span class="lx-he-label">Home</span></a>
+            <a class="lx-he-link{% if u == 'map' %} is-active{% endif %}" href="{% url 'tracker:map' %}" data-tip="Map"{% if u == 'map' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='map' %}<span class="lx-he-label">Map</span></a>
+        </div>
+        <div class="lx-he-group">
+            <div class="lx-he-group-title">Life</div>
+            <a class="lx-he-link{% if u == 'journals' %} is-active{% endif %}" href="{% url 'tracker:journals' %}" data-tip="Journals"{% if u == 'journals' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='journals' %}<span class="lx-he-label">Journals</span></a>
+            <a class="lx-he-link{% if u == 'places' %} is-active{% endif %}" href="{% url 'tracker:places' %}" data-tip="Places"{% if u == 'places' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='places' %}<span class="lx-he-label">Places</span></a>
+            <a class="lx-he-link{% if u == 'adventures' or u == 'adventure_edit' or u == 'adventure_plan' %} is-active{% endif %}" href="{% url 'tracker:adventures' %}" data-tip="Adventures"{% if u == 'adventures' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='adventures' %}<span class="lx-he-label">Adventures</span></a>
+            {% if FEATURED_TRIP %}<a class="lx-he-link{% if u == 'trip_blog' %} is-active{% endif %}" href="{% url 'tracker:trip_blog' FEATURED_TRIP.id %}" data-tip="Trip: {{ FEATURED_TRIP.name }}" title="{{ FEATURED_TRIP.name }}"{% if u == 'trip_blog' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='trip' %}<span class="lx-he-label">Trip</span></a>{% endif %}
+            <a class="lx-he-link{% if u == 'health' or u == 'activities' or u == 'activity_detail' %} is-active{% endif %}" href="{% url 'tracker:health' %}" data-tip="Health"{% if u == 'health' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='health' %}<span class="lx-he-label">Health</span></a>
+        </div>
+        <div class="lx-he-group">
+            <div class="lx-he-group-title">Insights</div>
+            <a class="lx-he-link{% if u == 'stats' %} is-active{% endif %}" href="{% url 'tracker:stats' %}" data-tip="Stats"{% if u == 'stats' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='stats' %}<span class="lx-he-label">Stats</span></a>
+            <a class="lx-he-link{% if u == 'visits' %} is-active{% endif %}" href="{% url 'tracker:visits' %}" data-tip="Visits"{% if u == 'visits' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='visits' %}<span class="lx-he-label">Visits</span></a>
+            <a class="lx-he-link{% if u == 'achievements' %} is-active{% endif %}" href="{% url 'tracker:achievements' %}" data-tip="Achievements"{% if u == 'achievements' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='achievements' %}<span class="lx-he-label">Achievements</span></a>
+            <a class="lx-he-link{% if u == 'flights' %} is-active{% endif %}" href="{% url 'tracker:flights' %}" data-tip="Flights"{% if u == 'flights' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='flights' %}<span class="lx-he-label">Flights</span></a>
+        </div>
+        <div class="lx-he-group">
+            <div class="lx-he-group-title">Tools</div>
+            <a class="lx-he-link{% if u == 'search' %} is-active{% endif %}" href="{% url 'tracker:search' %}" data-tip="Search"{% if u == 'search' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='search' %}<span class="lx-he-label">Search</span></a>
+            {% if AI_ASK_ENABLED %}<a class="lx-he-link{% if u == 'ask' %} is-active{% endif %}" href="{% url 'tracker:ask' %}" data-tip="Ask"{% if u == 'ask' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='ask' %}<span class="lx-he-label">Ask</span></a>{% endif %}
+            <a class="lx-he-link{% if u == 'data' %} is-active{% endif %}" href="{% url 'tracker:data' %}" data-tip="Raw data"{% if u == 'data' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='data' %}<span class="lx-he-label">Raw data</span></a>
+            <a class="lx-he-link{% if u == 'cells' %} is-active{% endif %}" href="{% url 'tracker:cells' %}" data-tip="Cell signal"{% if u == 'cells' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='cells' %}<span class="lx-he-label">Cell signal</span></a>
+            <a class="lx-he-link{% if u == 'editor' %} is-active{% endif %}" href="{% url 'tracker:editor' %}" data-tip="Map editor"{% if u == 'editor' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/hearth/_icon.html' with name='editor' %}<span class="lx-he-label">Map editor</span></a>
+        </div>
+    </nav>
+
+    <div class="lx-he-side-foot">
+        {% include 'tracker/_nav_yago.html' %}
+        <div class="lx-he-foot-row">
+            <div class="lx-he-acct-wrap">
+                <button type="button" class="lx-he-acct{% if u == 'settings' or u == 'diagnostics' or u == 'admin_panel' %} is-active{% endif %}" id="lx-he-acct" aria-haspopup="menu" aria-expanded="false" aria-controls="lx-he-acct-menu" data-tip="{{ user.username }}">
+                    <span class="lx-he-avatar" aria-hidden="true">{{ user.username|slice:":1"|upper }}</span>
+                    <span class="lx-he-label lx-he-acct-name">{{ user.username }}</span>
+                    <span class="lx-he-acct-caret">{% include 'tracker/layouts/hearth/_icon.html' with name='chevron-up' %}</span>
+                    <span class="lx-he-sr">Account menu</span>
+                </button>
+                <div class="lx-he-menu" id="lx-he-acct-menu" role="menu" aria-labelledby="lx-he-acct" hidden>
+                    <a role="menuitem" class="lx-he-menu-item{% if u == 'settings' %} is-active{% endif %}" href="{% url 'tracker:settings' %}">{% include 'tracker/layouts/hearth/_icon.html' with name='settings' %}Settings</a>
+                    <a role="menuitem" class="lx-he-menu-item" href="{% url 'tracker:settings' %}#appearance">{% include 'tracker/layouts/hearth/_icon.html' with name='appearance' %}Appearance</a>
+                    <a role="menuitem" class="lx-he-menu-item{% if u == 'diagnostics' %} is-active{% endif %}" href="{% url 'tracker:diagnostics' %}">{% include 'tracker/layouts/hearth/_icon.html' with name='diagnostics' %}Diagnostics</a>
+                    {% if IS_ADMIN %}<a role="menuitem" class="lx-he-menu-item{% if u == 'admin_panel' %} is-active{% endif %}" href="{% url 'tracker:admin_panel' %}">{% include 'tracker/layouts/hearth/_icon.html' with name='admin' %}Admin Panel</a>{% endif %}
+                    <div class="lx-he-menu-sep" role="separator"></div>
+                    <a role="menuitem" class="lx-he-menu-item" href="{% url 'tracker:logout' %}">{% include 'tracker/layouts/hearth/_icon.html' with name='logout' %}Log out</a>
+                </div>
+            </div>
+            <div class="lx-he-bell-slot" id="lx-he-bell-side">{% include 'tracker/_nav_notif.html' %}</div>
+        </div>
+    </div>
+</aside>
+
+<nav class="lx-he-tabs" aria-label="Quick navigation">
+    <a class="lx-he-tab{% if u == 'layout_home' %} is-active{% endif %}" href="{% url 'tracker:layout_home' %}"{% if u == 'layout_home' %} aria-current="page"{% endif %}><span class="lx-he-tab-ico">{% include 'tracker/layouts/hearth/_icon.html' with name='home' %}</span><span class="lx-he-tab-label">Home</span></a>
+    <a class="lx-he-tab{% if u == 'map' %} is-active{% endif %}" href="{% url 'tracker:map' %}"{% if u == 'map' %} aria-current="page"{% endif %}><span class="lx-he-tab-ico">{% include 'tracker/layouts/hearth/_icon.html' with name='map' %}</span><span class="lx-he-tab-label">Map</span></a>
+    <a class="lx-he-tab{% if u == 'journals' %} is-active{% endif %}" href="{% url 'tracker:journals' %}"{% if u == 'journals' %} aria-current="page"{% endif %}><span class="lx-he-tab-ico">{% include 'tracker/layouts/hearth/_icon.html' with name='journals' %}</span><span class="lx-he-tab-label">Journals</span></a>
+    <a class="lx-he-tab{% if u == 'health' or u == 'activities' or u == 'activity_detail' %} is-active{% endif %}" href="{% url 'tracker:health' %}"{% if u == 'health' %} aria-current="page"{% endif %}><span class="lx-he-tab-ico">{% include 'tracker/layouts/hearth/_icon.html' with name='health' %}</span><span class="lx-he-tab-label">Health</span></a>
+    <button type="button" class="lx-he-tab" id="lx-he-more" aria-controls="lx-he-side" aria-expanded="false"><span class="lx-he-tab-ico">{% include 'tracker/layouts/hearth/_icon.html' with name='more' %}</span><span class="lx-he-tab-label">More</span></button>
+</nav>
+{% endwith %}
+<script>
+/* Before first paint: on a phone the bell lives in the top header, not the
+   (closed) drawer. hearth.js keeps it in the right slot when the width changes. */
+(function () {
+    try {
+        if (window.matchMedia('(max-width: 768px)').matches) {
+            var bell = document.getElementById('notif'), slot = document.getElementById('lx-he-bell-top');
+            if (bell && slot) slot.appendChild(bell);
+        }
+    } catch (e) {}
+})();
+</script>
