@@ -68,7 +68,10 @@ data class HealthDataState(
 
 /** Reads what the server already has: the same daily series and day drill-down the web Health page draws. */
 @HiltViewModel
-class HealthDataViewModel @Inject constructor(private val api: RoamlyApi) : ViewModel() {
+class HealthDataViewModel @Inject constructor(
+    private val api: RoamlyApi,
+    private val disk: com.roamly.data.cache.DiskCache,
+) : ViewModel() {
     private val _state = MutableStateFlow(HealthDataState())
     val state: StateFlow<HealthDataState> = _state.asStateFlow()
     private val cache = HashMap<Int, HealthDailyResponse>()
@@ -77,6 +80,9 @@ class HealthDataViewModel @Inject constructor(private val api: RoamlyApi) : View
     private fun tzOffset() = -TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60000
 
     fun load(rangeDays: Int) {
+        if (cache[rangeDays] == null) {
+            disk.get<HealthDailyResponse>("health_daily_$rangeDays", HealthDailyResponse::class.java)?.let { cache[rangeDays] = it }
+        }
         cache[rangeDays]?.let { c -> _state.update { it.copy(daily = c, loading = false, failed = false, day = null) } }
         viewModelScope.launch {
             _state.update { it.copy(loading = it.daily == null || cache[rangeDays] == null) }
@@ -85,16 +91,19 @@ class HealthDataViewModel @Inject constructor(private val api: RoamlyApi) : View
             val body = runCatching {
                 api.getHealthDaily(start.toString(), end.toString(), tzOffset()).body()
             }.getOrNull()
-            if (body != null) cache[rangeDays] = body
+            if (body != null) { cache[rangeDays] = body; disk.put("health_daily_$rangeDays", body) }
             _state.update { it.copy(daily = body ?: it.daily, loading = false, failed = body == null && it.daily == null, day = null) }
         }
     }
 
     fun openDay(date: String) {
         viewModelScope.launch {
-            _state.update { it.copy(dayLoading = true) }
+            val key = "health_day_$date"
+            val cached = disk.get<HealthDayResponse>(key, HealthDayResponse::class.java)
+            _state.update { it.copy(day = cached ?: it.day, dayLoading = cached == null) }
             val body = runCatching { api.getHealthDay(date, tzOffset()).body() }.getOrNull()
-            _state.update { it.copy(day = body, dayLoading = false) }
+            if (body != null) disk.put(key, body)
+            _state.update { it.copy(day = body ?: cached, dayLoading = false) }
         }
     }
 

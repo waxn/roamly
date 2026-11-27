@@ -75,7 +75,10 @@ data class ActivityDetailState(
 )
 
 @HiltViewModel
-class ActivityDetailViewModel @Inject constructor(private val api: RoamlyApi) : ViewModel() {
+class ActivityDetailViewModel @Inject constructor(
+    private val api: RoamlyApi,
+    private val disk: com.roamly.data.cache.DiskCache,
+) : ViewModel() {
     private val _state = MutableStateFlow(ActivityDetailState())
     val state: StateFlow<ActivityDetailState> = _state.asStateFlow()
     private var loadedId = -1
@@ -85,31 +88,42 @@ class ActivityDetailViewModel @Inject constructor(private val api: RoamlyApi) : 
         loadedId = id
         _state.value = ActivityDetailState()
         viewModelScope.launch {
+            // Last-seen copy first (a finished activity never changes), then refresh.
+            val cAct = disk.get<ActivityDto>("activity_$id", ActivityDto::class.java)
+            val cTrack = disk.get<com.roamly.data.api.ActivityTrackResponse>("activity_track_$id", com.roamly.data.api.ActivityTrackResponse::class.java)
+            if (cAct != null || cTrack != null) _state.value = build(cAct, cTrack, loading = false)
             val act = runCatching { api.getActivity(id).body()?.activity }.getOrNull()
-            _state.update { it.copy(activity = act, loading = act == null && it.segments.isEmpty()) }
-            val track = runCatching { api.getActivityTrack(id).body() }.getOrNull()
-            val segs = track?.segments.orEmpty().map { seg ->
-                seg.filter { it.size >= 2 }.map { GeoPoint(it[0], it[1]) }
-            }.filter { it.size >= 2 }
-            val ch = track?.chart
-            // One value per time, across segments; drop any sample missing its time.
-            val ts = ch?.times.orEmpty().flatten()
-            val sp = ch?.speeds.orEmpty().flatten()
-            val el = ch?.elevations.orEmpty().flatten()
-            val usable = ts.isNotEmpty() && sp.size == ts.size
-            val keep = if (usable) ts.indices.filter { ts[it] != null } else emptyList()
-            val t0 = keep.firstOrNull()?.let { ts[it] } ?: 0.0
-            val times = keep.map { (ts[it] ?: 0.0) - t0 }
-            val speeds = keep.map { sp[it] }
-            val elev = if (el.size == ts.size) keep.map { el[it] } else emptyList()
-            _state.update {
-                it.copy(
-                    chartTimes = times, chartSpeeds = speeds, chartElev = elev,
-                    segments = segs, loading = false,
-                    error = if (act == null && segs.isEmpty()) "Couldn't load this activity." else null,
-                )
-            }
+            if (act != null) disk.put("activity_$id", act)
+            if (cTrack == null) _state.update { it.copy(activity = act ?: it.activity, loading = act == null && it.segments.isEmpty()) }
+            val fresh = runCatching { api.getActivityTrack(id).body() }.getOrNull()
+            if (fresh != null) disk.put("activity_track_$id", fresh)
+            val track = fresh ?: cTrack
+            _state.value = build(act ?: cAct, track, loading = false)
         }
+    }
+
+    private fun build(act: ActivityDto?, track: com.roamly.data.api.ActivityTrackResponse?, loading: Boolean): ActivityDetailState {
+        val segs = track?.segments.orEmpty().map { seg ->
+            // The server sends GeoJSON order, [lon, lat].
+            seg.filter { it.size >= 2 }.map { GeoPoint(it[1], it[0]) }
+        }.filter { it.size >= 2 }
+        val ch = track?.chart
+        // One value per time, across segments; drop any sample missing its time.
+        val ts = ch?.times.orEmpty().flatten()
+        val sp = ch?.speeds.orEmpty().flatten()
+        val el = ch?.elevations.orEmpty().flatten()
+        val usable = ts.isNotEmpty() && sp.size == ts.size
+        val keep = if (usable) ts.indices.filter { ts[it] != null } else emptyList()
+        val t0 = keep.firstOrNull()?.let { ts[it] } ?: 0.0
+        return ActivityDetailState(
+            activity = act,
+            segments = segs,
+            chartTimes = keep.map { (ts[it] ?: 0.0) - t0 },
+            chartSpeeds = keep.map { sp[it] },
+            chartElev = if (el.size == ts.size) keep.map { el[it] } else emptyList(),
+            loading = loading,
+            error = if (act == null && segs.isEmpty()) "Couldn't load this activity." else null,
+        )
     }
 
     fun delete(onDone: () -> Unit) {

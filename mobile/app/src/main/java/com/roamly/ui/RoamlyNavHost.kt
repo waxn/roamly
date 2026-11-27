@@ -10,6 +10,8 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -250,6 +252,8 @@ fun RoamlyNavHost() {
                 exitTransition = { exit() },
                 popEnterTransition = { popEnter() },
                 popExitTransition = { popExit() },
+                predictivePopEnterTransition = { popEnter() },
+                predictivePopExitTransition = { popExit() },
             ) {
                 composable(Routes.LOGIN) {
                     LoginScreen(
@@ -432,6 +436,7 @@ fun RoamlyNavHost() {
 
 private const val TAB_MS = 150
 private const val PUSH_MS = 220
+private const val BACK_MS = 240
 
 // Pages travel the full width on a plain ease so the back gesture drags the page
 // off with the finger and finishes in one move: no shrinking, no stall, no fade.
@@ -454,7 +459,14 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.popEnter(): EnterT
 
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.popExit(): ExitTransition =
     if (tabSwap()) fadeOut(tween(TAB_MS / 2)) + scaleOut(tween(TAB_MS), targetScale = 0.985f)
-    else slideOutHorizontally(tween(PUSH_MS, easing = PushEase)) { it }
+    else backAway()
+
+// Back (button or swipe): the page shrinks toward the bottom edge and drops away,
+// one continuous move that also follows the finger during a predictive-back drag.
+private fun backAway(): ExitTransition =
+    scaleOut(tween(BACK_MS, easing = PushEase), targetScale = 0.8f, transformOrigin = TransformOrigin(0.5f, 1f)) +
+        slideOutVertically(tween(BACK_MS, easing = PushEase)) { it / 3 } +
+        fadeOut(tween(BACK_MS, easing = PushEase))
 
 /** Walk the ContextWrapper chain to the hosting Activity, if there is one. */
 private fun android.content.Context.findActivity(): android.app.Activity? {

@@ -3,6 +3,8 @@ package com.roamly.ui.flights
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.roamly.data.api.FlightDto
+import com.roamly.data.api.FlightTracksResponse
+import com.roamly.data.api.FlightsResponse
 import com.roamly.data.repository.FlightRepository
 import com.roamly.data.repository.Result
 import com.roamly.data.repository.SaveFlightResult
@@ -111,10 +113,27 @@ data class FlightsUiState(
 @HiltViewModel
 class FlightsViewModel @Inject constructor(
     private val repo: FlightRepository,
+    private val disk: com.roamly.data.cache.DiskCache,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(FlightsUiState())
     val state: StateFlow<FlightsUiState> = _state.asStateFlow()
+
+    init {
+        // Paint the last-known flights at once; fetch() then refreshes in place.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val list = disk.get<FlightsResponse>("flights_list", FlightsResponse::class.java)
+            val tr = disk.get<FlightTracksResponse>("flights_tracks", FlightTracksResponse::class.java)
+            _state.update { s ->
+                if (s.loaded || list == null) s
+                else s.copy(
+                    flights = list.flights, lookupEnabled = list.lookupEnabled, loaded = true,
+                    tracks = tr?.tracks?.mapNotNull { (k, v) -> k.toIntOrNull()?.let { it to v } }?.toMap() ?: s.tracks,
+                    trackSources = tr?.sources?.mapNotNull { (k, v) -> k.toIntOrNull()?.let { it to v } }?.toMap() ?: s.trackSources,
+                )
+            }
+        }
+    }
 
     fun load() {
         viewModelScope.launch { fetch() }
@@ -123,18 +142,18 @@ class FlightsViewModel @Inject constructor(
     private suspend fun fetch() {
         _state.update { it.copy(loading = !it.loaded, error = null) }
         when (val t = repo.tracks()) {
-            is Result.Success -> _state.update { s ->
+            is Result.Success -> { disk.put("flights_tracks", t.data); _state.update { s ->
                 s.copy(tracks = t.data.tracks.mapNotNull { (k, v) -> k.toIntOrNull()?.let { it to v } }.toMap(),
                        trackSources = t.data.sources.mapNotNull { (k, v) -> k.toIntOrNull()?.let { it to v } }.toMap())
-            }
+            } }
             is Result.Error -> {}   // the map falls back to great-circle arcs
         }
         when (val r = repo.list()) {
-            is Result.Success -> _state.update {
+            is Result.Success -> { disk.put("flights_list", r.data); _state.update {
                 it.copy(flights = r.data.flights, lookupEnabled = r.data.lookupEnabled,
                         loading = false, loaded = true)
-            }
-            is Result.Error -> _state.update { it.copy(loading = false, error = r.message) }
+            } }
+            is Result.Error -> _state.update { it.copy(loading = false, error = if (it.loaded) null else r.message) }
         }
     }
 
