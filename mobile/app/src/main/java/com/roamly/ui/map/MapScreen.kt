@@ -360,6 +360,7 @@ fun MapScreen(
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 RangePill(
+                    modifier = Modifier.weight(1f),
                     label = state.periodLabel,
                     custom = state.timePeriod == TimePeriod.CUSTOM,
                     canBack = state.canStepBack,
@@ -368,7 +369,7 @@ fun MapScreen(
                     onOpen = { showRange = true },
                 )
                 if (notesState != null && !notesState.hidden) {
-                    QuickNotePill(state = notesState, modifier = Modifier.weight(1f, fill = false), onClick = {
+                    QuickNotePill(state = notesState, modifier = Modifier.weight(1f), onClick = {
                         notesViewModel?.refreshToday()
                         focusNoteComposer = false
                         showNotes = true
@@ -516,6 +517,7 @@ private fun GlassButton(icon: ImageVector, desc: String, busy: Boolean = false, 
 
 @Composable
 private fun RangePill(
+    modifier: Modifier = Modifier,
     label: String,
     custom: Boolean,
     canBack: Boolean,
@@ -524,15 +526,16 @@ private fun RangePill(
     onOpen: () -> Unit,
 ) {
     val c = Atlas.colors
-    Row(glassModifier(SquircleShape(50)).height(46.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.then(glassModifier(SquircleShape(50))).height(46.dp), verticalAlignment = Alignment.CenterVertically) {
         StepArrow(Icons.Rounded.ChevronLeft, "Previous range", canBack) { onStep(-1) }
         Row(
-            Modifier.clip(SquircleShape(50)).tappable(pressedScale = 0.95f, onClick = onOpen).padding(horizontal = 6.dp, vertical = 8.dp),
+            Modifier.weight(1f).clip(SquircleShape(50)).tappable(pressedScale = 0.95f, onClick = onOpen).padding(horizontal = 6.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
         ) {
             Icon(if (custom) Icons.Rounded.DateRange else Icons.Rounded.CalendarMonth, null, tint = c.accent, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(7.dp))
-            Text(label, style = MaterialTheme.typography.labelLarge, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(label, style = MaterialTheme.typography.labelLarge, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
             Icon(Icons.Rounded.ExpandMore, null, tint = c.textMuted, modifier = Modifier.size(18.dp))
         }
         StepArrow(Icons.Rounded.ChevronRight, "Next range", canForward) { onStep(1) }
