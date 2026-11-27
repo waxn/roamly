@@ -1,4 +1,5 @@
 {% extends 'tracker/base.html' %}
+{% load static %}
 {% block title %}Health - Roamly{% endblock %}
 {# No map on this page — skip MapLibre (~1MB JS + 70KB CSS). #}
 {% block map_css %}{% endblock %}
@@ -59,44 +60,46 @@
     transition: opacity 0.12s;
 }
 
-/* ── Steps heatmap (trailing year, one square per day) ──────────────────── */
+/* ── Steps heatmap (one calendar year, Jan 1 – Dec 31) ─────────────────── */
+/* One grid holds the month row, the weekday column and every square, so the
+   squares stretch to fill the card and the labels can never drift off their
+   rows. Columns are weeks (Monday-first); --heat-cols is set from the year. */
 .heat-card { position: relative; }
 .heat-scroll { overflow-x: auto; overflow-y: hidden; padding: 0.25rem 0 0.375rem; }
 .heatmap {
-    --heat-cell: 12px; --heat-gap: 3px;
-    display: grid; grid-template-columns: auto 1fr;
-    column-gap: 0.5rem; row-gap: 0.375rem; width: max-content;
+    --heat-gap: 3px; --heat-cols: 53;
+    display: grid;
+    grid-template-columns: 1.75rem repeat(var(--heat-cols), minmax(11px, 1fr));
+    gap: var(--heat-gap);
 }
-.heat-months, .heat-grid { grid-column: 2; }
-.heat-dows { grid-column: 1; grid-row: 2; }
-.heat-months { grid-row: 1; display: grid; grid-auto-rows: 11px; column-gap: var(--heat-gap); }
 .heat-month {
-    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-muted);
-    line-height: 11px; white-space: nowrap;
+    grid-row: 1; font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-muted);
+    line-height: 1; white-space: nowrap; overflow: visible; align-self: end; padding-bottom: 2px;
 }
-.heat-dows { display: grid; grid-template-rows: repeat(7, var(--heat-cell)); gap: var(--heat-gap); }
 .heat-dow {
-    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-muted);
-    line-height: var(--heat-cell); text-align: right;
-}
-.heat-grid {
-    grid-row: 2; display: grid; grid-auto-flow: column;
-    grid-template-rows: repeat(7, var(--heat-cell));
-    grid-auto-columns: var(--heat-cell); gap: var(--heat-gap);
+    grid-column: 1; font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-muted);
+    line-height: 1; text-align: right; align-self: center; padding-right: 0.25rem;
 }
 .heat-cell {
-    width: var(--heat-cell); height: var(--heat-cell); border-radius: var(--r-auto, 0);
+    aspect-ratio: 1 / 1; min-width: 0; border-radius: var(--r-auto, 0);
     border: 1px solid var(--border); background: var(--bg-input);
 }
 .heat-cell[data-day] { cursor: pointer; }
 .heat-cell[data-day]:hover { outline: 1px solid var(--border-bright); outline-offset: 1px; }
+.heat-cell.heat-future { background: transparent; border-style: dashed; opacity: 0.55; }
+.heat-cell.heat-sel { outline: 2px solid var(--primary); outline-offset: 1px; }
 .heat-void { visibility: hidden; }
 .heat-legend {
     display: flex; align-items: center; justify-content: flex-end; gap: 0.375rem;
     font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-muted);
-    margin-top: 0.25rem;
+    margin-top: 0.5rem;
 }
-.heat-legend .heat-cell { cursor: default; }
+.heat-legend .heat-cell { cursor: default; width: 12px; aspect-ratio: auto; height: 12px; }
+.heat-year {
+    background: var(--bg-input); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--r-auto, 0); padding: 0.2rem 0.5rem; font-size: 0.75rem;
+    font-family: var(--font-mono); font-weight: 500;
+}
 
 /* ── Workouts ───────────────────────────────────────────────────────────── */
 .h-workout {
@@ -107,8 +110,17 @@
 .h-w-badge {
     flex: 0 0 auto; width: 40px; height: 40px; display: flex;
     align-items: center; justify-content: center;
-    border: 1px solid var(--border); font-size: 1.1rem;
+    border: 1px solid var(--border); border-radius: var(--r-auto, 0);
+    color: var(--primary); background: var(--bg-input);
 }
+.h-w-tag {
+    display: inline-block; margin-left: 0.5rem; padding: 0 0.4rem; vertical-align: middle;
+    font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--primary); border: 1px solid var(--border-bright);
+    border-radius: var(--r-1, 0);
+}
+a.h-w-link { color: inherit; text-decoration: none; }
+a.h-w-link:hover .h-w-title { text-decoration: underline; }
 .h-w-main { flex: 1 1 auto; min-width: 0; }
 .h-w-title { font-weight: 600; font-size: 0.9375rem; }
 .h-w-sub {
@@ -246,19 +258,44 @@
 
         <div class="grid" style="margin-top:1.25rem;">
             <div class="card heat-card" style="grid-column: 1 / -1;">
-                <div class="card-header" style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;">
+                <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
                     <span>Daily Steps</span>
-                    <span id="heat-summary" style="font-size:0.75rem;font-weight:500;color:var(--text-muted);font-family:var(--font-mono);"></span>
+                    <span style="display:flex;align-items:center;gap:0.75rem;">
+                        <span id="heat-summary" style="font-size:0.75rem;font-weight:500;color:var(--text-muted);font-family:var(--font-mono);"></span>
+                        <select id="heat-year" class="heat-year" aria-label="Year"></select>
+                    </span>
                 </div>
                 <div class="heat-scroll">
-                    <div class="heatmap">
-                        <div class="heat-months" id="heat-months"></div>
-                        <div class="heat-dows" id="heat-dows"></div>
-                        <div class="heat-grid" id="heat-grid"></div>
-                    </div>
+                    <div class="heatmap" id="heat-grid"></div>
                 </div>
                 <div class="heat-legend" id="heat-legend"></div>
                 <div class="h-chart-tooltip" id="heat-tooltip"></div>
+            </div>
+
+            <!-- Opened by clicking a day on either chart or on the heatmap. It sits
+                 directly under the heatmap, the thing it is most often opened
+                 from, and the page scrolls to centre it. The hourly canvas lives
+                 here statically rather than being rebuilt with the surrounding
+                 text, so its hover handler is attached once. -->
+            <div class="card h-day-card" id="h-day-card" style="grid-column: 1 / -1;">
+                <div class="card-header" style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;">
+                    <span id="h-day-title">&nbsp;</span>
+                    <button class="h-day-close" id="h-day-close">close</button>
+                </div>
+                <div id="h-day-loading" class="h-empty-state">Loading&hellip;</div>
+                <div id="h-day-content" style="display:none;">
+                    <div class="h-day-stats" id="h-day-stats"></div>
+                    <div class="h-day-section">Steps by hour</div>
+                    <div class="h-chart-container" id="h-day-chart-wrap" style="height:200px;margin-top:0.25rem;">
+                        <canvas id="h-day-chart"></canvas>
+                        <div class="h-chart-hover-line" id="h-day-line"></div>
+                        <div class="h-chart-hover-dot" id="h-day-dot"></div>
+                        <div class="h-chart-tooltip" id="h-day-tip"></div>
+                    </div>
+                    <div id="h-day-towns"></div>
+                    <div id="h-day-workouts"></div>
+                    <div id="h-day-links" style="margin-top:1.5rem;display:flex;gap:0.75rem;flex-wrap:wrap;"></div>
+                </div>
             </div>
 
             <div class="card" style="grid-column: 1 / -1;">
@@ -287,27 +324,16 @@
                 </div>
             </div>
 
-            <!-- Opened by clicking a day on either chart or on the heatmap. The
-                 hourly canvas lives here statically rather than being rebuilt
-                 with the surrounding text, so its hover handler is attached once. -->
-            <div class="card h-day-card" id="h-day-card" style="grid-column: 1 / -1;">
+            <div class="card" style="grid-column: 1 / -1;">
                 <div class="card-header" style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;">
-                    <span id="h-day-title">&nbsp;</span>
-                    <button class="h-day-close" id="h-day-close">close</button>
+                    <span>Calories over time</span>
+                    <span class="h-chart-note" id="h-cal-note"></span>
                 </div>
-                <div id="h-day-loading" class="h-empty-state">Loading&hellip;</div>
-                <div id="h-day-content" style="display:none;">
-                    <div class="h-day-stats" id="h-day-stats"></div>
-                    <div class="h-day-section">Steps by hour</div>
-                    <div class="h-chart-container" id="h-day-chart-wrap" style="height:200px;margin-top:0.25rem;">
-                        <canvas id="h-day-chart"></canvas>
-                        <div class="h-chart-hover-line" id="h-day-line"></div>
-                        <div class="h-chart-hover-dot" id="h-day-dot"></div>
-                        <div class="h-chart-tooltip" id="h-day-tip"></div>
-                    </div>
-                    <div id="h-day-towns"></div>
-                    <div id="h-day-workouts"></div>
-                    <div id="h-day-links" style="margin-top:1.5rem;display:flex;gap:0.75rem;flex-wrap:wrap;"></div>
+                <div class="h-chart-container" id="h-cal-chart-wrap">
+                    <canvas id="h-cal-chart"></canvas>
+                    <div class="h-chart-hover-line" id="h-cal-line"></div>
+                    <div class="h-chart-hover-dot" id="h-cal-dot"></div>
+                    <div class="h-chart-tooltip" id="h-cal-tip"></div>
                 </div>
             </div>
 
@@ -349,6 +375,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% static 'tracker/icons.js' %}"></script>
 <script>
 const csrfToken = '{{ csrf_token }}';
 
@@ -372,6 +399,30 @@ function formatDistanceM(metres) {
 
 function fmtInt(n) {
     return Math.round(n || 0).toLocaleString();
+}
+
+// Clock faces follow the same switch as distance: miles (roamly_speed_unit =
+// mph) means a 12-hour clock, kilometres a 24-hour one.
+function use12h() { return isImperial(); }
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+// Compact axis label for an hour of the day: "6a" / "3p", or "06" / "15".
+function hourLabel(h) {
+    return use12h() ? `${h % 12 || 12}${h < 12 ? 'a' : 'p'}` : pad2(h);
+}
+
+// Tooltip range for an hour bucket: "3:00 PM – 3:59 PM" or "15:00 – 15:59".
+function hourRange(h) {
+    if (!use12h()) return `${pad2(h)}:00 – ${pad2(h)}:59`;
+    const ap = h < 12 ? 'AM' : 'PM', hh = h % 12 || 12;
+    return `${hh}:00 ${ap} – ${hh}:59 ${ap}`;
+}
+
+function fmtWhen(iso) {
+    return new Date(iso).toLocaleString([], {
+        month: 'short', day: 'numeric',
+        hour: use12h() ? 'numeric' : '2-digit', minute: '2-digit', hour12: use12h() });
 }
 
 // Advance a 'YYYY-MM-DD' string by N days without timezone issues.
@@ -781,6 +832,12 @@ function renderCharts(data) {
         buckets.length ? `${note} · ${hint}` : '';
     document.getElementById('h-dist-note').textContent =
         buckets.length ? `${note} · ${distanceUnitLabel()}` : '';
+    // Active calories where the phone recorded them; otherwise fall back to
+    // total calories rather than drawing an empty chart over a full range.
+    const calKey = buckets.some(b => b.calories_active > 0) || !buckets.some(b => b.calories_total > 0)
+        ? 'calories_active' : 'calories_total';
+    document.getElementById('h-cal-note').textContent = buckets.length
+        ? `${note} · ${calKey === 'calories_active' ? 'active' : 'total'} kcal` : '';
 
     const mode = gran === 'day' ? 'line' : 'bar';
     drawChart('h-steps', {
@@ -794,6 +851,12 @@ function renderCharts(data) {
         colour: cssVar('--clay-sky', '#4fc3d9'),
         mode: mode, fmtAxis: fmtDistanceAxis, onPick: pickBucket,
         emptyText: 'no distance recorded in this range',
+    });
+    drawChart('h-cal', {
+        items: buckets.map(b => chartItem(b, gran, calKey, v => fmtInt(v) + ' kcal')),
+        colour: cssVar('--clay-amber', '#e0a030'),
+        mode: mode, fmtAxis: fmtCompact, onPick: pickBucket,
+        emptyText: 'no calories recorded in this range',
     });
 }
 
@@ -810,13 +873,16 @@ function pickBucket(item) {
     window.roamlyToast(`Showing ${bucketRange(item, item.gran)}`, { type: 'success' });
 }
 
-// ── Steps heatmap (trailing year) ──────────────────────────────────────────
-// Deliberately independent of the toolbar range, exactly like the Stats page's
-// distance heatmap: it always shows the last year.
+// ── Steps heatmap (one calendar year) ──────────────────────────────────────
+// Deliberately independent of the toolbar range, like the Stats page's distance
+// heatmap. It shows one calendar year at a time — Jan 1 to Dec 31, so 365 or 366
+// squares, never a rolling window — with a year picker for the years that have data.
 
-const HEAT_WEEKS = 53;
 const HEAT_ALPHA = [null, 0.22, 0.45, 0.7, 1];   // index = level 1..4; 0 renders empty
 const DOW_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
+
+let heatData = null;        // { byDay: Map, years: [..] }
+let heatYear = null;
 
 function heatAccent() { return cssVar('--primary', '#e8763d'); }
 
@@ -824,6 +890,13 @@ function heatCellStyle(level) {
     if (!level) return '';
     return `background:${hexA(heatAccent(), HEAT_ALPHA[level])};border-color:${hexA(heatAccent(), Math.min(1, HEAT_ALPHA[level] + 0.15))};`;
 }
+
+function localToday() {
+    const now = new Date();
+    return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+}
+
+function isLeapYear(y) { return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0; }
 
 // Bucket daily step counts into 4 levels by quartile of the *active* days.
 // Daily activity is skewed — a lot of ordinary days plus a handful of long
@@ -850,76 +923,93 @@ function makeHeatLevel(values) {
 function loadHeatmap() {
     fetch(`/api/health/daily/?all=1&granularity=day&tz_offset=${TZ_OFFSET}`)
         .then(r => { if (!r.ok) throw new Error('heatmap failed'); return r.json(); })
-        .then(data => drawHeatmap(data.days || [], data.steps || []))
+        .then(data => {
+            const days = data.days || [], steps = data.steps || [];
+            const thisYear = parseInt(localToday().slice(0, 4), 10);
+            const years = new Set([thisYear]);
+            days.forEach(d => years.add(parseInt(d.slice(0, 4), 10)));
+            heatData = {
+                byDay: new Map(days.map((d, i) => [d, steps[i]])),
+                years: [...years].sort((a, b) => b - a),
+            };
+            if (heatYear == null || !years.has(heatYear)) heatYear = thisYear;
+            const sel = document.getElementById('heat-year');
+            sel.innerHTML = heatData.years.map(y => `<option value="${y}">${y}</option>`).join('');
+            sel.value = String(heatYear);
+            drawHeatmap();
+        })
         .catch(() => {
             document.getElementById('heat-summary').textContent = 'could not load';
         });
 }
 
-function drawHeatmap(days, steps) {
+function drawHeatmap() {
+    if (!heatData) return;
     const grid = document.getElementById('heat-grid');
-    const monthsEl = document.getElementById('heat-months');
-    const dowsEl = document.getElementById('heat-dows');
     const legendEl = document.getElementById('heat-legend');
     const summaryEl = document.getElementById('heat-summary');
+    const year = heatYear;
+    const jan1 = `${year}-01-01`;
+    const total = isLeapYear(year) ? 366 : 365;
+    const lead = dowIndex(jan1);                       // empty slots before Jan 1 in week one
+    const cols = Math.ceil((lead + total) / 7);
+    const today = localToday();
 
-    const byDay = new Map(days.map((d, i) => [d, steps[i]]));
-
-    // Local date: the day keys are local days (tz_offset), and a UTC date runs
-    // a day ahead every evening, adding an empty square past the real today.
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    const gridStart = addDays(today, -dowIndex(today) - (HEAT_WEEKS - 1) * 7);
+    grid.style.setProperty('--heat-cols', cols);
 
     const cells = [];
-    const windowVals = [];
-    for (let c = 0; c < HEAT_WEEKS; c++) {
-        for (let r = 0; r < 7; r++) {
-            const day = addDays(gridStart, c * 7 + r);
-            if (day > today) { cells.push(null); continue; }
-            const n = byDay.get(day) || 0;
-            cells.push({ day, n });
-            windowVals.push(n);
-        }
+    const vals = [];
+    for (let i = 0; i < total; i++) {
+        const day = addDays(jan1, i);
+        const future = day > today;
+        const n = future ? 0 : (heatData.byDay.get(day) || 0);
+        cells.push({ day, n, future, col: Math.floor((lead + i) / 7) + 2, row: (lead + i) % 7 + 2 });
+        if (!future) vals.push(n);
     }
+    const levelOf = makeHeatLevel(vals);
+    const activeDays = vals.filter(v => v > 0).length;
+    const totalSteps = vals.reduce((a, b) => a + b, 0);
 
-    const levelOf = makeHeatLevel(windowVals);
-    const activeDays = windowVals.filter(v => v > 0).length;
-    const totalSteps = windowVals.reduce((a, b) => a + b, 0);
+    // Month labels sit over the week the 1st falls in; each spans up to four
+    // columns but never past the last one, which would add an implicit column.
+    const months = [];
+    for (let m = 1; m <= 12; m++) {
+        const first = `${year}-${pad2(m)}-01`;
+        const idx = Math.round((Date.UTC(year, m - 1, 1) - Date.UTC(year, 0, 1)) / 86400000);
+        const col = Math.floor((lead + idx) / 7) + 2;
+        months.push(`<div class="heat-month" style="grid-column:${col} / span ${Math.max(1, Math.min(4, cols + 2 - col))};">${MONTH_NAMES[m - 1]}</div>`);
+    }
+    const dows = DOW_LABELS.map((l, r) => `<div class="heat-dow" style="grid-row:${r + 2};">${l}</div>`);
 
-    dowsEl.innerHTML = DOW_LABELS.map(l => `<div class="heat-dow">${l}</div>`).join('');
-
-    grid.innerHTML = cells.map(c => {
-        if (!c) return '<div class="heat-cell heat-void"></div>';
+    grid.innerHTML = months.join('') + dows.join('') + cells.map(c => {
+        const pos = `grid-column:${c.col};grid-row:${c.row};`;
+        if (c.future) return `<div class="heat-cell heat-future" style="${pos}"></div>`;
         const level = levelOf ? levelOf(c.n) : 0;
-        const tip = `${c.day}\n${c.n > 0 ? fmtInt(c.n) + ' steps' : 'no steps'}`;
-        return `<div class="heat-cell" style="${heatCellStyle(level)}" data-day="${c.day}" data-tip="${tip.replace(/\n/g, '&#10;')}"></div>`;
+        const tip = `${fmtDayLong(c.day)}<br>${c.n > 0 ? fmtInt(c.n) + ' steps' : 'no steps'}`;
+        return `<div class="heat-cell" style="${pos}${heatCellStyle(level)}" data-day="${c.day}" data-tip="${escapeHtml(tip)}"></div>`;
     }).join('');
 
-    let lastMonth = null, lastCol = -3;
-    const labels = [];
-    for (let c = 0; c < HEAT_WEEKS; c++) {
-        const day = addDays(gridStart, c * 7);
-        const month = day.slice(0, 7);
-        if (month !== lastMonth) {
-            lastMonth = month;
-            if (c - lastCol >= 3 && c <= HEAT_WEEKS - 3) {
-                labels.push(`<div class="heat-month" style="grid-column:${c + 1} / span 4;">${MONTH_NAMES[parseInt(day.slice(5, 7), 10) - 1]}</div>`);
-                lastCol = c;
-            }
-        }
-    }
-    monthsEl.style.gridTemplateColumns = `repeat(${HEAT_WEEKS}, var(--heat-cell))`;
-    monthsEl.innerHTML = labels.join('');
-
     summaryEl.textContent = activeDays
-        ? `${fmtInt(totalSteps)} steps over ${activeDays} active day${activeDays !== 1 ? 's' : ''} in the last year`
-        : 'no step data in the last year';
+        ? `${fmtInt(totalSteps)} steps over ${activeDays} active day${activeDays !== 1 ? 's' : ''} in ${year}`
+        : `no step data in ${year}`;
 
     legendEl.innerHTML = 'less'
         + [0, 1, 2, 3, 4].map(l => `<div class="heat-cell" style="${heatCellStyle(l)}"></div>`).join('')
         + 'more';
+    markHeatSelected(dayData && dayData.date);
 }
+
+function markHeatSelected(day) {
+    document.querySelectorAll('.heat-cell.heat-sel').forEach(el => el.classList.remove('heat-sel'));
+    if (!day) return;
+    const el = document.querySelector(`.heat-cell[data-day="${day}"]`);
+    if (el) el.classList.add('heat-sel');
+}
+
+document.getElementById('heat-year').addEventListener('change', e => {
+    heatYear = parseInt(e.target.value, 10);
+    drawHeatmap();
+});
 
 // Delegated — the grid is rebuilt on every draw.
 (function attachHeatmapHover() {
@@ -930,13 +1020,13 @@ function drawHeatmap(days, steps) {
     grid.addEventListener('mouseover', function(e) {
         const cell = e.target.closest('.heat-cell[data-day]');
         if (!cell) return;
-        tooltip.innerHTML = cell.dataset.tip.replace('\n', '<br>');
+        tooltip.innerHTML = cell.dataset.tip;
         tooltip.style.opacity = '1';
         const cr = card.getBoundingClientRect();
         const r = cell.getBoundingClientRect();
-        const x = Math.max(60, Math.min(cr.width - 60, r.left - cr.left + r.width / 2));
+        const x = Math.max(70, Math.min(cr.width - 70, r.left - cr.left + r.width / 2));
         tooltip.style.left = x + 'px';
-        tooltip.style.top = (r.top - cr.top - 34) + 'px';
+        tooltip.style.top = (r.top - cr.top - 44) + 'px';
         tooltip.style.transform = 'translateX(-50%)';
     });
     grid.addEventListener('mouseleave', () => { tooltip.style.opacity = '0'; });
@@ -948,18 +1038,47 @@ function drawHeatmap(days, steps) {
 
 // ── Workouts ───────────────────────────────────────────────────────────────
 
-const WORKOUT_GLYPHS = {
-    running: '🏃', walking: '🚶', hiking: '🥾', biking: '🚴', cycling: '🚴',
-    swimming: '🏊', strength_training: '🏋️', workout: '💪', yoga: '🧘',
-    rowing: '🚣', elliptical: '🌀', dancing: '💃', climbing: '🧗',
+// Line icons (static/tracker/icons.js) keyed by Health Connect's exercise slug.
+const WORKOUT_ICONS = {
+    running: 'run', walking: 'walk', hiking: 'hike', biking: 'bike', cycling: 'bike',
+    swimming: 'swim', strength_training: 'dumbbell', workout: 'dumbbell', yoga: 'yoga',
+    rowing: 'row', elliptical: 'pulse', dancing: 'pulse', climbing: 'mountain',
 };
 
 function workoutGlyph(slug) {
-    if (!slug) return '💪';
-    for (const key in WORKOUT_GLYPHS) {
-        if (slug.indexOf(key) !== -1) return WORKOUT_GLYPHS[key];
+    let name = 'dumbbell';
+    if (slug) {
+        for (const key in WORKOUT_ICONS) {
+            if (slug.indexOf(key) !== -1) { name = WORKOUT_ICONS[key]; break; }
+        }
     }
-    return '💪';
+    return window.RoamlyIcons ? window.RoamlyIcons.svg(name, 20) : '';
+}
+
+function workoutTitle(w) {
+    const raw = w.title || (w.exercise_slug || 'workout').replace(/_/g, ' ');
+    return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+// One row, used by the Workouts card and by a day's detail. Activities recorded
+// in Roamly link to their page and cannot be removed here; imported sessions can.
+function workoutRowHtml(w, deletable) {
+    const bits = [fmtWhen(w.start), fmtDuration(w.duration_s)];
+    if (w.distance_m) bits.push(formatDistanceM(w.distance_m));
+    if (w.steps) bits.push(fmtInt(w.steps) + ' steps');
+    if (w.calories_kcal) bits.push(fmtInt(w.calories_kcal) + ' kcal');
+    const tag = w.recorded ? '<span class="h-w-tag">recorded</span>' : '';
+    const title = `<div class="h-w-title">${escapeHtml(workoutTitle(w))}${tag}</div>`;
+    const head = w.recorded && w.url ? `<a class="h-w-link" href="${escapeHtml(w.url)}">${title}</a>` : title;
+    return `
+    <div class="h-workout">
+        <div class="h-w-badge">${workoutGlyph(w.exercise_slug)}</div>
+        <div class="h-w-main">
+            ${head}
+            <div class="h-w-sub">${bits.join(' · ')}</div>
+        </div>
+        ${deletable && !w.recorded ? `<button class="h-w-del" data-id="${w.id}" title="Remove from Roamly" aria-label="Remove from Roamly">&times;</button>` : ''}
+    </div>`;
 }
 
 function fmtDuration(seconds) {
@@ -975,29 +1094,16 @@ function loadWorkouts() {
         .then(data => {
             el.removeAttribute('aria-busy');
             const rows = data.workouts || [];
-            document.getElementById('h-workouts-count').textContent =
-                rows.length ? `${data.count} imported` : '';
+            const parts = [];
+            if (data.imported_count) parts.push(`${data.imported_count} imported`);
+            if (data.recorded_count) parts.push(`${data.recorded_count} recorded`);
+            document.getElementById('h-workouts-count').textContent = parts.join(' · ');
             if (!rows.length) {
-                el.innerHTML = `<div class="h-empty-state">No workouts imported yet.<br>
-                    Browse your exercise sessions in the Roamly app and import the ones you want.</div>`;
+                el.innerHTML = `<div class="h-empty-state">No workouts in this range.<br>
+                    Activities you record in Roamly show up here automatically; import exercise sessions from the Roamly app to add the rest.</div>`;
                 return;
             }
-            el.innerHTML = rows.map(w => {
-                const when = new Date(w.start).toLocaleString([], {
-                    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-                const bits = [when, fmtDuration(w.duration_s)];
-                if (w.distance_m) bits.push(formatDistanceM(w.distance_m));
-                if (w.calories_kcal) bits.push(Math.round(w.calories_kcal) + ' kcal');
-                return `
-                <div class="h-workout">
-                    <div class="h-w-badge">${workoutGlyph(w.exercise_slug)}</div>
-                    <div class="h-w-main">
-                        <div class="h-w-title">${w.title || (w.exercise_slug || 'workout').replace(/_/g, ' ')}</div>
-                        <div class="h-w-sub">${bits.join(' · ')}</div>
-                    </div>
-                    <button class="h-w-del" data-id="${w.id}" title="Remove from Roamly">&times;</button>
-                </div>`;
-            }).join('');
+            el.innerHTML = rows.map(w => workoutRowHtml(w, true)).join('');
             el.querySelectorAll('.h-w-del').forEach(btn => {
                 btn.addEventListener('click', () => removeWorkout(btn.dataset.id));
             });
@@ -1045,7 +1151,8 @@ function openDay(day) {
     loading.innerHTML = 'Loading…';
     loading.style.display = '';
     document.getElementById('h-day-content').style.display = 'none';
-    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    centerDayCard();
+    markHeatSelected(day);
 
     fetch(`/api/health/day/${day}/?tz_offset=${TZ_OFFSET}`)
         .then(r => { if (!r.ok) throw new Error('day failed'); return r.json(); })
@@ -1056,7 +1163,17 @@ function openDay(day) {
         });
 }
 
+// Scroll so the day's card sits in the middle of the screen. A card taller than
+// the viewport can't be centred without cutting its top off, so it aligns to the
+// top instead.
+function centerDayCard() {
+    const card = document.getElementById('h-day-card');
+    const tall = card.getBoundingClientRect().height > window.innerHeight * 0.92;
+    card.scrollIntoView({ behavior: 'smooth', block: tall ? 'start' : 'center' });
+}
+
 function closeDay() {
+    markHeatSelected(null);
     document.getElementById('h-day-card').classList.remove('open');
     dayData = null;
     dayToken++;
@@ -1066,6 +1183,8 @@ function renderDay(day, data) {
     dayData = data;
     document.getElementById('h-day-loading').style.display = 'none';
     document.getElementById('h-day-content').style.display = '';
+    // The card grew from a one-line placeholder to its full height: re-centre.
+    requestAnimationFrame(centerDayCard);
 
     const t = data.totals || {};
     const workouts = data.workouts || [];
@@ -1094,18 +1213,7 @@ function renderDay(day, data) {
 
     document.getElementById('h-day-workouts').innerHTML = workouts.length ? `
         <div class="h-day-section">Workouts</div>
-        ${workouts.map(w => {
-            const bits = [fmtDuration(w.duration_s)];
-            if (w.distance_m) bits.push(formatDistanceM(w.distance_m));
-            if (w.calories_kcal) bits.push(Math.round(w.calories_kcal) + ' kcal');
-            return `<div class="h-workout">
-                <div class="h-w-badge">${workoutGlyph(w.exercise_slug)}</div>
-                <div class="h-w-main">
-                    <div class="h-w-title">${escapeHtml(w.title || (w.exercise_slug || 'workout').replace(/_/g, ' '))}</div>
-                    <div class="h-w-sub">${bits.join(' · ')}</div>
-                </div>
-            </div>`;
-        }).join('')}` : '';
+        ${workouts.map(w => workoutRowHtml(w, false)).join('')}` : '';
 
     document.getElementById('h-day-links').innerHTML = `
         <a class="btn btn-outline btn-sm" href="/map/?start=${day}&end=${day}">See the map for this day</a>
@@ -1119,8 +1227,8 @@ function drawDayChart(data) {
     drawChart('h-day', {
         items: steps.map((v, h) => ({
             value: v,
-            label: String(h).padStart(2, '0'),
-            tip: `${String(h).padStart(2, '0')}:00 – ${String(h).padStart(2, '0')}:59<br>`
+            label: hourLabel(h),
+            tip: `${hourRange(h)}<br>`
                  + `${fmtInt(v)} steps`
                  + (cals[h] ? `<br><span style="color:var(--text-muted);">${fmtInt(cals[h])} kcal</span>` : ''),
         })),
@@ -1171,12 +1279,16 @@ window.addEventListener('resize', () => {
 (function init() {
     attachChartHover('h-steps');
     attachChartHover('h-dist');
+    attachChartHover('h-cal');
     attachChartHover('h-day');
     loadStatus().then(s => {
         if (!s || !s.connected) return;
         loadDaily();
         loadHeatmap();
         loadWorkouts();
+        // ?day=YYYY-MM-DD opens that day (Achievements links its best day here).
+        const d = new URLSearchParams(window.location.search).get('day');
+        if (/^\d{4}-\d{2}-\d{2}$/.test(d || '')) { heatYear = parseInt(d.slice(0, 4), 10); openDay(d); }
     }).catch(() => {
         window.roamlyToast('Could not reach the server', { type: 'error' });
     });
