@@ -42,7 +42,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val WORKOUT_FMT = SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault())
+// 12-hour under miles, 24-hour under km, matching the web Health page.
+private fun workoutFormat(miles: Boolean) = SimpleDateFormat(if (miles) "EEE d MMM, h:mm a" else "EEE d MMM, HH:mm", Locale.getDefault())
 private val WINDOWS = listOf(30L to "30 days", 90L to "90 days", 365L to "1 year")
 
 /**
@@ -53,6 +54,7 @@ private val WINDOWS = listOf(30L to "30 days", 90L to "90 days", 365L to "1 year
 fun HealthWorkoutsScreen(viewModel: HealthViewModel, onBack: () -> Unit) {
     val state by viewModel.state.collectAsState()
     val c = Atlas.colors
+    val miles by Units.miles.collectAsState()
     BackHandler(onBack = onBack)
     PushedScreen(title = "Workouts", onBack = onBack, subtitle = "On this phone") {
         ChipRow(Modifier.padding(vertical = 6.dp)) {
@@ -68,7 +70,7 @@ fun HealthWorkoutsScreen(viewModel: HealthViewModel, onBack: () -> Unit) {
                 items(state.workouts, key = { it.hcId }) { row ->
                     // Totals load per row as it scrolls in — a whole window up front is slow.
                     LaunchedEffect(row.hcId) { viewModel.loadWorkoutTotals(row.hcId) }
-                    Workout(row) { viewModel.importWorkout(row.hcId) }
+                    Workout(row, miles) { viewModel.importWorkout(row.hcId) }
                 }
             }
         }
@@ -76,7 +78,7 @@ fun HealthWorkoutsScreen(viewModel: HealthViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-private fun Workout(row: WorkoutRow, onImport: () -> Unit) {
+private fun Workout(row: WorkoutRow, miles: Boolean, onImport: () -> Unit) {
     val c = Atlas.colors
     Panel(Modifier.fillMaxWidth(), padding = PaddingValues(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -84,7 +86,7 @@ private fun Workout(row: WorkoutRow, onImport: () -> Unit) {
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(row.label, style = MaterialTheme.typography.titleSmall, color = c.text)
-                Text(WORKOUT_FMT.format(Date(row.startMs)), style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                Text(workoutFormat(miles).format(Date(row.startMs)), style = MaterialTheme.typography.bodySmall, color = c.textMuted)
                 Spacer(Modifier.height(4.dp))
                 Text(
                     buildString {

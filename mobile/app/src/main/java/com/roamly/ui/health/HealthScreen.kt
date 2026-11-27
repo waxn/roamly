@@ -57,7 +57,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val TIME_FMT = SimpleDateFormat("d MMM, HH:mm", Locale.getDefault())
+// Clock face follows the km / mi switch, like the web Health page: miles = 12-hour.
+private fun timeFormat(miles: Boolean) = SimpleDateFormat(if (miles) "d MMM, h:mm a" else "d MMM, HH:mm", Locale.getDefault())
 
 /** Health Connect: connect, choose what to sync, and import workouts by hand. */
 @Composable
@@ -68,6 +69,7 @@ fun HealthScreen(
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     val c = Atlas.colors
+    val miles by com.roamly.ui.kit.Units.miles.collectAsState()
     var showWorkouts by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
@@ -150,7 +152,7 @@ Column(
                                     StatBlock(if (state.lastSyncTime > 0 && state.lastSyncSuccess) "${state.lastSyncCount}" else "—", "last run", small = true)
                                 }
                                 Spacer(Modifier.height(12.dp))
-                                Text("Last sync " + if (state.lastSyncTime > 0) TIME_FMT.format(Date(state.lastSyncTime)) else "never",
+                                Text("Last sync " + if (state.lastSyncTime > 0) timeFormat(miles).format(Date(state.lastSyncTime)) else "never",
                                     style = MaterialTheme.typography.bodySmall, color = c.textMuted)
                                 if (state.lastSyncError.isNotBlank()) Text(state.lastSyncError, style = MaterialTheme.typography.bodySmall, color = c.danger)
                                 Spacer(Modifier.height(12.dp))
