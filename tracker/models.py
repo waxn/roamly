@@ -1257,7 +1257,7 @@ class UserProfile(models.Model):
     # source of truth for the map/stats pages (no read-path change there);
     # this server copy exists only so request-less background jobs — the
     # summary-email scheduler — can honor the user's unit too.
-    distance_unit = models.CharField(max_length=10, blank=True, default='kmh')
+    distance_unit = models.CharField(max_length=10, blank=True, default='')
 
     # Email verification (only enforced when SMTP is configured). Defaults True
     # so existing accounts and no-SMTP instances are never blocked; signup with
