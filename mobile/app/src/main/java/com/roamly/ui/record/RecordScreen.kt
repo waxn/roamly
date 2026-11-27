@@ -175,11 +175,11 @@ fun RecordScreen(
                         }
                         state.recent.isEmpty() -> EmptyState(
                             Icons.Rounded.DirectionsRun, "Nothing recorded yet",
-                            body = "Press Record, pick what you're doing and go. Your rides, runs and walks will gather here.",
+                            body = "Tap the Record button below, pick what you're doing and go. Your rides, runs and walks will gather here.",
                         )
                         else -> LazyVerticalGrid(
                             columns = GridCells.Fixed(2),
-                            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = dock + 84.dp),
+                            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = dock + 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier.weight(1f),
@@ -190,10 +190,6 @@ fun RecordScreen(
                         }
                     }
                 }
-                StartBar(
-                    label = "Record an activity",
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(start = 20.dp, end = 20.dp, bottom = dock + 10.dp),
-                ) { haptics.thud(); pickKind = true }
             }
         }
     }
@@ -249,26 +245,6 @@ private fun KindGrid(onPick: (Kind) -> Unit) {
                 }
             }
         }
-    }
-}
-
-/** The slim Start bar that floats above the nav. */
-@Composable
-private fun StartBar(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val c = Atlas.colors
-    val shape = SquircleShape(50)
-    Row(
-        modifier.fillMaxWidth().height(52.dp)
-            .shadow(8.dp, shape, ambientColor = c.shadow, spotColor = c.shadow)
-            .clip(shape).background(c.record)
-            .tappable(feel = Feel.None, pressedScale = 0.97f, onClick = onClick)
-            .semantics { contentDescription = label },
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(Icons.Rounded.FiberManualRecord, null, tint = c.onRecord, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(10.dp))
-        Text(label, style = MaterialTheme.typography.titleSmall, color = c.onRecord)
     }
 }
 
