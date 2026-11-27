@@ -1,3 +1,1144 @@
+/* ════════════════════════════════════════════════════════════════════
+   ATLAS: the map is the room.
+   Shell (templates/tracker/layouts/atlas/shell.html, atlas.js): a 56px
+   instrument rail on the left (desktop) or a five-slot tab bar (phone), and on
+   /map/ the Journals / Places / Visits pages open as a panel over the map
+   (side panel on desktop, bottom sheet on phone), each an <iframe ?embed=1>.
+
+   Every rule starts with html[data-layout="atlas"] (test_style_layer.py).
+   Colours are palette tokens only, radii are role tokens, fonts are the three
+   font tokens, so every Appearance facet still applies inside Atlas.
+
+   ── Contract with the rest of the app ──
+   --nav-h               0px everywhere (no top bar; the rail is on the side)
+   --bottom-nav-height   phone: base.html's value, the tab bar is exactly that tall
+                         no shell on the page (embedded panel, editor): 0px
+   --lx-at-rail          56px on desktop when the shell is present, else 0px.
+                         <body> is padded by it, fixed things that span the
+                         viewport (intro bar, offline banner) start after it.
+   --lx-at-panel-w       the panel's chosen width (atlas.js, localStorage
+                         roamly_atlas_panel_w, 360-720px)
+   --lx-at-pw            the panel's real width (the above, capped to the screen)
+   html.lx-at-panel-open the map page has a panel open (desktop: the map
+                         sidebar, bottom-left row and replay bar move right of it)
+   html.lx-embedded      this document is inside an Atlas panel (set by atlas.js;
+                         the iframe stays invisible until load, so no flash)
+   z-index: rail/tab bar 900, panel 800, phone "More" sheet 950 (scrim 940).
+   All below RoamlyDialog (~10000) and the intro bar (9980).
+
+   ── Page primitives (for tracker/layouts/atlas/<page>.html) ──
+   Wrap a page in .lx-at-page. They all work full-page and embedded.
+   .lx-at-page              max-width/padding wrapper; tighter when embedded
+   .lx-at-pagehead          title row: put the title in .lx-at-pagehead-title
+                            and actions beside it. Embedded, the title part is
+                            hidden (the panel header already says it) and the
+                            whole row disappears if it holds nothing else.
+   .lx-at-kicker            mono 11px caps micro-label (panel kickers, stat labels)
+   .lx-at-title             display serif 20px; .lx-at-title--page 28px for an <h1>
+   .lx-at-section           a block with 32px above it; .lx-at-section-head
+                            (flex row) + .lx-at-section-title (14px semibold)
+   .lx-at-surface           bordered plate (--bg-card, --r-3)
+   .lx-at-stats > .lx-at-stat   instrument cluster: hairline-divided cells.
+                            Markup order: .lx-at-stat-label (kicker style), then
+                            .lx-at-stat-value (mono, tabular) [> .lx-at-stat-unit]
+   .lx-at-list > li > .lx-at-row (or .lx-at-list > .lx-at-row)
+                            dense rows, 48px min, hover tint when a/button or
+                            .is-interactive. Parts: .lx-at-row-lead, .lx-at-row-main
+                            (.lx-at-row-title, .lx-at-row-meta), .lx-at-row-aside
+                            (mono figures). Selected: .is-selected / aria-current.
+   .lx-at-chip              pill tag/filter; .is-active or aria-pressed="true";
+                            .lx-at-chip-dot with style="--c: var(--clay-sky)"
+   .lx-at-seg > button      segmented control; aria-pressed / aria-selected /
+                            .is-active marks the chosen one
+   .lx-at-toolbar           wrapping row of controls; .lx-at-toolbar-spacer pushes right
+   .lx-at-btn [.lx-at-btn--primary]   text button; .lx-at-iconbtn 36px icon button
+   .lx-at-empty             empty state: .lx-at-empty-icon, .lx-at-empty-title,
+                            .lx-at-empty-text, then a .lx-at-btn
+   .lx-at-num               mono + tabular numerals for any figure
+   .lx-at-sr                visually hidden text
+   .lx-at-hide-embedded / .lx-at-only-embedded   show/hide by context
+   Skeletons: base .skeleton plus a shape: .lx-at-skel-row (44px row),
+   .lx-at-skel-block (64px tile), .lx-at-skel-stats (3-up grid of blocks),
+   or base's .skel-line(.sm/.lg). Mark the container aria-busy="true".
+   JS: window.LxAtlas (see atlas.js) — LxAtlas.close() from inside a panel.
+   ════════════════════════════════════════════════════════════════════ */
+
 html[data-layout="atlas"] {
-    --lx-ready: 1;
+    --nav-h: 0px;
+    --lx-at-rail: 0px;
+    --lx-at-panel-w: 440px;
+    --lx-at-pw: min(var(--lx-at-panel-w), calc(100vw - var(--lx-at-rail) - 24px));
+    --lx-at-item: 40px;
+    --lx-at-chrome: var(--surface-0, var(--bg));
+    --lx-at-hover: color-mix(in srgb, var(--text) 7%, transparent);
+    --lx-at-tint: color-mix(in srgb, var(--primary) 14%, transparent);
+    --lx-at-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --lx-at-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 18px 44px -18px rgba(0, 0, 0, 0.55);
+    --lx-at-pop-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 10px 28px -10px rgba(0, 0, 0, 0.5);
 }
+/* The floating-bar skins (Jelly, Pebble, Tidepool) set their own --nav-h at
+   the same specificity; Atlas has no top bar under any of them. */
+html[data-layout="atlas"][data-layout] { --nav-h: 0px; }
+/* Field's fallback --surface-0 is the page darkened, which in light mode is a
+   grey band; daylight chrome is the elevated paper instead. */
+html[data-layout="atlas"][data-theme="light"] {
+    --lx-at-chrome: var(--bg-elevated);
+    --lx-at-hover: color-mix(in srgb, var(--text) 6%, transparent);
+    --lx-at-tint: color-mix(in srgb, var(--primary) 11%, transparent);
+    --lx-at-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 18px 44px -20px rgba(0, 0, 0, 0.24);
+    --lx-at-pop-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 10px 28px -12px rgba(0, 0, 0, 0.22);
+}
+@media (max-height: 760px) {
+    html[data-layout="atlas"] { --lx-at-item: 36px; }
+}
+@media (max-height: 620px) {
+    html[data-layout="atlas"] { --lx-at-item: 32px; }
+    html[data-layout="atlas"] .lx-at-rail-sep { margin: 3px 0; }
+}
+
+/* No shell on this page (an embedded panel, or the standalone editor): nothing
+   at the bottom to make room for, even where base.html's phone rule says so. */
+html[data-layout="atlas"]:not(:has(.lx-at-shell)) { --bottom-nav-height: 0px; }
+
+@media (min-width: 769px) {
+    html[data-layout="atlas"]:has(.lx-at-shell) { --lx-at-rail: 56px; }
+    html[data-layout="atlas"]:has(.lx-at-shell) body { padding-left: var(--lx-at-rail); }
+    html[data-layout="atlas"]:has(.lx-at-shell) .rly-intro-bar,
+    html[data-layout="atlas"]:has(.lx-at-shell) .rly-banner { left: var(--lx-at-rail); }
+}
+
+/* ── Focus ── */
+html[data-layout="atlas"] :is(.lx-at-ri, .lx-at-brand, .lx-at-tab, .lx-at-menu-item, .lx-at-sheet-item, .lx-at-iconbtn, .lx-at-grip, .lx-at-resize, .lx-at-btn, .lx-at-chip, .lx-at-seg > button):focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+html[data-layout="atlas"] :is(a.lx-at-row, button.lx-at-row, .lx-at-row.is-interactive):focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+}
+html[data-layout="atlas"] .lx-at-panel:focus { outline: none; }
+
+html[data-layout="atlas"] .lx-at-ico { flex: none; display: block; }
+/* facets.css's role layer rounds anything whose class says panel, -menu or
+   sheet; these are rows and rules inside a surface, so they stay square
+   (a rounded hairline curls up at its ends). */
+html[data-layout="atlas"] :is(.lx-at-panel-head, .lx-at-panel-heading, .lx-at-panel-title, .lx-at-panel-body, .lx-at-panel-skel,
+    .lx-at-panel-msg, .lx-at-panel-msg-text, .lx-at-menu-head, .lx-at-menu-user, .lx-at-menu-aside, .lx-at-menu-sep,
+    .lx-at-sheet-head, .lx-at-sheet-who, .lx-at-sheet-title, .lx-at-sheet-body, .lx-at-sheet-group, .lx-at-sheet-list) {
+    border-radius: 0;
+}
+
+/* ════════════════ Desktop rail ════════════════ */
+html[data-layout="atlas"] .lx-at-rail {
+    position: fixed;
+    z-index: 900;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 56px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: max(10px, env(safe-area-inset-top, 0px)) 0 12px;
+    background: var(--lx-at-chrome);
+    border-right: 1px solid var(--border);
+}
+html[data-layout="atlas"] .lx-at-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    margin-bottom: 8px;
+    border-radius: var(--r-2);
+    transition: opacity 140ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-brand img { display: block; width: 30px; height: 30px; }
+html[data-layout="atlas"] .lx-at-brand:hover { opacity: 0.8; }
+
+html[data-layout="atlas"] .lx-at-rail-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+html[data-layout="atlas"] .lx-at-rail-list > li { display: flex; justify-content: center; }
+html[data-layout="atlas"] .lx-at-rail-sep {
+    width: 20px;
+    height: 1px;
+    margin: 7px 0;
+    background: var(--border);
+}
+html[data-layout="atlas"] .lx-at-rail-foot {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding-top: 8px;
+}
+html[data-layout="atlas"] .lx-at-pop-anchor { position: relative; display: flex; }
+
+/* Rail item: a 40px square on the 56px rail. */
+html[data-layout="atlas"] .lx-at-ri {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--lx-at-item);
+    height: var(--lx-at-item);
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-2);
+    background: transparent;
+    color: var(--text-muted);
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 140ms ease-out, background-color 140ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-ri:hover { color: var(--text); background: var(--lx-at-hover); }
+html[data-layout="atlas"] .lx-at-ri:is([aria-current="page"], .is-active, [data-lx-panel][aria-expanded="true"]) {
+    color: var(--primary);
+    background: var(--lx-at-tint);
+}
+/* The 2px bar sits on the rail's outer edge, whatever the item size. */
+html[data-layout="atlas"] .lx-at-ri:is([aria-current="page"], .is-active, [data-lx-panel][aria-expanded="true"])::before {
+    content: '';
+    position: absolute;
+    left: calc((var(--lx-at-item) - 56px) / 2);
+    top: 22%;
+    bottom: 22%;
+    width: 2px;
+    border-radius: 0 calc(2px * var(--rk, 1)) calc(2px * var(--rk, 1)) 0;
+    background: var(--primary);
+}
+html[data-layout="atlas"] .lx-at-ri[aria-haspopup][aria-expanded="true"] { color: var(--text); background: var(--lx-at-hover); }
+
+/* Tooltips: CSS only, 400ms on hover, at once for keyboard focus. */
+html[data-layout="atlas"] :is(.lx-at-ri, .lx-at-iconbtn)[data-tip]::after {
+    content: attr(data-tip);
+    position: absolute;
+    z-index: 4;
+    left: calc(100% + 12px);
+    top: 50%;
+    padding: 5px 9px;
+    white-space: nowrap;
+    font-family: var(--font-body);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: 0;
+    color: var(--text);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-1);
+    box-shadow: var(--lx-at-pop-shadow);
+    opacity: 0;
+    transform: translate(-4px, -50%);
+    pointer-events: none;
+    transition: opacity 120ms ease-out, transform 120ms ease-out;
+    transition-delay: 0ms;
+}
+html[data-layout="atlas"] .lx-at-iconbtn[data-tip]::after {
+    left: auto;
+    right: 0;
+    top: calc(100% + 6px);
+    transform: translateY(-3px);
+}
+@media (hover: hover) and (pointer: fine) {
+    html[data-layout="atlas"] .lx-at-ri[data-tip]:hover::after { opacity: 1; transform: translate(0, -50%); transition-delay: 400ms; }
+    html[data-layout="atlas"] .lx-at-iconbtn[data-tip]:hover::after { opacity: 1; transform: none; transition-delay: 400ms; }
+}
+html[data-layout="atlas"] .lx-at-ri[data-tip]:focus-visible::after { opacity: 1; transform: translate(0, -50%); }
+html[data-layout="atlas"] .lx-at-iconbtn[data-tip]:focus-visible::after { opacity: 1; transform: none; }
+html[data-layout="atlas"] .lx-at-ri[aria-haspopup][aria-expanded="true"]::after { display: none; }
+
+/* Account */
+html[data-layout="atlas"] .lx-at-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--r-pill);
+    background: color-mix(in srgb, var(--primary) 16%, var(--bg-elevated));
+    border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+}
+html[data-layout="atlas"] .lx-at-acct:is([aria-current="page"], .is-active) .lx-at-avatar { border-color: var(--primary); }
+
+/* Rail popovers (More, Account): open to the right, grow upward from the button. */
+html[data-layout="atlas"] .lx-at-menu {
+    position: absolute;
+    z-index: 5;
+    left: calc(100% + 10px);
+    bottom: 0;
+    min-width: 224px;
+    max-width: 280px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 6px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-3);
+    box-shadow: var(--lx-at-pop-shadow);
+}
+html[data-layout="atlas"] .lx-at-menu[hidden] { display: none; }
+html[data-layout="atlas"] .lx-at-menu-head {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 10px 10px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+}
+html[data-layout="atlas"] .lx-at-menu-user {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+html[data-layout="atlas"] .lx-at-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 36px;
+    padding: 0 10px;
+    border-radius: var(--r-2);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-menu-item .lx-at-ico { width: 18px; height: 18px; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-menu-item:is(:hover, :focus-visible) { background: var(--lx-at-hover); color: var(--text); }
+html[data-layout="atlas"] .lx-at-menu-item[aria-current="page"],
+html[data-layout="atlas"] .lx-at-menu-item[aria-current="page"] .lx-at-ico { color: var(--primary); }
+html[data-layout="atlas"] .lx-at-menu-aside {
+    margin-left: auto;
+    padding-left: 12px;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+}
+html[data-layout="atlas"] .lx-at-menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }
+
+/* "A year ago" collapses to its icon; base.html hides it under 1281px. */
+html[data-layout="atlas"] .lx-at-rail .yago { flex: none; width: var(--lx-at-item); justify-content: center; }
+html[data-layout="atlas"] .lx-at-rail .yago-chip {
+    width: var(--lx-at-item);
+    min-width: 0;
+    max-width: none;
+    height: var(--lx-at-item);
+    padding: 0;
+    justify-content: center;
+    background: transparent;
+    border-color: transparent;
+    border-radius: var(--r-2);
+}
+html[data-layout="atlas"] .lx-at-rail .yago-chip:hover,
+html[data-layout="atlas"] .lx-at-rail .yago:focus-within .yago-chip { background: var(--lx-at-hover); border-color: transparent; }
+html[data-layout="atlas"] .lx-at-rail :is(.yago-tag, .yago-line) { display: none; }
+html[data-layout="atlas"] .lx-at-rail .yago-icon { width: 20px; height: 20px; stroke-width: 1.75; }
+html[data-layout="atlas"] .lx-at-rail .yago-pop { top: auto; bottom: 0; left: calc(100% + 10px); transform: none; }
+html[data-layout="atlas"] .lx-at-rail .yago-pop::before { top: 0; bottom: 0; left: -14px; right: auto; width: 14px; height: auto; }
+
+/* Bell: the panel opens to the right of the rail, upward. */
+html[data-layout="atlas"] .lx-at-notif-slot { display: flex; }
+html[data-layout="atlas"] .lx-at-shell .notif-toggle {
+    width: var(--lx-at-item);
+    height: var(--lx-at-item);
+    border-radius: var(--r-2);
+    transition: color 140ms ease-out, background-color 140ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-shell .notif-toggle:hover,
+html[data-layout="atlas"] .lx-at-shell .notif.open .notif-toggle { color: var(--text); background: var(--lx-at-hover); }
+html[data-layout="atlas"] .lx-at-shell .notif-toggle svg { width: 20px; height: 20px; stroke-width: 1.75; }
+html[data-layout="atlas"] .lx-at-shell .notif-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+html[data-layout="atlas"] .lx-at-rail .notif-dot { top: 22%; right: 22%; box-shadow: 0 0 0 2px var(--lx-at-chrome); }
+html[data-layout="atlas"] .lx-at-rail .notif-panel {
+    top: auto;
+    right: auto;
+    bottom: 0;
+    left: calc(100% + 10px);
+    max-height: min(70vh, 32rem);
+}
+
+/* ════════════════ Phone tab bar + "More" sheet ════════════════ */
+html[data-layout="atlas"] :is(.lx-at-tabbar, .lx-at-scrim, .lx-at-sheet) { display: none; }
+
+@media (max-width: 768px) {
+    html[data-layout="atlas"] .lx-at-rail { display: none; }
+
+    html[data-layout="atlas"] .lx-at-tabbar {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        position: fixed;
+        z-index: 900;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: var(--bottom-nav-height);
+        box-sizing: border-box;
+        padding: 0 4px env(safe-area-inset-bottom, 0px);
+        background: var(--lx-at-chrome);
+        border-top: 1px solid var(--border);
+    }
+    html[data-layout="atlas"] .lx-at-tab {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        min-width: 0;
+        min-height: 44px;
+        padding: 0;
+        border: 0;
+        background: none;
+        color: var(--text-muted);
+        font-family: var(--font-body);
+        font-size: 0.6875rem;
+        font-weight: 500;
+        line-height: 1;
+        text-decoration: none;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition: color 140ms ease-out;
+    }
+    html[data-layout="atlas"] .lx-at-tab > span:not(.lx-at-tab-dot) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    html[data-layout="atlas"] .lx-at-tab:is([aria-current="page"], .is-active, [data-lx-panel][aria-expanded="true"]) { color: var(--primary); }
+    html[data-layout="atlas"] .lx-at-tab:is([aria-current="page"], .is-active, [data-lx-panel][aria-expanded="true"])::before {
+        content: '';
+        position: absolute;
+        top: -1px;
+        left: 28%;
+        right: 28%;
+        height: 2px;
+        border-radius: 0 0 calc(2px * var(--rk, 1)) calc(2px * var(--rk, 1));
+        background: var(--primary);
+    }
+    html[data-layout="atlas"] .lx-at-tab-dot {
+        position: absolute;
+        top: 10px;
+        left: calc(50% + 7px);
+        width: 7px;
+        height: 7px;
+        border-radius: var(--r-pill);
+        background: var(--primary);
+        box-shadow: 0 0 0 2px var(--lx-at-chrome);
+    }
+
+    html[data-layout="atlas"] .lx-at-scrim {
+        display: block;
+        position: fixed;
+        z-index: 940;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        touch-action: none;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 200ms ease-out, visibility 0s linear 200ms;
+    }
+    html[data-layout="atlas"][data-theme="light"] .lx-at-scrim { background: rgba(0, 0, 0, 0.28); }
+    html[data-layout="atlas"].lx-at-sheet-open .lx-at-scrim { opacity: 1; visibility: visible; transition-delay: 0s; }
+
+    /* Open, the sheet has no transform: the bell's panel inside it is
+       position:fixed and must stay relative to the viewport. */
+    html[data-layout="atlas"] .lx-at-sheet {
+        display: flex;
+        flex-direction: column;
+        position: fixed;
+        z-index: 950;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        max-height: calc(100vh - 24px);
+        max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 24px);
+        box-sizing: border-box;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-bottom: 0;
+        border-radius: var(--r-4) var(--r-4) 0 0;
+        box-shadow: var(--lx-at-shadow);
+        transform: translateY(100%);
+        visibility: hidden;
+        transition: transform 260ms var(--lx-at-ease), visibility 0s linear 260ms;
+    }
+    html[data-layout="atlas"].lx-at-sheet-open .lx-at-sheet { transform: none; visibility: visible; transition-delay: 0s; }
+    html[data-layout="atlas"] .lx-at-sheet.is-dragging { transition: none; }
+    html[data-layout="atlas"] .lx-at-sheet-grip {
+        flex: none;
+        width: 36px;
+        height: 4px;
+        margin: 8px auto 4px;
+        border-radius: var(--r-pill);
+        background: var(--border-strong);
+    }
+    html[data-layout="atlas"] .lx-at-sheet-head {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 4px 8px 12px 20px;
+        border-bottom: 1px solid var(--border);
+        touch-action: none;
+    }
+    html[data-layout="atlas"] .lx-at-sheet-head .lx-at-avatar { width: 36px; height: 36px; font-size: 0.875rem; }
+    html[data-layout="atlas"] .lx-at-sheet-who { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    html[data-layout="atlas"] .lx-at-sheet-title {
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: 1.125rem;
+        font-weight: 500;
+        line-height: 1.2;
+        color: var(--text);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    html[data-layout="atlas"] .lx-at-sheet .notif-toggle { width: 44px; height: 44px; }
+    html[data-layout="atlas"] .lx-at-sheet .notif-dot { top: 11px; right: 11px; box-shadow: 0 0 0 2px var(--bg-card); }
+    html[data-layout="atlas"] .lx-at-sheet .notif-panel {
+        top: calc(env(safe-area-inset-top, 0px) + 12px);
+        max-height: calc(100vh - 24px);
+        max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 24px);
+        z-index: 5;
+    }
+    html[data-layout="atlas"] .lx-at-sheet-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding: 4px 12px 16px;
+    }
+    html[data-layout="atlas"] .lx-at-sheet-group {
+        margin: 0;
+        padding: 16px 8px 6px;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+    html[data-layout="atlas"] .lx-at-sheet-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 2px;
+    }
+    html[data-layout="atlas"] .lx-at-sheet-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 48px;
+        padding: 0 12px;
+        border-radius: var(--r-2);
+        color: var(--text);
+        font-family: var(--font-body);
+        font-size: 0.9375rem;
+        font-weight: 500;
+        text-decoration: none;
+        -webkit-tap-highlight-color: transparent;
+        transition: background-color 120ms ease-out;
+    }
+    html[data-layout="atlas"] .lx-at-sheet-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    html[data-layout="atlas"] .lx-at-sheet-item .lx-at-ico { color: var(--text-muted); }
+    html[data-layout="atlas"] .lx-at-sheet-item:active { background: var(--lx-at-hover); }
+    html[data-layout="atlas"] .lx-at-sheet-item[aria-current="page"] { background: var(--lx-at-tint); color: var(--primary); }
+    html[data-layout="atlas"] .lx-at-sheet-item[aria-current="page"] .lx-at-ico { color: var(--primary); }
+}
+@media (max-width: 768px) and (hover: hover) {
+    html[data-layout="atlas"] .lx-at-sheet-item:hover { background: var(--lx-at-hover); }
+}
+
+/* ════════════════ The panel (map page) ════════════════ */
+html[data-layout="atlas"] .lx-at-panel {
+    position: fixed;
+    z-index: 800;
+    top: 12px;
+    bottom: 12px;
+    left: calc(var(--lx-at-rail) + 12px);
+    width: var(--lx-at-pw);
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-4);
+    box-shadow: var(--lx-at-shadow);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(-12px);
+    transition: opacity 220ms var(--lx-at-ease), transform 220ms var(--lx-at-ease), visibility 0s linear 220ms;
+}
+html[data-layout="atlas"].lx-at-panel-open .lx-at-panel {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition-delay: 0s;
+}
+html[data-layout="atlas"] .lx-at-panel:is(.is-resizing, .is-dragging) { transition: none; user-select: none; }
+html[data-layout="atlas"] .lx-at-panel:is(.is-resizing, .is-dragging) .lx-at-frame { pointer-events: none; }
+html[data-layout="atlas"].lx-at-noanim .lx-at-panel { transition: none; }
+
+html[data-layout="atlas"] .lx-at-panel-head {
+    position: relative;
+    z-index: 2;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    box-sizing: border-box;
+    min-height: 64px;
+    padding: 10px 10px 10px 20px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+}
+html[data-layout="atlas"] .lx-at-panel-heading { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; padding-right: 8px; }
+html[data-layout="atlas"] .lx-at-panel-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.1875rem;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+html[data-layout="atlas"] .lx-at-grip { display: none; }
+
+html[data-layout="atlas"] .lx-at-iconbtn {
+    position: relative;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-2);
+    background: transparent;
+    color: var(--text-muted);
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 140ms ease-out, background-color 140ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-iconbtn:hover { color: var(--text); background: var(--lx-at-hover); }
+html[data-layout="atlas"] .lx-at-iconbtn .lx-at-ico { width: 18px; height: 18px; }
+
+html[data-layout="atlas"] .lx-at-panel-body { position: relative; flex: 1 1 auto; min-height: 0; }
+html[data-layout="atlas"] .lx-at-panel-skel {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 20px;
+    transition: opacity 160ms ease-out, visibility 0s linear 160ms;
+}
+html[data-layout="atlas"] .lx-at-panel.is-ready .lx-at-panel-skel,
+html[data-layout="atlas"] .lx-at-panel.has-msg .lx-at-panel-skel { opacity: 0; visibility: hidden; }
+html[data-layout="atlas"] .lx-at-panel-msg {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 32px;
+    text-align: center;
+    background: var(--bg-card);
+}
+html[data-layout="atlas"] .lx-at-panel-msg[hidden] { display: none; }
+html[data-layout="atlas"] .lx-at-panel-msg.is-soft { inset: auto 0 0 0; padding: 16px 20px; justify-content: flex-start; flex-direction: row; gap: 12px; text-align: left; border-top: 1px solid var(--border); }
+html[data-layout="atlas"] .lx-at-panel-msg-text { margin: 0; max-width: 34ch; font-size: 0.875rem; line-height: 1.5; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-panel-msg.is-soft .lx-at-panel-msg-text { flex: 1 1 auto; max-width: none; }
+
+html[data-layout="atlas"] .lx-at-frame {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: var(--bg-card);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 160ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-frame.is-current.is-loaded { opacity: 1; visibility: visible; }
+
+/* Width handle on the panel's right edge (desktop). */
+html[data-layout="atlas"] .lx-at-resize {
+    position: absolute;
+    z-index: 3;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: 10px;
+    cursor: ew-resize;
+    touch-action: none;
+}
+html[data-layout="atlas"] .lx-at-resize::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 3px;
+    width: 3px;
+    height: 36px;
+    margin-top: -18px;
+    border-radius: var(--r-pill);
+    background: var(--border-strong);
+    opacity: 0;
+    transition: opacity 120ms ease-out, background-color 120ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-resize:is(:hover, :focus-visible)::after { opacity: 1; }
+html[data-layout="atlas"] .lx-at-panel.is-resizing .lx-at-resize::after { opacity: 1; background: var(--primary); }
+html[data-layout="atlas"] .lx-at-resize:focus-visible { outline-offset: -2px; }
+
+/* Map page: with the panel open, the map's own left-hand chrome moves right
+   of it and the notes pill goes to the top-right corner. The floating-bar
+   component skins push .map-sidebar/.map-top-center to --nav-h + 2px; with no
+   top bar that is the screen edge, so they go back to 12px (body raises the
+   specificity above the skins' :has(#map-container) rule). */
+html[data-layout="atlas"] body #map-container :is(.map-sidebar, .map-top-center) { top: calc(12px + env(safe-area-inset-top, 0px)); }
+@media (min-width: 769px) {
+    html[data-layout="atlas"].lx-at-panel-open body #map-container .map-sidebar,
+    html[data-layout="atlas"].lx-at-panel-open body #map-container .map-bottom-left { left: calc(var(--lx-at-pw) + 24px); }
+    html[data-layout="atlas"].lx-at-panel-open body #map-container .map-bottom-left { max-width: calc(100% - var(--lx-at-pw) - 104px); }
+    html[data-layout="atlas"].lx-at-panel-open body #map-container .map-top-center {
+        left: auto;
+        right: 12px;
+        transform: none;
+        align-items: flex-end;
+    }
+    html[data-layout="atlas"].lx-at-panel-open body #map-container .day-notes { align-items: flex-end; }
+    html[data-layout="atlas"].lx-at-panel-open body #map-container .day-notes-panel { left: auto; right: 0; transform: none; }
+    html[data-layout="atlas"].lx-at-panel-open body #map-container .day-notes-pill {
+        max-width: min(380px, max(140px, calc(100vw - var(--lx-at-rail) - var(--lx-at-pw) - 292px)));
+    }
+    html[data-layout="atlas"].lx-at-panel-open body #map-container .replay-panel {
+        left: calc(50% + (var(--lx-at-pw) + 12px) / 2);
+        width: min(640px, calc(100% - var(--lx-at-pw) - 36px));
+    }
+}
+
+/* Phone: the panel is a bottom sheet above the tab bar. It is always full
+   height and slides by --lx-at-sheet-y; the body is sized to the visible part
+   (--lx-at-sheet-vis) so the embedded page scrolls inside what you can see.
+   Both are set by atlas.js. Nothing inside is position:fixed in this
+   document, so the transform at rest traps nothing. */
+@media (max-width: 768px) {
+    html[data-layout="atlas"] .lx-at-panel {
+        top: auto;
+        left: 0;
+        right: 0;
+        bottom: var(--bottom-nav-height);
+        width: auto;
+        height: calc(100vh - var(--bottom-nav-height) - 8px);
+        height: calc(100dvh - var(--bottom-nav-height) - env(safe-area-inset-top, 0px) - 8px);
+        border-bottom: 0;
+        border-radius: var(--r-4) var(--r-4) 0 0;
+        opacity: 1;
+        transform: translateY(100%);
+        transition: transform 260ms var(--lx-at-ease), visibility 0s linear 260ms;
+    }
+    html[data-layout="atlas"].lx-at-panel-open .lx-at-panel { transform: translateY(var(--lx-at-sheet-y, 40%)); }
+    html[data-layout="atlas"] .lx-at-panel-head {
+        height: 64px;
+        min-height: 0;
+        padding: 14px 6px 6px 20px;
+        touch-action: none;
+        cursor: grab;
+    }
+    html[data-layout="atlas"] .lx-at-panel.is-dragging .lx-at-panel-head { cursor: grabbing; }
+    html[data-layout="atlas"] .lx-at-grip {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: absolute;
+        top: 0;
+        left: 50%;
+        width: 72px;
+        height: 20px;
+        margin-left: -36px;
+        padding: 0;
+        border: 0;
+        border-radius: var(--r-2);
+        background: transparent;
+        cursor: grab;
+    }
+    html[data-layout="atlas"] .lx-at-grip > span {
+        display: block;
+        width: 36px;
+        height: 4px;
+        border-radius: var(--r-pill);
+        background: var(--border-strong);
+    }
+    html[data-layout="atlas"] .lx-at-panel-body { flex: none; height: max(0px, calc(var(--lx-at-sheet-vis, 60vh) - 64px)); }
+    html[data-layout="atlas"] .lx-at-panel .lx-at-iconbtn { width: 44px; height: 44px; }
+    html[data-layout="atlas"] .lx-at-panel .lx-at-iconbtn::after { display: none; }
+    html[data-layout="atlas"] .lx-at-resize { display: none; }
+}
+
+/* ════════════════ Inside a panel ════════════════ */
+html[data-layout="atlas"].lx-embedded { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+html[data-layout="atlas"].lx-embedded body { background: var(--bg-card); }
+html[data-layout="atlas"].lx-embedded body::before { display: none; }
+/* Classic pages that have no Atlas version yet: the panel header already
+   names the page, so drop their <h1>; their controls stay. */
+html[data-layout="atlas"].lx-embedded :is(.page-header, .page-toolbar) > h1 { display: none; }
+html[data-layout="atlas"].lx-embedded .lx-at-hide-embedded { display: none !important; }
+html[data-layout="atlas"]:not(.lx-embedded) .lx-at-only-embedded { display: none !important; }
+
+/* ════════════════ Page primitives ════════════════ */
+html[data-layout="atlas"] .lx-at-page {
+    width: 100%;
+    max-width: 1120px;
+    box-sizing: border-box;
+    margin: 0 auto;
+    padding: 32px 32px 48px;
+    position: relative;
+    z-index: 1;
+}
+html[data-layout="atlas"].lx-embedded .lx-at-page { max-width: none; padding: 16px 20px 32px; }
+
+html[data-layout="atlas"] .lx-at-pagehead {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px 16px;
+    padding-bottom: 16px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+}
+html[data-layout="atlas"] .lx-at-pagehead-title { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+html[data-layout="atlas"].lx-embedded .lx-at-pagehead { padding-bottom: 0; margin-bottom: 16px; border-bottom: 0; }
+html[data-layout="atlas"].lx-embedded .lx-at-pagehead > .lx-at-pagehead-title { display: none; }
+html[data-layout="atlas"].lx-embedded .lx-at-pagehead:not(:has(> :not(.lx-at-pagehead-title))) { display: none; }
+
+html[data-layout="atlas"] .lx-at-kicker {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+html[data-layout="atlas"] .lx-at-kicker[hidden] { display: none; }
+html[data-layout="atlas"] .lx-at-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--text);
+}
+html[data-layout="atlas"] .lx-at-title--page { font-size: 1.75rem; line-height: 1.15; }
+
+html[data-layout="atlas"] .lx-at-section { margin-top: 32px; }
+html[data-layout="atlas"] .lx-at-section:first-child { margin-top: 0; }
+html[data-layout="atlas"] .lx-at-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+html[data-layout="atlas"] .lx-at-section-title {
+    margin: 0;
+    font-family: var(--font-body);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--text);
+}
+
+html[data-layout="atlas"] .lx-at-surface {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-3);
+}
+
+html[data-layout="atlas"] .lx-at-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+    overflow: hidden;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-3);
+}
+html[data-layout="atlas"] .lx-at-stat {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px 16px;
+    /* Hairlines between cells only: the ones on the outer edge fall under
+       the container's border and are clipped, and an empty last cell stays plain. */
+    box-shadow: 1px 0 0 var(--border), 0 1px 0 var(--border);
+}
+html[data-layout="atlas"] .lx-at-stat-value {
+    font-family: var(--font-mono);
+    font-size: 1.5rem;
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+html[data-layout="atlas"] .lx-at-stat-unit { margin-left: 3px; font-size: 0.75rem; letter-spacing: 0; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-stat-label {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+html[data-layout="atlas"] .lx-at-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+html[data-layout="atlas"] .lx-at-list > li { display: block; }
+html[data-layout="atlas"] .lx-at-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 48px;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    text-decoration: none;
+    transition: background-color 120ms ease-out;
+}
+html[data-layout="atlas"] :is(a.lx-at-row, button.lx-at-row, .lx-at-row.is-interactive) { cursor: pointer; }
+html[data-layout="atlas"] :is(a.lx-at-row, button.lx-at-row, .lx-at-row.is-interactive):hover { background: var(--lx-at-hover); }
+html[data-layout="atlas"] .lx-at-row:is(.is-selected, [aria-current]:not([aria-current="false"])) {
+    background: var(--lx-at-tint);
+    box-shadow: inset 2px 0 0 var(--primary);
+}
+html[data-layout="atlas"] .lx-at-row-lead {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--r-2);
+    color: var(--text-muted);
+    background: var(--lx-at-hover);
+}
+html[data-layout="atlas"] .lx-at-row-main { flex: 1 1 auto; min-width: 0; }
+html[data-layout="atlas"] .lx-at-row-title {
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+html[data-layout="atlas"] .lx-at-row-meta {
+    margin-top: 2px;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+html[data-layout="atlas"] .lx-at-row-aside {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+    text-align: right;
+}
+
+html[data-layout="atlas"] .lx-at-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    box-sizing: border-box;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: color 120ms ease-out, border-color 120ms ease-out, background-color 120ms ease-out;
+}
+html[data-layout="atlas"] :is(a, button).lx-at-chip { cursor: pointer; }
+html[data-layout="atlas"] :is(a, button).lx-at-chip:hover { color: var(--text); border-color: var(--border-strong); }
+html[data-layout="atlas"] .lx-at-chip:is(.is-active, [aria-pressed="true"]) {
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+    background: var(--lx-at-tint);
+}
+html[data-layout="atlas"] .lx-at-chip-dot { flex: none; width: 8px; height: 8px; border-radius: var(--r-pill); background: var(--c, currentColor); }
+
+html[data-layout="atlas"] .lx-at-seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-2);
+    background: var(--bg-input);
+}
+html[data-layout="atlas"] .lx-at-seg > button {
+    height: 28px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: max(0px, calc(var(--r-2) - 2px));
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color 120ms ease-out, background-color 120ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-seg > button:hover { color: var(--text); }
+html[data-layout="atlas"] .lx-at-seg > button:is([aria-pressed="true"], [aria-selected="true"], .is-active) {
+    color: var(--text);
+    background: var(--bg-card);
+    box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+html[data-layout="atlas"] .lx-at-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+html[data-layout="atlas"] .lx-at-toolbar-spacer { flex: 1 1 auto; }
+
+html[data-layout="atlas"] .lx-at-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 36px;
+    box-sizing: border-box;
+    padding: 0 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-2);
+    background: transparent;
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-btn:hover { background: var(--lx-at-hover); }
+html[data-layout="atlas"] .lx-at-btn--primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary, #fff); }
+html[data-layout="atlas"] .lx-at-btn--primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+html[data-layout="atlas"] .lx-at-btn:disabled { opacity: 0.5; cursor: default; }
+
+html[data-layout="atlas"] .lx-at-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--text-muted);
+}
+html[data-layout="atlas"] .lx-at-empty-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin-bottom: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-pill);
+    color: var(--text-muted);
+}
+html[data-layout="atlas"] .lx-at-empty-title { margin: 0; font-family: var(--font-display); font-size: 1.0625rem; font-weight: 500; color: var(--text); }
+html[data-layout="atlas"] .lx-at-empty-text { margin: 0 0 8px; max-width: 38ch; font-size: 0.875rem; line-height: 1.5; color: var(--text-muted); }
+
+html[data-layout="atlas"] .lx-at-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+html[data-layout="atlas"] .lx-at-sr {
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+html[data-layout="atlas"] .lx-at-skel-row { height: 44px; border-radius: var(--r-2); }
+html[data-layout="atlas"] .lx-at-skel-block { height: 64px; border-radius: var(--r-2); }
+html[data-layout="atlas"] .lx-at-skel-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+
+@media (max-width: 768px) {
+    html[data-layout="atlas"] .lx-at-page { padding: calc(16px + env(safe-area-inset-top, 0px)) 16px 32px; }
+    html[data-layout="atlas"].lx-embedded .lx-at-page { padding: 16px 16px 32px; }
+    html[data-layout="atlas"] .lx-at-title--page { font-size: 1.5rem; }
+    html[data-layout="atlas"] .lx-at-btn { height: 44px; }
+    html[data-layout="atlas"] .lx-at-seg > button { height: 40px; }
+    html[data-layout="atlas"] .lx-at-chip { height: 32px; }
+}
+
+/* ════════════════ Motion ════════════════ */
+@media (prefers-reduced-motion: reduce) {
+    html[data-layout="atlas"] :is(.lx-at-panel, .lx-at-sheet, .lx-at-scrim, .lx-at-frame, .lx-at-panel-skel) { transition-duration: 1ms !important; }
+    html[data-layout="atlas"] :is(.lx-at-ri, .lx-at-iconbtn)[data-tip]::after { transition-duration: 1ms !important; }
+}
+html[data-layout="atlas"][data-motion="calm"] :is(.lx-at-panel, .lx-at-sheet, .lx-at-scrim, .lx-at-frame, .lx-at-panel-skel) { transition-duration: 1ms !important; }
+html[data-layout="atlas"][data-motion="calm"] :is(.lx-at-ri, .lx-at-iconbtn)[data-tip]::after { transition-duration: 1ms !important; }
