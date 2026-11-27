@@ -1,0 +1,1 @@
+/* chronicle layout behaviour (placeholder) */
