@@ -49,4 +49,9 @@ All stored in `localStorage` with `roamly_` prefix:
 | `roamly_atlas_panel_w` | 360–720 (px) | 440 (Atlas layout: width of the map side panel; saved when you drag or key-resize its edge) |
 | `roamly_hearth_collapsed` | 1 / 0 | 0 (Hearth layout: sidebar collapsed to the 64px icon rail) |
 | `roamly_ch_map_hidden` | 1 / 0 | 0 (Chronicle layout, phone: the map strip above the feed is collapsed) |
+| `roamly_ch_side` | 1 / 0 | 0 (Chronicle layout: sidebar collapsed to the 64px rail) |
+| `roamly_ch_more` | 1 / 0 | 0 (Chronicle sidebar: the More group is open) |
+| `roamly_ch_home_v1` | JSON `{order, hidden}` | default (Chronicle Overview tile order and hidden tiles) |
+| `roamly_ch_j_info` | 1 / 0 | auto (Chronicle Journals: entry column open) |
+| `roamly_ch_pl_*` | JSON | Chronicle Places caches (detail, sort) |
 | `roamly_ch_date` | YYYY-MM-DD (**sessionStorage**) | unset (Chronicle: the day last selected, so switching sections keeps it; `?d=` wins) |
