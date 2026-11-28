@@ -17545,7 +17545,7 @@ def activity_detail_view(request, activity_id):
     act = _get_activity(request, activity_id)
     if not act:
         return redirect('tracker:activities')
-    return render(request, layout_templates(request, 'activity_detail'), {'activity_id': act.id})
+    return render(request, layout_templates(request, 'activity_detail'), {'activity_id': act.id, 'basemaps': _user_basemaps(request)})
 
 
 # ---------------------------------------------------------------------------
