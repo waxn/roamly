@@ -2086,7 +2086,7 @@ def visits_view(request):
 def adventures_view(request):
     devices = Device.objects.filter(user=request.user)
     adventures = Adventure.objects.filter(device__user=request.user)
-    return render(request, layout_templates(request, 'adventures'), {'devices': devices, 'adventures': adventures})
+    return render(request, layout_templates(request, 'adventures'), {'devices': devices, 'adventures': adventures, 'basemaps': _user_basemaps(request)})
 
 
 @login_required
@@ -2123,7 +2123,7 @@ def adventure_plan_view(request, trip_id):
 
 @login_required
 def places_view(request):
-    return render(request, layout_templates(request, 'places'), {'has_postgis': HAS_POSTGIS})
+    return render(request, layout_templates(request, 'places'), {'has_postgis': HAS_POSTGIS, 'basemaps': _user_basemaps(request)})
 
 
 @login_required
@@ -12837,7 +12837,7 @@ _YEAR_AGO_LIMIT = 20        # provider calls per account per hour; cache hits do
 
 @login_required
 def journals_view(request):
-    return render(request, layout_templates(request, 'journals'))
+    return render(request, layout_templates(request, 'journals'), {'basemaps': _user_basemaps(request)})
 
 
 @login_required

@@ -29,13 +29,13 @@ km unless the name ends ``_m``, durations in seconds, battery 0-100 int):
       "date", "distance_km": float, "moving_s": int, "point_count": int,
       "places": [str, ...],          # first 6 distinct "City, State" labels, in visit order
       "place_count": int, "first_at": iso|null, "last_at": iso|null,
-      "shape": Shape|null, "map_url": "/map/?date=YYYY-MM-DD"
+      "shape": Shape|null, "geo": Geo|null, "map_url": "/map/?date=YYYY-MM-DD"
     },
     "recent": {                      # newest Activity or own Adventure, by start time
       "kind": "ride"|"run"|"walk"|"hike"|"row"|"other"|"trip",
       "source": "activity"|"adventure", "title": str, "start": iso, "end": iso,
       "distance_km": float|null, "moving_s": int|null, "elapsed_s": int|null,
-      "elevation_gain_m": float|null, "url": str, "shape": Shape|null
+      "elevation_gain_m": float|null, "url": str, "shape": Shape|null, "geo": Geo|null
     } | null,                        # null: no activity and no adventure
     "on_this_day": {
       "date": today,
@@ -78,7 +78,10 @@ arrays, and ``sync``) may instead be ``{"error": true}``. With ``?only=a,b``
 the body holds just those keys plus ``sync`` and ``generated_at``. ``Shape`` is
 a route already projected for an SVG: ``{"w": float, "h": float, "segments":
 [[[x, y], ...], ...]}`` with ``max(w, h) == 100``, y growing downward (north
-up); a one-point segment is a dot. Responses are cached 60s per user, day and
+up); a one-point segment is a dot. ``Geo`` is the same route in real
+coordinates for drawing on a basemap (Chronicle's Overview): ``{"segments":
+[[[lon, lat], ...], ...], "bounds": [west, south, east, north]}``, decimated
+to the same vertex budget as ``Shape``. Responses are cached 60s per user, day and
 tz_offset, and never when a section failed.
 """
 import logging
@@ -222,6 +225,22 @@ def _decimate(segments, max_points=SHAPE_MAX_POINTS):
     return out
 
 
+def _geo(segments):
+    """Lat/lon segments -> ``{"segments": [[[lon, lat], ...]], "bounds": [w, s, e, n]}``
+    (GeoJSON order, 5 decimals), or None when there is nothing to draw."""
+    out = []
+    for seg in segments or []:
+        pts = [[round(float(lon), 5), round(float(lat), 5)] for lat, lon in seg
+               if lat is not None and lon is not None]
+        if pts:
+            out.append(pts)
+    if not out:
+        return None
+    lons = [p[0] for s in out for p in s]
+    lats = [p[1] for s in out for p in s]
+    return {'segments': out, 'bounds': [min(lons), min(lats), max(lons), max(lats)]}
+
+
 def _latest_fix(device_pk, fields=('timestamp', 'battery', 'city', 'state')):
     """Newest Location of one device: an index seek on tracker_loc_device__idx.
 
@@ -320,7 +339,7 @@ def _section_today(ctx):
     base = {
         'date': ctx.today.isoformat(),
         'distance_km': 0.0, 'moving_s': 0, 'point_count': len(rows),
-        'places': [], 'place_count': 0, 'first_at': None, 'last_at': None, 'shape': None,
+        'places': [], 'place_count': 0, 'first_at': None, 'last_at': None, 'shape': None, 'geo': None,
         'map_url': f"{reverse('tracker:map')}?date={ctx.today.isoformat()}",
     }
     if not rows:
@@ -353,6 +372,7 @@ def _section_today(ctx):
         cur.append((lat, lon))
         prev = (dev, lat, lon, ts)
 
+    drawn = _decimate(segments)
     chrono = sorted(rows, key=lambda r: r[3])
     places, seen = [], set()
     for r in chrono:
@@ -368,7 +388,8 @@ def _section_today(ctx):
         'place_count': len(places),
         'first_at': _iso(chrono[0][3]),
         'last_at': _iso(chrono[-1][3]),
-        'shape': project_shape(_decimate(segments)),
+        'shape': project_shape(drawn),
+        'geo': _geo(drawn),
     })
     return base
 
@@ -387,12 +408,13 @@ def _activity_recent(ctx):
         # Stale stats are better than no card; the Activities page will retry.
         logger.exception('home: activity stats failed for %s', act.id)
     p = _activity_payload(act)
-    shape = None
+    shape = geo = None
     try:
         thumbs, _complete = _activity_thumbs(ctx.user.id, [act])
         lines = thumbs.get(act.id) or []
-        shape = project_shape(_decimate([decode_polyline(s) for s in lines if isinstance(s, str)]),
-                              min_span_m=100.0)
+        segs = _decimate([decode_polyline(s) for s in lines if isinstance(s, str)])
+        shape = project_shape(segs, min_span_m=100.0)
+        geo = _geo(segs)
     except Exception:
         logger.exception('home: activity thumb failed for %s', act.id)
     return {
@@ -406,6 +428,7 @@ def _activity_recent(ctx):
         'source': 'activity',
         'url': reverse('tracker:activity_detail', args=[act.id]),
         'shape': shape,
+        'geo': geo,
         '_sort': act.start_time,
     }
 
@@ -420,7 +443,7 @@ def _adventure_recent(ctx):
     if adv is None:
         return None
     end = min(adv.end_time, ctx.now)
-    key = (f'lx_home:adv:v1:{ctx.user.id}:{adv.id}:{int(adv.start_time.timestamp())}:'
+    key = (f'lx_home:adv:v2:{ctx.user.id}:{adv.id}:{int(adv.start_time.timestamp())}:'
            f'{int(end.timestamp()) // 600}:{_slow_gen(ctx.user.id)}')
     cached = cache.get(key)
     if cached is None:
@@ -440,7 +463,7 @@ def _adventure_recent(ctx):
                 if i % stride == 0 or gap:
                     cur.append((lat, lon))
         km = _compute_distance_from_qs(qs)['total_km'] if n else None
-        cached = {'km': km, 'shape': project_shape(segments, min_span_m=1000.0)}
+        cached = {'km': km, 'shape': project_shape(segments, min_span_m=1000.0), 'geo': _geo(segments)}
         cache.set(key, cached, ADV_CACHE_TTL_S)
     return {
         'kind': 'trip',
@@ -453,6 +476,7 @@ def _adventure_recent(ctx):
         'source': 'adventure',
         'url': reverse('tracker:adventure_edit', args=[adv.id]),
         'shape': cached.get('shape'),
+        'geo': cached.get('geo'),
         '_sort': adv.start_time,
     }
 
@@ -806,7 +830,7 @@ def home_api(request):
         body.update({'sync': {'error': True}, 'generated_at': timezone.now().isoformat()})
         return JsonResponse(body)
 
-    key = f'lx_home:v1:{ctx.user.id}:{ctx.today.isoformat()}:{ctx.tz_offset}'
+    key = f'lx_home:v2:{ctx.user.id}:{ctx.today.isoformat()}:{ctx.tz_offset}'
     if not only:
         hit = cache.get(key)
         if hit is not None:
