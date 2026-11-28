@@ -1,0 +1,154 @@
+{% extends "tracker/cells.html" %}
+{% comment %} Chronicle's Cell signal: classic markup and JS (parent template), restyled flat. The four
+   headline tiles become a row of figures on a hairline, the bar charts lose their boxes and use a
+   thin track, and "Weakest spots" is a hairline table with a sticky header. {% endcomment %}
+
+{% block extra_css %}
+{{ block.super }}
+/* ══ Chronicle flat page grammar: no card plates, hairlines, serif titles, mono figures.
+   Every rule hangs off main#main-content so it outranks the component skins (.card, .btn, th...). ══ */
+html[data-layout="chronicle"] main#main-content .container { max-width: 1040px; padding: 32px 24px 64px; }
+html[data-layout="chronicle"] main#main-content .page-header, html[data-layout="chronicle"] main#main-content .page-toolbar {
+    display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+    gap: 12px 24px; margin: 0 0 24px; padding: 0 0 16px; border-bottom: 1px solid var(--border);
+}
+html[data-layout="chronicle"] main#main-content .page-header h1, html[data-layout="chronicle"] main#main-content .page-toolbar h1 {
+    margin: 0; font-family: var(--font-display); font-size: 34px; line-height: 1.1; font-weight: 500;
+    letter-spacing: -0.015em; color: var(--text);
+}
+html[data-layout="chronicle"] main#main-content .toolbar-actions { gap: 8px; }
+
+/* Cards lose their plate. Content is separated by hairlines, not boxes. */
+html[data-layout="chronicle"] main#main-content .card, html[data-layout="chronicle"] main#main-content .card:hover {
+    background: transparent; border: 0; border-radius: 0; box-shadow: none; backdrop-filter: none;
+    color: var(--text); padding: 0; margin-bottom: 0; transform: none; filter: none;
+}
+html[data-layout="chronicle"] main#main-content .card::before, html[data-layout="chronicle"] main#main-content .card::after { display: none; }
+/* Skins that turn stat cards into stacked tiles (bento) must not reorder or size them. */
+html[data-layout="chronicle"] main#main-content .card.stat-card { display: block; min-height: 0; text-align: left; }
+html[data-layout="chronicle"] main#main-content .card.stat-card .stat-label { order: 0; margin: 8px 0 0; color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content .card .stat-label { color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content .card-header {
+    display: block; width: auto; border-radius: 0; box-shadow: none;
+    margin: 0 0 12px; padding: 0 0 8px; border: 0; border-bottom: 1px solid var(--border); background: none;
+    font-family: var(--font-display); font-size: 20px; line-height: 1.25; font-weight: 500;
+    letter-spacing: 0; text-transform: none; color: var(--text);
+}
+html[data-layout="chronicle"] main#main-content .card-header::before, html[data-layout="chronicle"] main#main-content .card-header::after { display: none; }
+html[data-layout="chronicle"] main#main-content .table-responsive { border: 0; border-radius: 0; background: none; box-shadow: none; }
+
+/* Quiet controls */
+html[data-layout="chronicle"] main#main-content .btn {
+    min-height: 34px; padding: 0 14px; justify-content: center;
+    border-radius: var(--r-2, 0px); box-shadow: none; text-shadow: none;
+    font-family: var(--font-body); font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none;
+}
+html[data-layout="chronicle"] main#main-content .btn-sm { min-height: 32px; padding: 0 12px; }
+html[data-layout="chronicle"] main#main-content .btn-outline { background: transparent; border: 1px solid var(--border-strong); color: var(--text); }
+html[data-layout="chronicle"] main#main-content .btn-outline:hover { background: var(--lx-ch-tint); border-color: var(--border-strong); color: var(--text); }
+html[data-layout="chronicle"] main#main-content .btn-primary { background: var(--primary); border: 1px solid var(--primary); color: var(--on-primary, #fff); }
+html[data-layout="chronicle"] main#main-content .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+html[data-layout="chronicle"] main#main-content .btn:focus-visible, html[data-layout="chronicle"] main#main-content .tab-btn:focus-visible, html[data-layout="chronicle"] main#main-content th.sortable:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+html[data-layout="chronicle"] main#main-content .toolbar-actions .form-control, html[data-layout="chronicle"] main#main-content .toolbar-actions select, html[data-layout="chronicle"] main#main-content .toolbar-actions input[type="date"],
+html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-select-trigger, html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-date-trigger {
+    box-sizing: border-box; height: 34px; min-height: 34px; padding: 0 10px; width: auto;
+    background: transparent; border: 1px solid var(--border); border-radius: var(--r-2, 0px); box-shadow: none;
+    color: var(--text); font-family: var(--font-body); font-size: 13px;
+}
+html[data-layout="chronicle"] main#main-content .toolbar-actions input[type="date"] { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color-scheme: dark; }
+html[data-layout="chronicle"][data-theme="light"] main#main-content .toolbar-actions input[type="date"] { color-scheme: light; }
+html[data-layout="chronicle"] main#main-content .toolbar-actions .form-control:hover, html[data-layout="chronicle"] main#main-content .toolbar-actions select:hover, html[data-layout="chronicle"] main#main-content .toolbar-actions input[type="date"]:hover,
+html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-select-trigger:hover, html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-date-trigger:hover { border-color: var(--border-strong); }
+
+/* Tabs: an underline on a hairline, not a pill group */
+html[data-layout="chronicle"] main#main-content .pill-tabs {
+    display: flex; width: 100%; gap: 24px; margin: 0 0 24px; padding: 0;
+    background: none; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; box-shadow: none;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+}
+html[data-layout="chronicle"] main#main-content .pill-tabs::-webkit-scrollbar { display: none; }
+html[data-layout="chronicle"] main#main-content .pill-tabs .tab-btn, html[data-layout="chronicle"] main#main-content .pill-tabs button.tab-btn {
+    position: relative; flex: none; min-height: 40px; margin: 0 0 -1px; padding: 0 0 2px;
+    background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+    font-family: var(--font-body); font-size: 14px; font-weight: 500; letter-spacing: 0; text-transform: none;
+    color: var(--text-muted); cursor: pointer; transition: color 120ms ease-out, border-color 120ms ease-out;
+}
+html[data-layout="chronicle"] main#main-content .pill-tabs .tab-btn:hover { background: none; color: var(--text); }
+html[data-layout="chronicle"] main#main-content .pill-tabs .tab-btn.active, html[data-layout="chronicle"][data-theme="light"] main#main-content .pill-tabs .tab-btn.active {
+    background: none; color: var(--text); border-bottom-color: var(--primary);
+}
+
+/* Tables: hairline rows, sticky header, tabular numerals */
+html[data-layout="chronicle"] main#main-content table { font-size: 14px; font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] main#main-content th, html[data-layout="chronicle"] main#main-content td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+html[data-layout="chronicle"] main#main-content th:first-child, html[data-layout="chronicle"] main#main-content td:first-child { padding-left: 0; }
+html[data-layout="chronicle"] main#main-content th:last-child, html[data-layout="chronicle"] main#main-content td:last-child { padding-right: 0; }
+html[data-layout="chronicle"] main#main-content th {
+    position: sticky; top: 0; z-index: 2; background: var(--bg);
+    border-bottom: 1px solid var(--border-strong);
+    font-family: var(--font-body); font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none;
+    color: var(--text-muted); white-space: nowrap;
+}
+html[data-layout="chronicle"] main#main-content th.sortable:hover, html[data-layout="chronicle"] main#main-content th.sortable.active-sort { color: var(--text); }
+html[data-layout="chronicle"] main#main-content th.sortable.active-sort .sort-arrow { color: var(--primary); }
+html[data-layout="chronicle"] main#main-content thead tr:hover { background: none; }
+html[data-layout="chronicle"] main#main-content tbody tr:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] main#main-content tbody tr:hover td { background: transparent; }
+html[data-layout="chronicle"] main#main-content tbody tr:last-child td { border-bottom: 0; }
+html[data-layout="chronicle"] main#main-content td code { font-family: var(--font-mono); font-size: 12px; background: none; padding: 0; color: var(--text-muted); }
+
+@media (max-width: 768px) {
+    html[data-layout="chronicle"] main#main-content .container { padding: 20px 16px 48px; }
+    html[data-layout="chronicle"] main#main-content .page-header h1, html[data-layout="chronicle"] main#main-content .page-toolbar h1 { font-size: 28px; }
+    html[data-layout="chronicle"] main#main-content .btn, html[data-layout="chronicle"] main#main-content .btn-sm { min-height: 44px; }
+    html[data-layout="chronicle"] main#main-content .toolbar-actions .form-control, html[data-layout="chronicle"] main#main-content .toolbar-actions select, html[data-layout="chronicle"] main#main-content .toolbar-actions input[type="date"],
+    html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-select-trigger, html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-date-trigger { height: 44px; min-height: 44px; }
+    html[data-layout="chronicle"] main#main-content .pill-tabs .tab-btn, html[data-layout="chronicle"] main#main-content .pill-tabs button.tab-btn { min-height: 44px; }
+}
+
+
+/* ── Cell signal ──────────────────────────────────────────────────── */
+html[data-layout="chronicle"] main#main-content .stats-filters { justify-content: flex-end; }
+/* Headline figures */
+html[data-layout="chronicle"] main#main-content #cs-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px 32px; margin: 0 0 40px; }
+html[data-layout="chronicle"] main#main-content #cs-tiles .stat-card { text-align: left; padding: 16px 0 0; border-top: 1px solid var(--border); }
+html[data-layout="chronicle"] main#main-content #cs-tiles .stat-value {
+    min-height: 1.05em; font-family: var(--font-display); font-weight: 400; color: var(--text);
+    font-size: clamp(30px, 4vw, 46px); line-height: 1; letter-spacing: -0.02em;
+    font-variant-numeric: lining-nums tabular-nums; filter: none;
+}
+html[data-layout="chronicle"] main#main-content #cs-tiles .stat-label { margin-top: 8px; font-family: var(--font-body); font-size: 13px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--text-muted); }
+/* Sections */
+html[data-layout="chronicle"] main#main-content .grid.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px 56px; }
+html[data-layout="chronicle"] main#main-content .grid.grid-2 > .card { min-width: 0; }
+html[data-layout="chronicle"] main#main-content .cs-bars { gap: 14px; }
+html[data-layout="chronicle"] main#main-content .cs-bar-row { gap: 6px 16px; }
+html[data-layout="chronicle"] main#main-content .cs-bar-name { font-size: 14px; font-weight: 500; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+html[data-layout="chronicle"] main#main-content .cs-bar-val { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] main#main-content .cs-bar-track { height: 3px; border: 0; background: var(--lx-ch-tint-strong); border-radius: var(--r-pill, 999px); overflow: hidden; }
+html[data-layout="chronicle"] main#main-content .cs-bar-fill { border-radius: var(--r-pill, 999px); }
+html[data-layout="chronicle"] main#main-content .cs-swatch { width: 8px; height: 8px; border: 0; border-radius: 50%; margin-right: 8px; }
+html[data-layout="chronicle"] main#main-content .cs-sub { margin-top: 2px; font-weight: 400; }
+html[data-layout="chronicle"] main#main-content .cs-note { font-size: 13px; line-height: 1.55; color: var(--text-muted); max-width: 62ch; margin-top: 16px; }
+html[data-layout="chronicle"] main#main-content .cs-empty { padding: 16px 0; text-align: left; font-size: 14px; }
+/* Weakest spots */
+html[data-layout="chronicle"] main#main-content .table-responsive { max-height: 440px; overflow: auto; overscroll-behavior: contain; }
+html[data-layout="chronicle"] main#main-content table { table-layout: auto; min-width: 100%; }
+html[data-layout="chronicle"] main#main-content td { white-space: nowrap; }
+html[data-layout="chronicle"] main#main-content #cs-weak td:is(:nth-child(2), :nth-child(3)) { font-family: var(--font-mono); font-size: 13px; text-align: right; }
+html[data-layout="chronicle"] main#main-content thead th:is(:nth-child(2), :nth-child(3)) { text-align: right; }
+html[data-layout="chronicle"] main#main-content #cs-weak td a { color: var(--link); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--link) 40%, transparent); text-underline-offset: 3px; }
+html[data-layout="chronicle"] main#main-content #cs-weak td a:hover { text-decoration-color: currentColor; }
+
+@media (max-width: 900px) {
+    html[data-layout="chronicle"] main#main-content #cs-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    html[data-layout="chronicle"] main#main-content .grid.grid-2 { grid-template-columns: minmax(0, 1fr); }
+    html[data-layout="chronicle"] main#main-content .grid.grid-2 > .card[style] { grid-column: auto !important; }
+}
+@media (max-width: 768px) {
+    html[data-layout="chronicle"] main#main-content .stats-filters { justify-content: flex-start; width: 100%; }
+    html[data-layout="chronicle"] main#main-content .stats-filters > * { flex: 1 1 140px; min-width: 0; }
+    html[data-layout="chronicle"] main#main-content #cs-weak td:nth-child(4), html[data-layout="chronicle"] main#main-content thead th:nth-child(4) { display: none; }
+    html[data-layout="chronicle"] main#main-content th, html[data-layout="chronicle"] main#main-content td { padding: 12px 8px; }
+}
+{% endblock %}
