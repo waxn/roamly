@@ -1820,7 +1820,7 @@ def _user_basemaps(request):
 @login_required
 def data_table(request):
     devices = Device.objects.filter(user=request.user)
-    return render(request, 'tracker/data_table.html', {'devices': devices})
+    return render(request, layout_templates(request, 'data'), {'devices': devices})
 
 
 # ---------------------------------------------------------------------------
@@ -11776,7 +11776,7 @@ def stats_recompute_status_api(request):
 
 @login_required
 def achievements_view(request):
-    return render(request, 'tracker/achievements.html')
+    return render(request, layout_templates(request, 'achievements'))
 
 
 @login_required
@@ -17537,7 +17537,7 @@ def activity_recompute_api(request, activity_id):
 def activities_view(request):
     # The basemap list lets the tiles' mini-maps use the same background the
     # user picked on /map/ (roamly_map_tile_style).
-    return render(request, 'tracker/activities.html', {'basemaps': _user_basemaps(request)})
+    return render(request, layout_templates(request, 'activities'), {'basemaps': _user_basemaps(request)})
 
 
 @login_required
@@ -17545,7 +17545,7 @@ def activity_detail_view(request, activity_id):
     act = _get_activity(request, activity_id)
     if not act:
         return redirect('tracker:activities')
-    return render(request, 'tracker/activity_detail.html', {'activity_id': act.id})
+    return render(request, layout_templates(request, 'activity_detail'), {'activity_id': act.id})
 
 
 # ---------------------------------------------------------------------------
@@ -18672,7 +18672,7 @@ def cell_insights_api(request):
 
 @login_required
 def cells_view(request):
-    return render(request, 'tracker/cells.html')
+    return render(request, layout_templates(request, 'cells'))
 
 
 # ---------------------------------------------------------------------------
@@ -18852,7 +18852,7 @@ def _flight_json(request):
 @login_required
 def flights_view(request):
     from . import flight_lookup
-    return render(request, 'tracker/flights.html', {
+    return render(request, layout_templates(request, 'flights'), {
         # Only whether lookup works — the key itself never reaches a template.
         'FLIGHT_LOOKUP_ENABLED': flight_lookup.configured(SiteConfig.load()),
         'OPENSKY_ENABLED': __import__('tracker.opensky', fromlist=['configured']).configured(SiteConfig.load()),

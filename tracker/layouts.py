@@ -29,6 +29,12 @@ PAGES = {
     'adventures': 'tracker/adventures.html',
     'health': 'tracker/health.html',
     'visits': 'tracker/visits.html',
+    'data': 'tracker/data_table.html',
+    'achievements': 'tracker/achievements.html',
+    'activities': 'tracker/activities.html',
+    'activity_detail': 'tracker/activity_detail.html',
+    'cells': 'tracker/cells.html',
+    'flights': 'tracker/flights.html',
     # Layout-only pages. Classic has no equivalent, so these have no fallback.
     'home': '',
     'timeline': '',
