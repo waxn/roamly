@@ -156,3 +156,56 @@ def test_polyline_round_trip_and_projection():
     dot = layout_home.project_shape([[(51.5, -0.1)]])
     assert dot['segments'] == [[[50.0, 50.0]]]
     assert layout_home.project_shape([]) is None
+
+
+# ── Chronicle's Overview: route geometry for the basemap tiles ──────────────
+
+def test_geo_helper_is_geojson_ordered_and_bounded():
+    geo = layout_home._geo([[(38.7, -9.14), (38.8, -9.3)], [(38.75, -9.2)]])
+    assert geo['segments'][0] == [[-9.14, 38.7], [-9.3, 38.8]]
+    assert geo['segments'][1] == [[-9.2, 38.75]]
+    assert geo['bounds'] == [-9.3, 38.7, -9.14, 38.8]
+    assert layout_home._geo([]) is None
+    assert layout_home._geo([[]]) is None
+
+
+def test_today_carries_geo_for_the_map_tile(client, alice, bob):
+    dev = Device.objects.create(user=alice, device_id='phone-a', name='Pixel')
+    _point(dev, 3)
+    _point(dev, 1, lat=51.5033, lon=-0.1196)
+    today = _get(client, alice)['today']
+    geo = today['geo']
+    assert geo and geo['segments'] and len(geo['bounds']) == 4
+    west, south, east, north = geo['bounds']
+    assert west <= -0.1196 <= east and south <= 51.5007 <= north
+    # An empty day has no geometry rather than a bogus box.
+    client.logout()
+    assert _get(client, bob)['today']['geo'] is None
+
+
+# ── /home/ is shared by Hearth and Chronicle ────────────────────────────────
+
+def test_home_page_renders_for_chronicle_and_hearth_only(client, alice):
+    client.force_login(alice)
+    for layout, marker in (('chronicle', 'lx-ch-hm-grid'), ('hearth', 'lx-he-cards')):
+        r = client.get('/home/', {'rly_layout': layout})
+        assert r.status_code == 200, layout
+        assert marker in r.content.decode(), layout
+    for layout in ('classic', 'atlas'):
+        r = client.get('/home/', {'rly_layout': layout})
+        assert r.status_code == 302 and r['Location'].endswith('/map/'), layout
+
+
+def test_chronicle_home_hands_the_basemap_list_to_the_tiles(client, alice):
+    client.force_login(alice)
+    html = client.get('/home/', {'rly_layout': 'chronicle'}).content.decode()
+    assert 'id="roamly-basemaps"' in html
+    # The page boots after the map library (extra_js), not in the content block.
+    import re
+    lib = re.search(r'maplibre-gl[^"\']*\.js', html)
+    assert lib and lib.start() < html.index("sec.id = 'lx-ch-hm-tile-'")
+
+
+def test_timeline_stays_chronicle_only(client, alice):
+    client.force_login(alice)
+    assert client.get('/timeline/', {'rly_layout': 'hearth'}).status_code == 302
