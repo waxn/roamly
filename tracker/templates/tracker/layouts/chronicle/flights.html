@@ -1,0 +1,456 @@
+{% extends "tracker/flights.html" %}
+{% comment %} Chronicle's Flights: the log as a timeline. The classic page (parent template) keeps
+   everything that is not the list: the year filter, Match tracks, Add flight, the Map and Stats
+   tabs, the add/edit dialog, track preview, boarding-pass photo, lookup and the bell's ?add=1
+   "detected flight" hand-off. This child only replaces how the list is drawn: it hides the parent's
+   table card, injects #lx-fl-tl into #pane-list, and redefines renderList() (the parent's
+   renderAll() calls it by global name, so year filtering, saving, deleting and Match tracks all
+   re-render the timeline). Rows are grouped by year then month along a date spine; a row expands
+   inline to times, facts, notes and the boarding pass, with Edit opening the parent's dialog. {% endcomment %}
+
+{% block extra_css %}
+{{ block.super }}
+/* ══ Chronicle flat page grammar: no card plates, hairlines, serif titles, mono figures.
+   Every rule hangs off main#main-content so it outranks the component skins (.card, .btn, th...). ══ */
+html[data-layout="chronicle"] main#main-content .container { max-width: 1040px; padding: 32px 24px 64px; }
+html[data-layout="chronicle"] main#main-content .page-header, html[data-layout="chronicle"] main#main-content .page-toolbar {
+    display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+    gap: 12px 24px; margin: 0 0 24px; padding: 0 0 16px; border-bottom: 1px solid var(--border);
+}
+html[data-layout="chronicle"] main#main-content .page-header h1, html[data-layout="chronicle"] main#main-content .page-toolbar h1 {
+    margin: 0; font-family: var(--font-display); font-size: 34px; line-height: 1.1; font-weight: 500;
+    letter-spacing: -0.015em; color: var(--text);
+}
+html[data-layout="chronicle"] main#main-content .toolbar-actions { gap: 8px; }
+
+/* Cards lose their plate. Content is separated by hairlines, not boxes. */
+html[data-layout="chronicle"] main#main-content .card, html[data-layout="chronicle"] main#main-content .card:hover {
+    background: transparent; border: 0; border-radius: 0; box-shadow: none; backdrop-filter: none;
+    color: var(--text); padding: 0; margin-bottom: 0; transform: none; filter: none;
+}
+html[data-layout="chronicle"] main#main-content .card::before, html[data-layout="chronicle"] main#main-content .card::after { display: none; }
+/* Skins that turn stat cards into stacked tiles (bento) must not reorder or size them. */
+html[data-layout="chronicle"] main#main-content .card.stat-card { display: block; min-height: 0; text-align: left; }
+html[data-layout="chronicle"] main#main-content .card.stat-card .stat-label { order: 0; margin: 8px 0 0; color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content .card .stat-label { color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content .card-header {
+    display: block; width: auto; border-radius: 0; box-shadow: none;
+    margin: 0 0 12px; padding: 0 0 8px; border: 0; border-bottom: 1px solid var(--border); background: none;
+    font-family: var(--font-display); font-size: 20px; line-height: 1.25; font-weight: 500;
+    letter-spacing: 0; text-transform: none; color: var(--text);
+}
+html[data-layout="chronicle"] main#main-content .card-header::before, html[data-layout="chronicle"] main#main-content .card-header::after { display: none; }
+html[data-layout="chronicle"] main#main-content .table-responsive { border: 0; border-radius: 0; background: none; box-shadow: none; }
+
+/* Quiet controls */
+html[data-layout="chronicle"] main#main-content .btn {
+    min-height: 34px; padding: 0 14px; justify-content: center;
+    border-radius: var(--r-2, 0px); box-shadow: none; text-shadow: none;
+    font-family: var(--font-body); font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none;
+}
+html[data-layout="chronicle"] main#main-content .btn-sm { min-height: 32px; padding: 0 12px; }
+html[data-layout="chronicle"] main#main-content .btn-outline { background: transparent; border: 1px solid var(--border-strong); color: var(--text); }
+html[data-layout="chronicle"] main#main-content .btn-outline:hover { background: var(--lx-ch-tint); border-color: var(--border-strong); color: var(--text); }
+html[data-layout="chronicle"] main#main-content .btn-primary { background: var(--primary); border: 1px solid var(--primary); color: var(--on-primary, #fff); }
+html[data-layout="chronicle"] main#main-content .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+html[data-layout="chronicle"] main#main-content .btn:focus-visible, html[data-layout="chronicle"] main#main-content .tab-btn:focus-visible, html[data-layout="chronicle"] main#main-content th.sortable:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+html[data-layout="chronicle"] main#main-content .toolbar-actions .form-control, html[data-layout="chronicle"] main#main-content .toolbar-actions select, html[data-layout="chronicle"] main#main-content .toolbar-actions input[type="date"],
+html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-select-trigger, html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-date-trigger {
+    box-sizing: border-box; height: 34px; min-height: 34px; padding: 0 10px; width: auto;
+    background: transparent; border: 1px solid var(--border); border-radius: var(--r-2, 0px); box-shadow: none;
+    color: var(--text); font-family: var(--font-body); font-size: 13px;
+}
+html[data-layout="chronicle"] main#main-content .toolbar-actions input[type="date"] { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color-scheme: dark; }
+html[data-layout="chronicle"][data-theme="light"] main#main-content .toolbar-actions input[type="date"] { color-scheme: light; }
+html[data-layout="chronicle"] main#main-content .toolbar-actions .form-control:hover, html[data-layout="chronicle"] main#main-content .toolbar-actions select:hover, html[data-layout="chronicle"] main#main-content .toolbar-actions input[type="date"]:hover,
+html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-select-trigger:hover, html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-date-trigger:hover { border-color: var(--border-strong); }
+
+/* Tabs: an underline on a hairline, not a pill group */
+html[data-layout="chronicle"] main#main-content .pill-tabs {
+    display: flex; width: 100%; gap: 24px; margin: 0 0 24px; padding: 0;
+    background: none; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; box-shadow: none;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+}
+html[data-layout="chronicle"] main#main-content .pill-tabs::-webkit-scrollbar { display: none; }
+html[data-layout="chronicle"] main#main-content .pill-tabs .tab-btn, html[data-layout="chronicle"] main#main-content .pill-tabs button.tab-btn {
+    position: relative; flex: none; min-height: 40px; margin: 0 0 -1px; padding: 0 0 2px;
+    background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+    font-family: var(--font-body); font-size: 14px; font-weight: 500; letter-spacing: 0; text-transform: none;
+    color: var(--text-muted); cursor: pointer; transition: color 120ms ease-out, border-color 120ms ease-out;
+}
+html[data-layout="chronicle"] main#main-content .pill-tabs .tab-btn:hover { background: none; color: var(--text); }
+html[data-layout="chronicle"] main#main-content .pill-tabs .tab-btn.active, html[data-layout="chronicle"][data-theme="light"] main#main-content .pill-tabs .tab-btn.active {
+    background: none; color: var(--text); border-bottom-color: var(--primary);
+}
+
+/* Tables: hairline rows, sticky header, tabular numerals */
+html[data-layout="chronicle"] main#main-content table { font-size: 14px; font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] main#main-content th, html[data-layout="chronicle"] main#main-content td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+html[data-layout="chronicle"] main#main-content th:first-child, html[data-layout="chronicle"] main#main-content td:first-child { padding-left: 0; }
+html[data-layout="chronicle"] main#main-content th:last-child, html[data-layout="chronicle"] main#main-content td:last-child { padding-right: 0; }
+html[data-layout="chronicle"] main#main-content th {
+    position: sticky; top: 0; z-index: 2; background: var(--bg);
+    border-bottom: 1px solid var(--border-strong);
+    font-family: var(--font-body); font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none;
+    color: var(--text-muted); white-space: nowrap;
+}
+html[data-layout="chronicle"] main#main-content th.sortable:hover, html[data-layout="chronicle"] main#main-content th.sortable.active-sort { color: var(--text); }
+html[data-layout="chronicle"] main#main-content th.sortable.active-sort .sort-arrow { color: var(--primary); }
+html[data-layout="chronicle"] main#main-content thead tr:hover { background: none; }
+html[data-layout="chronicle"] main#main-content tbody tr:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] main#main-content tbody tr:hover td { background: transparent; }
+html[data-layout="chronicle"] main#main-content tbody tr:last-child td { border-bottom: 0; }
+html[data-layout="chronicle"] main#main-content td code { font-family: var(--font-mono); font-size: 12px; background: none; padding: 0; color: var(--text-muted); }
+
+@media (max-width: 768px) {
+    html[data-layout="chronicle"] main#main-content .container { padding: 20px 16px 48px; }
+    html[data-layout="chronicle"] main#main-content .page-header h1, html[data-layout="chronicle"] main#main-content .page-toolbar h1 { font-size: 28px; }
+    html[data-layout="chronicle"] main#main-content .btn, html[data-layout="chronicle"] main#main-content .btn-sm { min-height: 44px; }
+    html[data-layout="chronicle"] main#main-content .toolbar-actions .form-control, html[data-layout="chronicle"] main#main-content .toolbar-actions select, html[data-layout="chronicle"] main#main-content .toolbar-actions input[type="date"],
+    html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-select-trigger, html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-date-trigger { height: 44px; min-height: 44px; }
+    html[data-layout="chronicle"] main#main-content .pill-tabs .tab-btn, html[data-layout="chronicle"] main#main-content .pill-tabs button.tab-btn { min-height: 44px; }
+}
+
+
+/* ── Flights: header ──────────────────────────────────────────────── */
+html[data-layout="chronicle"] main#main-content .page-toolbar { margin-bottom: 8px; padding-bottom: 0; border-bottom: 0; align-items: center; }
+html[data-layout="chronicle"] main#main-content .pill-tabs { margin-top: 16px; }
+html[data-layout="chronicle"] main#main-content .fl-toolbar .rly-select-trigger, html[data-layout="chronicle"] main#main-content .fl-toolbar select { height: 34px; font-size: 13px; padding: 0 10px; }
+html[data-layout="chronicle"] main#main-content .fl-toolbar .btn { height: 34px; font-size: 13px; padding: 0 14px; }
+html[data-layout="chronicle"] main#main-content #pane-list > .card { display: none; }   /* the classic table; the timeline replaces it */
+
+/* ── Timeline ─────────────────────────────────────────────────────── */
+html[data-layout="chronicle"] main#main-content .lx-fl-tl { display: block; min-height: 240px; }
+html[data-layout="chronicle"] main#main-content .lx-fl-year { margin-top: 56px; }
+html[data-layout="chronicle"] main#main-content .lx-fl-year:first-child { margin-top: 12px; }
+html[data-layout="chronicle"] main#main-content .lx-fl-yh {
+    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 24px;
+    padding-bottom: 12px; border-bottom: 1px solid var(--border-strong);
+}
+html[data-layout="chronicle"] main#main-content .lx-fl-yh h2 {
+    margin: 0; font-family: var(--font-display); font-size: 44px; line-height: 1; font-weight: 400;
+    letter-spacing: -0.02em; font-variant-numeric: lining-nums tabular-nums; color: var(--text);
+}
+html[data-layout="chronicle"] main#main-content .lx-fl-yfig {
+    display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0;
+    font-family: var(--font-mono); font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--text-muted);
+}
+html[data-layout="chronicle"] main#main-content .lx-fl-month { display: grid; grid-template-columns: 128px minmax(0, 1fr); column-gap: 8px; padding-top: 28px; }
+html[data-layout="chronicle"] main#main-content .lx-fl-mh {
+    position: sticky; top: calc(var(--nav-h) + 20px); align-self: start; margin: 0;
+    display: flex; align-items: baseline; gap: 8px;
+    font-family: var(--font-display); font-size: 20px; line-height: 1.2; font-weight: 500; color: var(--text);
+}
+html[data-layout="chronicle"] main#main-content .lx-fl-mh span { font-family: var(--font-mono); font-size: 12px; font-weight: 400; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] main#main-content .lx-fl-list { list-style: none; margin: 0; padding: 0 0 4px 28px; border-left: 1px solid var(--border-strong); }
+html[data-layout="chronicle"] main#main-content .lx-fl-item { position: relative; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] main#main-content .lx-fl-item:last-child { border-bottom: 0; }
+html[data-layout="chronicle"] main#main-content .lx-fl-item::before {
+    content: ''; position: absolute; left: -33px; top: 27px; width: 9px; height: 9px; box-sizing: border-box;
+    border-radius: var(--r-pill, 999px); background: var(--bg); border: 1.5px solid var(--text-dim);
+    transition: border-color 120ms ease-out, background-color 120ms ease-out;
+}
+html[data-layout="chronicle"] main#main-content .lx-fl-item:hover::before { border-color: var(--text); }
+html[data-layout="chronicle"] main#main-content .lx-fl-item.is-open::before { border-color: var(--primary); background: var(--primary); }
+html[data-layout="chronicle"] main#main-content .lx-fl-row {
+    display: grid; grid-template-columns: 52px minmax(0, 1fr) 20px; column-gap: 16px; align-items: start;
+    box-sizing: border-box; width: calc(100% + 24px); min-height: 44px; margin: 0 -12px; padding: 18px 12px;
+    background: none; border: 0; border-radius: var(--r-2, 0px);
+    font: inherit; color: inherit; text-align: left; cursor: pointer; transition: background-color 120ms ease-out;
+}
+html[data-layout="chronicle"] main#main-content .lx-fl-row:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] main#main-content .lx-fl-row:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
+html[data-layout="chronicle"] main#main-content .lx-fl-day { display: flex; flex-direction: column; gap: 3px; }
+html[data-layout="chronicle"] main#main-content .lx-fl-day b { font-family: var(--font-display); font-size: 28px; font-weight: 400; line-height: 1; font-variant-numeric: lining-nums tabular-nums; color: var(--text); }
+html[data-layout="chronicle"] main#main-content .lx-fl-day i { font-style: normal; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content .lx-fl-main { min-width: 0; }
+html[data-layout="chronicle"] main#main-content .lx-fl-route { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+html[data-layout="chronicle"] main#main-content .lx-fl-code { font-family: var(--font-display); font-size: 28px; line-height: 1.1; font-weight: 500; letter-spacing: -0.01em; color: var(--text); }
+html[data-layout="chronicle"] main#main-content .lx-fl-arrow { flex: none; width: 36px; height: 12px; color: var(--text-dim); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+html[data-layout="chronicle"] main#main-content .lx-fl-tag {
+    display: inline-block; padding: 1px 7px; border: 1px solid var(--clay-sky); border-radius: var(--r-1, 0px);
+    font-size: 12px; line-height: 1.5; color: var(--clay-sky);
+}
+html[data-layout="chronicle"] main#main-content .lx-fl-tag.is-osk { border-color: var(--clay-lavender); color: var(--clay-lavender); }
+html[data-layout="chronicle"] main#main-content .lx-fl-cities { display: block; margin-top: 2px; font-size: 14px; line-height: 1.4; color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content .lx-fl-meta { display: flex; flex-wrap: wrap; gap: 2px 18px; margin-top: 8px; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content .lx-fl-fn { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text); }
+html[data-layout="chronicle"] main#main-content .lx-fl-fig { font-family: var(--font-mono); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] main#main-content .lx-fl-chev { margin-top: 10px; width: 16px; height: 16px; color: var(--text-dim); fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms ease-out; }
+html[data-layout="chronicle"] main#main-content .lx-fl-row[aria-expanded="true"] .lx-fl-chev { transform: rotate(180deg); color: var(--text-muted); }
+
+/* Expanded flight */
+html[data-layout="chronicle"] main#main-content .lx-fl-detail {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 40px;
+    padding: 2px 0 28px 68px; animation: lx-fl-open 160ms ease-out;
+}
+html[data-layout="chronicle"] main#main-content .lx-fl-detail[hidden] { display: none; }
+@keyframes lx-fl-open { from { opacity: 0; } to { opacity: 1; } }
+html[data-layout="chronicle"] main#main-content .lx-fl-times { display: flex; flex-direction: column; gap: 4px; }
+html[data-layout="chronicle"] main#main-content .lx-fl-leg { display: grid; grid-template-columns: 56px auto minmax(0, 1fr); column-gap: 12px; align-items: baseline; padding: 6px 0; }
+html[data-layout="chronicle"] main#main-content .lx-fl-lbl { font-size: 13px; color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content .lx-fl-time { font-family: var(--font-mono); font-size: 22px; line-height: 1.2; font-variant-numeric: tabular-nums; color: var(--text); }
+html[data-layout="chronicle"] main#main-content .lx-fl-ap { min-width: 0; font-size: 13px; line-height: 1.4; color: var(--text-muted); overflow-wrap: anywhere; }
+html[data-layout="chronicle"] main#main-content .lx-fl-ap b { font-family: var(--font-mono); font-weight: 500; color: var(--text); margin-right: 6px; }
+html[data-layout="chronicle"] main#main-content .lx-fl-ap em { font-style: normal; font-family: var(--font-mono); font-size: 12px; margin-left: 6px; color: var(--text-dim); }
+html[data-layout="chronicle"] main#main-content .lx-fl-facts { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 8px 12px; margin: 0; font-size: 14px; align-content: start; }
+html[data-layout="chronicle"] main#main-content .lx-fl-facts dt { color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content .lx-fl-facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+html[data-layout="chronicle"] main#main-content .lx-fl-facts .is-mono { font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] main#main-content .lx-fl-wide { grid-column: 1 / -1; min-width: 0; }
+html[data-layout="chronicle"] main#main-content .lx-fl-notes { margin: 0; max-width: 64ch; font-size: 14px; line-height: 1.6; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+html[data-layout="chronicle"] main#main-content .lx-fl-pass { display: block; max-width: min(100%, 360px); max-height: 240px; border: 1px solid var(--border); border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] main#main-content .lx-fl-nopass { margin: 0; font-size: 13px; color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content .lx-fl-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Skeleton while the list loads */
+html[data-layout="chronicle"] main#main-content .lx-fl-sk { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 16px; padding: 22px 0; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] main#main-content .lx-fl-sk .skeleton { display: block; height: 14px; margin-bottom: 8px; }
+
+/* ── Map and stats panes ──────────────────────────────────────────── */
+html[data-layout="chronicle"] main#main-content #fl-map { height: 68vh; min-height: 420px; border: 1px solid var(--border); border-radius: var(--r-3, 0px); overflow: hidden; }
+html[data-layout="chronicle"] main#main-content .fl-map-note { max-width: 70ch; font-size: 13px; line-height: 1.55; }
+html[data-layout="chronicle"] main#main-content #pane-stats .grid { gap: 40px 56px; }
+html[data-layout="chronicle"] main#main-content #pane-stats .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px 32px; margin-bottom: 48px; }
+html[data-layout="chronicle"] main#main-content #pane-stats .stat-card { text-align: left; padding: 14px 0 0; border-top: 1px solid var(--border); }
+html[data-layout="chronicle"] main#main-content #pane-stats .stat-value {
+    font-family: var(--font-display); font-weight: 400; font-size: clamp(28px, 3.4vw, 40px); line-height: 1; color: var(--text);
+    letter-spacing: -0.02em; font-variant-numeric: lining-nums tabular-nums;
+}
+html[data-layout="chronicle"] main#main-content #pane-stats .stat-label { margin-top: 8px; font-family: var(--font-body); font-size: 13px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content #pane-stats .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+html[data-layout="chronicle"] main#main-content #pane-stats .grid-2 > .card { min-width: 0; }
+html[data-layout="chronicle"] main#main-content .fl-bars { gap: 14px; }
+html[data-layout="chronicle"] main#main-content .fl-bar-name { font-weight: 500; font-size: 14px; }
+html[data-layout="chronicle"] main#main-content .fl-bar-val { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] main#main-content .fl-bar-track { height: 3px; border: 0; background: var(--lx-ch-tint-strong); border-radius: var(--r-pill, 999px); overflow: hidden; }
+html[data-layout="chronicle"] main#main-content .fl-bar-fill { border-radius: var(--r-pill, 999px); }
+html[data-layout="chronicle"] main#main-content .fl-year-bar { border-radius: var(--r-1, 0px) var(--r-1, 0px) 0 0; }
+html[data-layout="chronicle"] main#main-content .fl-ac-tiles { gap: 24px; }
+html[data-layout="chronicle"] main#main-content .fl-ac-tiles div { border: 0; border-top: 1px solid var(--border); border-radius: 0; padding: 10px 0 0; }
+html[data-layout="chronicle"] main#main-content .fl-ac-tiles b { font-size: 22px; font-weight: 400; }
+html[data-layout="chronicle"] main#main-content .fl-ac-sub, html[data-layout="chronicle"] main#main-content .fl-section, html[data-layout="chronicle"] main#main-content .fl-adv summary {
+    font-family: var(--font-body); font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text-muted);
+}
+html[data-layout="chronicle"] main#main-content .fl-fact { padding: 10px 0; font-size: 14px; }
+
+/* The add/edit dialog keeps its surface; only its type and corners follow Chronicle. */
+html[data-layout="chronicle"] main#main-content .fl-modal { border-radius: var(--r-4, 0px); }
+html[data-layout="chronicle"] main#main-content .fl-modal-title { font-weight: 500; font-size: 1.5rem; letter-spacing: -0.01em; }
+html[data-layout="chronicle"] main#main-content .fl-close { border-radius: var(--r-pill, 999px); }
+
+@media (max-width: 900px) {
+    html[data-layout="chronicle"] main#main-content #pane-stats .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    html[data-layout="chronicle"] main#main-content #pane-stats .grid-2 { grid-template-columns: minmax(0, 1fr); }
+    html[data-layout="chronicle"] main#main-content #pane-stats .grid-2 > .card[style] { grid-column: auto !important; }
+}
+@media (max-width: 768px) {
+    html[data-layout="chronicle"] main#main-content .fl-toolbar { width: 100%; }
+    html[data-layout="chronicle"] main#main-content .fl-toolbar .btn, html[data-layout="chronicle"] main#main-content .fl-toolbar .rly-select-trigger, html[data-layout="chronicle"] main#main-content .fl-toolbar select { height: 44px; }
+    html[data-layout="chronicle"] main#main-content .lx-fl-year { margin-top: 40px; }
+    html[data-layout="chronicle"] main#main-content .lx-fl-yh h2 { font-size: 36px; }
+    html[data-layout="chronicle"] main#main-content .lx-fl-month { display: block; padding-top: 20px; }
+    html[data-layout="chronicle"] main#main-content .lx-fl-mh { position: static; margin: 0 0 8px; }
+    html[data-layout="chronicle"] main#main-content .lx-fl-list { padding-left: 20px; }
+    html[data-layout="chronicle"] main#main-content .lx-fl-item::before { left: -25px; top: 25px; }
+    html[data-layout="chronicle"] main#main-content .lx-fl-row { grid-template-columns: 40px minmax(0, 1fr) 16px; column-gap: 12px; padding: 16px 8px; margin: 0 -8px; width: calc(100% + 16px); }
+    html[data-layout="chronicle"] main#main-content .lx-fl-day b { font-size: 24px; }
+    html[data-layout="chronicle"] main#main-content .lx-fl-code { font-size: 24px; }
+    html[data-layout="chronicle"] main#main-content .lx-fl-arrow { width: 28px; }
+    html[data-layout="chronicle"] main#main-content .lx-fl-detail { grid-template-columns: minmax(0, 1fr); padding: 0 0 24px; gap: 20px; }
+    html[data-layout="chronicle"] main#main-content .lx-fl-leg { grid-template-columns: 56px auto minmax(0, 1fr); }
+    html[data-layout="chronicle"] main#main-content .lx-fl-facts { grid-template-columns: 104px minmax(0, 1fr); }
+    html[data-layout="chronicle"] main#main-content .lx-fl-acts .lx-ch-btn { min-height: 44px; }
+    html[data-layout="chronicle"] main#main-content #fl-map { height: 60vh; min-height: 320px; }
+    html[data-layout="chronicle"] main#main-content .fl-overlay { padding: 0; }
+    html[data-layout="chronicle"] main#main-content .fl-modal { border-radius: 0; min-height: 100dvh; }
+}
+@media (prefers-reduced-motion: reduce) {
+    html[data-layout="chronicle"] main#main-content .lx-fl-detail { animation: none; }
+    html[data-layout="chronicle"] main#main-content .lx-fl-row, html[data-layout="chronicle"] main#main-content .lx-fl-chev, html[data-layout="chronicle"] main#main-content .lx-fl-item::before { transition: none; }
+}
+html[data-motion="calm"] main#main-content .lx-fl-detail { animation: none; }
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<script>
+// Chronicle timeline for the flight log. Globals from the parent script are reused as-is:
+// flights, visible(), esc(), fmtDist(), fmtDur(), durationMin(), code(), apLabel(), openFlight(),
+// LOOKUP_ON. Only renderList() is replaced.
+(function () {
+    var pane = document.getElementById('pane-list');
+    if (!pane) return;
+    var root = document.createElement('div');
+    root.id = 'lx-fl-tl';
+    root.className = 'lx-fl-tl';
+    root.setAttribute('aria-busy', 'true');
+    var sk = '';
+    for (var i = 0; i < 5; i++) {
+        sk += '<div class="lx-fl-sk" aria-hidden="true"><span class="skeleton" style="width:36px;height:28px;"></span>'
+            + '<div><span class="skeleton" style="width:' + (38 + (i % 3) * 8) + '%;height:26px;"></span>'
+            + '<span class="skeleton" style="width:' + (52 + (i % 2) * 14) + '%;"></span></div></div>';
+    }
+    root.innerHTML = sk;
+    pane.insertBefore(root, pane.firstChild);
+
+    var tab = document.querySelector('.pill-tabs .tab-btn[data-tab="list"]');
+    if (tab) tab.textContent = 'Timeline';
+
+    var openIds = new Set();
+    var passV = Date.now();
+    var CLASS = { economy: 'Economy', premium: 'Premium economy', business: 'Business', first: 'First', private: 'Private' };
+    var REASON = { leisure: 'Leisure', business: 'Business', crew: 'Crew', other: 'Other' };
+    var SEAT = { window: 'Window', middle: 'Middle', aisle: 'Aisle' };
+
+    var ARROW = '<svg class="lx-fl-arrow" viewBox="0 0 36 12" aria-hidden="true"><path d="M1 6h33M29 1.5 34 6l-5 4.5"/></svg>';
+    var CHEV = '<svg class="lx-fl-chev" viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 6 4.5 4.5L12.5 6"/></svg>';
+
+    function parts(date) { var p = String(date).split('-'); return { y: +p[0], m: +p[1], d: +p[2] }; }
+    function dayOf(date) { return new Date(date + 'T00:00'); }
+    function shortDate(date) { return dayOf(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
+    function depLocal(f) { return f.actual_dep_local || f.sched_dep_local || ''; }
+    function sortKey(f) { return f.date + ' ' + (depLocal(f).slice(11, 16) || '00:00'); }
+    function timeOf(f, side) {
+        var l = f['actual_' + side + '_local'] || f['sched_' + side + '_local'] || '';
+        return l.length >= 16 ? { t: l.slice(11, 16), d: l.slice(0, 10) } : null;
+    }
+
+    function legHtml(f, side, label) {
+        var tm = timeOf(f, side);
+        var next = tm && tm.d && tm.d !== f.date ? '<em>' + esc(shortDate(tm.d)) + '</em>' : '';
+        var name = f[side + '_name'] || f[side + '_city'] || '';
+        return '<div class="lx-fl-leg"><span class="lx-fl-lbl">' + label + '</span>'
+            + '<span class="lx-fl-time">' + (tm ? esc(tm.t) : '–') + '</span>'
+            + '<span class="lx-fl-ap"><b>' + esc(code(f, side)) + '</b>' + esc(name) + next + '</span></div>';
+    }
+    function factRow(k, v, mono) { return v ? '<dt>' + esc(k) + '</dt><dd' + (mono ? ' class="is-mono"' : '') + '>' + esc(v) + '</dd>' : ''; }
+
+    function detailHtml(f) {
+        var dur = durationMin(f);
+        var track = f.track_source === 'recorded'
+            ? 'Recorded GPS track' + (f.track_distance_km != null ? ', ' + fmtDist(f.track_distance_km) + ' flown' : '')
+            : f.track_source === 'opensky' ? 'OpenSky Network track' : '';
+        var seat = [f.seat, SEAT[f.seat_type]].filter(Boolean).join(', ');
+        var h = '<div class="lx-fl-times">' + legHtml(f, 'dep', 'Departs') + legHtml(f, 'arr', 'Arrives') + '</div>'
+            + '<dl class="lx-fl-facts">'
+            + factRow('Aircraft', f.aircraft_model) + factRow('Registration', f.registration, true)
+            + factRow('Seat', seat, true) + factRow('Class', CLASS[f.seat_class]) + factRow('Reason', REASON[f.reason])
+            + factRow('Time aloft', dur ? fmtDur(dur) : '', true)
+            + factRow('Distance', f.distance_km != null ? fmtDist(f.distance_km) : '', true)
+            + factRow('Track', track)
+            + '</dl>';
+        if (f.notes) h += '<div class="lx-fl-wide"><p class="lx-fl-notes">' + esc(f.notes) + '</p></div>';
+        h += '<div class="lx-fl-wide">' + (f.has_boarding_pass_image
+            ? '<a href="/api/flights/' + (+f.id) + '/pass/" target="_blank" rel="noopener"><img class="lx-fl-pass" loading="lazy" src="/api/flights/' + (+f.id) + '/pass/?v=' + passV + '" alt="Boarding pass, ' + esc(f.flight_number || (code(f, 'dep') + ' to ' + code(f, 'arr'))) + '"></a>'
+            : '<p class="lx-fl-nopass">No boarding pass photo. Edit the flight to add one.</p>') + '</div>';
+        h += '<div class="lx-fl-wide lx-fl-acts"><button type="button" class="lx-ch-btn" data-edit="' + (+f.id) + '">Edit flight</button>'
+            + (f.fr24_url ? '<a class="lx-ch-btn" href="' + esc(f.fr24_url) + '" target="_blank" rel="noopener noreferrer">Flightradar24</a>' : '')
+            + '</div>';
+        return h;
+    }
+
+    function itemHtml(f) {
+        var p = parts(f.date), open = openIds.has(f.id);
+        var tag = f.track_source === 'recorded' ? '<span class="lx-fl-tag" title="A recorded GPS track is linked">GPS track</span>'
+            : f.track_source === 'opensky' ? '<span class="lx-fl-tag is-osk" title="Track from the OpenSky Network">OpenSky</span>' : '';
+        var meta = [];
+        if (f.flight_number) meta.push('<span class="lx-fl-fn">' + esc(f.flight_number) + '</span>');
+        if (f.airline_name) meta.push('<span>' + esc(f.airline_name) + '</span>');
+        if (f.aircraft_model) meta.push('<span>' + esc(f.aircraft_model) + '</span>');
+        var td = timeOf(f, 'dep'), ta = timeOf(f, 'arr');
+        if (td || ta) {
+            var plus = td && ta && ta.d > td.d ? Math.round((dayOf(ta.d) - dayOf(td.d)) / 86400000) : 0;
+            meta.push('<span class="lx-fl-fig">' + esc(td ? td.t : '–') + ' to ' + esc(ta ? ta.t : '–') + (plus > 0 ? ' +' + plus : '') + '</span>');
+        }
+        var dur = durationMin(f);
+        if (dur) meta.push('<span class="lx-fl-fig">' + esc(fmtDur(dur)) + '</span>');
+        if (f.distance_km != null) meta.push('<span class="lx-fl-fig">' + esc(fmtDist(f.distance_km)) + '</span>');
+        var label = (f.flight_number ? f.flight_number + ', ' : '') + code(f, 'dep') + ' to ' + code(f, 'arr') + ', ' + shortDate(f.date);
+        return '<li class="lx-fl-item' + (open ? ' is-open' : '') + '" data-id="' + (+f.id) + '">'
+            + '<button type="button" class="lx-fl-row" aria-expanded="' + open + '" aria-controls="lx-fl-d-' + (+f.id) + '" aria-label="' + esc(label) + '">'
+            + '<span class="lx-fl-day"><b>' + p.d + '</b><i>' + esc(dayOf(f.date).toLocaleDateString(undefined, { weekday: 'short' })) + '</i></span>'
+            + '<span class="lx-fl-main"><span class="lx-fl-route"><span class="lx-fl-code">' + esc(code(f, 'dep')) + '</span>' + ARROW
+            + '<span class="lx-fl-code">' + esc(code(f, 'arr')) + '</span>' + tag + '</span>'
+            + '<span class="lx-fl-cities">' + esc(apLabel(f, 'dep')) + ' to ' + esc(apLabel(f, 'arr')) + '</span>'
+            + (meta.length ? '<span class="lx-fl-meta">' + meta.join('') + '</span>' : '') + '</span>'
+            + CHEV + '</button>'
+            + '<div class="lx-fl-detail" id="lx-fl-d-' + (+f.id) + '"' + (open ? '' : ' hidden') + '>' + (open ? detailHtml(f) : '') + '</div></li>';
+    }
+
+    function emptyHtml() {
+        var yr = document.getElementById('fl-year');
+        var filtered = yr && yr.value;
+        return '<div class="lx-ch-empty"><div class="lx-ch-empty-title">' + (filtered ? 'No flights in ' + esc(yr.value) : 'No flights yet') + '</div>'
+            + '<p>' + (filtered ? 'Pick another year, or add a flight for this one.'
+                : 'Add one with its flight number and date' + (typeof LOOKUP_ON !== 'undefined' && LOOKUP_ON ? ', and Roamly fills in the rest' : '') + '.') + '</p>'
+            + '<button type="button" class="lx-ch-btn lx-ch-btn--primary" data-add="1">Add flight</button></div>';
+    }
+
+    window.renderList = function () {
+        var rows = visible();
+        passV = Date.now();
+        root.removeAttribute('aria-busy');
+        if (!rows.length) { root.innerHTML = emptyHtml(); return; }
+        var sorted = rows.slice().sort(function (a, b) {
+            var ka = sortKey(a), kb = sortKey(b);
+            return ka < kb ? 1 : ka > kb ? -1 : b.id - a.id;
+        });
+        var years = [];
+        sorted.forEach(function (f) {
+            var p = parts(f.date), y = years[years.length - 1];
+            if (!y || y.y !== p.y) { y = { y: p.y, months: [], n: 0, km: 0, min: 0 }; years.push(y); }
+            var mo = y.months[y.months.length - 1];
+            if (!mo || mo.m !== p.m) { mo = { m: p.m, items: [] }; y.months.push(mo); }
+            mo.items.push(f);
+            y.n++; y.km += f.distance_km || 0; y.min += durationMin(f) || 0;
+        });
+        root.innerHTML = years.map(function (y) {
+            var fig = '<span>' + y.n + ' flight' + (y.n === 1 ? '' : 's') + '</span>'
+                + (y.km ? '<span>' + esc(fmtDist(y.km)) + '</span>' : '')
+                + (y.min ? '<span>' + esc(fmtDur(y.min)) + ' aloft</span>' : '');
+            return '<section class="lx-fl-year" aria-labelledby="lx-fl-y-' + y.y + '"><header class="lx-fl-yh"><h2 id="lx-fl-y-' + y.y + '">' + y.y + '</h2>'
+                + '<p class="lx-fl-yfig">' + fig + '</p></header>'
+                + y.months.map(function (mo) {
+                    return '<div class="lx-fl-month"><h3 class="lx-fl-mh">' + esc(new Date(y.y, mo.m - 1, 1).toLocaleDateString(undefined, { month: 'long' }))
+                        + '<span>' + mo.items.length + '</span></h3><ol class="lx-fl-list">' + mo.items.map(itemHtml).join('') + '</ol></div>';
+                }).join('') + '</section>';
+        }).join('');
+    };
+
+    function toggle(item) {
+        var id = +item.dataset.id;
+        var row = item.querySelector('.lx-fl-row'), det = item.querySelector('.lx-fl-detail');
+        if (!row || !det) return;
+        var opening = det.hidden;
+        if (opening) {
+            var f = flights.find(function (x) { return x.id === id; });
+            if (!f) return;
+            det.innerHTML = detailHtml(f);
+            openIds.add(id);
+        } else {
+            openIds.delete(id);
+        }
+        det.hidden = !opening;
+        row.setAttribute('aria-expanded', String(opening));
+        item.classList.toggle('is-open', opening);
+    }
+    root.addEventListener('click', function (e) {
+        var ed = e.target.closest('[data-edit]');
+        if (ed) {
+            var f = flights.find(function (x) { return x.id === +ed.dataset.edit; });
+            if (f) openFlight(f);
+            return;
+        }
+        if (e.target.closest('[data-add]')) { openFlight(null); return; }
+        var row = e.target.closest('.lx-fl-row');
+        if (row) toggle(row.closest('.lx-fl-item'));
+    });
+
+    // The parent's first load may have finished before this script ran (it drew into the hidden
+    // classic table, clearing its aria-busy); draw the timeline now in that case.
+    var fb = document.getElementById('fl-body');
+    if (fb && !fb.hasAttribute('aria-busy')) window.renderList();
+})();
+</script>
+{% endblock %}
