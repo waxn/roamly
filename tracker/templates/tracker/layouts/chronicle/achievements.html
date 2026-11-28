@@ -1,0 +1,220 @@
+{% extends "tracker/achievements.html" %}
+{% comment %} Chronicle's Achievements: the classic page's markup and JS (parent template) with the card
+   plates removed. Each section is a serif heading on a hairline, panels inside it are separated by
+   a top rule, tables are hairline rows with a sticky header, and only genuine tiles (badges, small
+   stat tiles) keep a flat outlined surface. Tier colours stay as the functional encoding. {% endcomment %}
+
+{% block extra_css %}
+{{ block.super }}
+/* ══ Chronicle flat page grammar: no card plates, hairlines, serif titles, mono figures.
+   Every rule hangs off main#main-content so it outranks the component skins (.card, .btn, th...). ══ */
+html[data-layout="chronicle"] main#main-content .container { max-width: 1040px; padding: 32px 24px 64px; }
+html[data-layout="chronicle"] main#main-content .page-header, html[data-layout="chronicle"] main#main-content .page-toolbar {
+    display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+    gap: 12px 24px; margin: 0 0 24px; padding: 0 0 16px; border-bottom: 1px solid var(--border);
+}
+html[data-layout="chronicle"] main#main-content .page-header h1, html[data-layout="chronicle"] main#main-content .page-toolbar h1 {
+    margin: 0; font-family: var(--font-display); font-size: 34px; line-height: 1.1; font-weight: 500;
+    letter-spacing: -0.015em; color: var(--text);
+}
+html[data-layout="chronicle"] main#main-content .toolbar-actions { gap: 8px; }
+
+/* Cards lose their plate. Content is separated by hairlines, not boxes. */
+html[data-layout="chronicle"] main#main-content .card, html[data-layout="chronicle"] main#main-content .card:hover {
+    background: transparent; border: 0; border-radius: 0; box-shadow: none; backdrop-filter: none;
+    color: var(--text); padding: 0; margin-bottom: 0; transform: none; filter: none;
+}
+html[data-layout="chronicle"] main#main-content .card::before, html[data-layout="chronicle"] main#main-content .card::after { display: none; }
+/* Skins that turn stat cards into stacked tiles (bento) must not reorder or size them. */
+html[data-layout="chronicle"] main#main-content .card.stat-card { display: block; min-height: 0; text-align: left; }
+html[data-layout="chronicle"] main#main-content .card.stat-card .stat-label { order: 0; margin: 8px 0 0; color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content .card .stat-label { color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content .card-header {
+    display: block; width: auto; border-radius: 0; box-shadow: none;
+    margin: 0 0 12px; padding: 0 0 8px; border: 0; border-bottom: 1px solid var(--border); background: none;
+    font-family: var(--font-display); font-size: 20px; line-height: 1.25; font-weight: 500;
+    letter-spacing: 0; text-transform: none; color: var(--text);
+}
+html[data-layout="chronicle"] main#main-content .card-header::before, html[data-layout="chronicle"] main#main-content .card-header::after { display: none; }
+html[data-layout="chronicle"] main#main-content .table-responsive { border: 0; border-radius: 0; background: none; box-shadow: none; }
+
+/* Quiet controls */
+html[data-layout="chronicle"] main#main-content .btn {
+    min-height: 34px; padding: 0 14px; justify-content: center;
+    border-radius: var(--r-2, 0px); box-shadow: none; text-shadow: none;
+    font-family: var(--font-body); font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none;
+}
+html[data-layout="chronicle"] main#main-content .btn-sm { min-height: 32px; padding: 0 12px; }
+html[data-layout="chronicle"] main#main-content .btn-outline { background: transparent; border: 1px solid var(--border-strong); color: var(--text); }
+html[data-layout="chronicle"] main#main-content .btn-outline:hover { background: var(--lx-ch-tint); border-color: var(--border-strong); color: var(--text); }
+html[data-layout="chronicle"] main#main-content .btn-primary { background: var(--primary); border: 1px solid var(--primary); color: var(--on-primary, #fff); }
+html[data-layout="chronicle"] main#main-content .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+html[data-layout="chronicle"] main#main-content .btn:focus-visible, html[data-layout="chronicle"] main#main-content .tab-btn:focus-visible, html[data-layout="chronicle"] main#main-content th.sortable:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+html[data-layout="chronicle"] main#main-content .toolbar-actions .form-control, html[data-layout="chronicle"] main#main-content .toolbar-actions select, html[data-layout="chronicle"] main#main-content .toolbar-actions input[type="date"],
+html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-select-trigger, html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-date-trigger {
+    box-sizing: border-box; height: 34px; min-height: 34px; padding: 0 10px; width: auto;
+    background: transparent; border: 1px solid var(--border); border-radius: var(--r-2, 0px); box-shadow: none;
+    color: var(--text); font-family: var(--font-body); font-size: 13px;
+}
+html[data-layout="chronicle"] main#main-content .toolbar-actions input[type="date"] { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color-scheme: dark; }
+html[data-layout="chronicle"][data-theme="light"] main#main-content .toolbar-actions input[type="date"] { color-scheme: light; }
+html[data-layout="chronicle"] main#main-content .toolbar-actions .form-control:hover, html[data-layout="chronicle"] main#main-content .toolbar-actions select:hover, html[data-layout="chronicle"] main#main-content .toolbar-actions input[type="date"]:hover,
+html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-select-trigger:hover, html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-date-trigger:hover { border-color: var(--border-strong); }
+
+/* Tabs: an underline on a hairline, not a pill group */
+html[data-layout="chronicle"] main#main-content .pill-tabs {
+    display: flex; width: 100%; gap: 24px; margin: 0 0 24px; padding: 0;
+    background: none; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; box-shadow: none;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+}
+html[data-layout="chronicle"] main#main-content .pill-tabs::-webkit-scrollbar { display: none; }
+html[data-layout="chronicle"] main#main-content .pill-tabs .tab-btn, html[data-layout="chronicle"] main#main-content .pill-tabs button.tab-btn {
+    position: relative; flex: none; min-height: 40px; margin: 0 0 -1px; padding: 0 0 2px;
+    background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+    font-family: var(--font-body); font-size: 14px; font-weight: 500; letter-spacing: 0; text-transform: none;
+    color: var(--text-muted); cursor: pointer; transition: color 120ms ease-out, border-color 120ms ease-out;
+}
+html[data-layout="chronicle"] main#main-content .pill-tabs .tab-btn:hover { background: none; color: var(--text); }
+html[data-layout="chronicle"] main#main-content .pill-tabs .tab-btn.active, html[data-layout="chronicle"][data-theme="light"] main#main-content .pill-tabs .tab-btn.active {
+    background: none; color: var(--text); border-bottom-color: var(--primary);
+}
+
+/* Tables: hairline rows, sticky header, tabular numerals */
+html[data-layout="chronicle"] main#main-content table { font-size: 14px; font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] main#main-content th, html[data-layout="chronicle"] main#main-content td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+html[data-layout="chronicle"] main#main-content th:first-child, html[data-layout="chronicle"] main#main-content td:first-child { padding-left: 0; }
+html[data-layout="chronicle"] main#main-content th:last-child, html[data-layout="chronicle"] main#main-content td:last-child { padding-right: 0; }
+html[data-layout="chronicle"] main#main-content th {
+    position: sticky; top: 0; z-index: 2; background: var(--bg);
+    border-bottom: 1px solid var(--border-strong);
+    font-family: var(--font-body); font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none;
+    color: var(--text-muted); white-space: nowrap;
+}
+html[data-layout="chronicle"] main#main-content th.sortable:hover, html[data-layout="chronicle"] main#main-content th.sortable.active-sort { color: var(--text); }
+html[data-layout="chronicle"] main#main-content th.sortable.active-sort .sort-arrow { color: var(--primary); }
+html[data-layout="chronicle"] main#main-content thead tr:hover { background: none; }
+html[data-layout="chronicle"] main#main-content tbody tr:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] main#main-content tbody tr:hover td { background: transparent; }
+html[data-layout="chronicle"] main#main-content tbody tr:last-child td { border-bottom: 0; }
+html[data-layout="chronicle"] main#main-content td code { font-family: var(--font-mono); font-size: 12px; background: none; padding: 0; color: var(--text-muted); }
+
+@media (max-width: 768px) {
+    html[data-layout="chronicle"] main#main-content .container { padding: 20px 16px 48px; }
+    html[data-layout="chronicle"] main#main-content .page-header h1, html[data-layout="chronicle"] main#main-content .page-toolbar h1 { font-size: 28px; }
+    html[data-layout="chronicle"] main#main-content .btn, html[data-layout="chronicle"] main#main-content .btn-sm { min-height: 44px; }
+    html[data-layout="chronicle"] main#main-content .toolbar-actions .form-control, html[data-layout="chronicle"] main#main-content .toolbar-actions select, html[data-layout="chronicle"] main#main-content .toolbar-actions input[type="date"],
+    html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-select-trigger, html[data-layout="chronicle"] main#main-content .toolbar-actions .rly-date-trigger { height: 44px; min-height: 44px; }
+    html[data-layout="chronicle"] main#main-content .pill-tabs .tab-btn, html[data-layout="chronicle"] main#main-content .pill-tabs button.tab-btn { min-height: 44px; }
+}
+
+
+/* ── Achievements ─────────────────────────────────────────────────── */
+html[data-layout="chronicle"] main#main-content .ach.container { max-width: 1120px; }
+html[data-layout="chronicle"] main#main-content .ach-actions { gap: 12px; }
+html[data-layout="chronicle"] main#main-content .ach-actions .muted { font-family: var(--font-mono); font-size: 12px; font-weight: 400; }
+html[data-layout="chronicle"] main#main-content #ach-pending { padding: 16px 0 16px 16px; margin: 0 0 24px; border-left: 2px solid var(--primary); }
+html[data-layout="chronicle"] main#main-content #ach-pending .card-header { border: 0; padding: 0; margin: 0 0 4px; font-size: 18px; }
+html[data-layout="chronicle"] main#main-content .note { font-size: 14px; line-height: 1.55; }
+html[data-layout="chronicle"] main#main-content .ach-job .track { background: var(--lx-ch-tint-strong); border-radius: var(--r-pill, 999px); }
+
+/* Panels: a rule on top instead of a box */
+html[data-layout="chronicle"] main#main-content .ach .card { padding: 16px 0 0; border-top: 1px solid var(--border); min-width: 0; }
+html[data-layout="chronicle"] main#main-content .ach .card.hero { border-top: 0; padding: 0 0 32px; }
+html[data-layout="chronicle"] main#main-content .ach .grid { gap: 32px 48px; }
+html[data-layout="chronicle"] main#main-content .ach .card h3 {
+    margin: 0 0 12px; font-family: var(--font-body); font-size: 14px; font-weight: 500;
+    letter-spacing: 0; text-transform: none; color: var(--text-muted);
+}
+html[data-layout="chronicle"] main#main-content .ach .card h3 svg { color: var(--text-dim); }
+
+/* Hero: the level as a plain masthead */
+html[data-layout="chronicle"] main#main-content .hero { gap: 32px; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] main#main-content .hero-title { font-weight: 500; font-size: 32px; letter-spacing: -0.015em; }
+html[data-layout="chronicle"] main#main-content .lvl-ring .n { font-weight: 400; font-variant-numeric: lining-nums tabular-nums; }
+html[data-layout="chronicle"] main#main-content .lvl-ring .t { font-size: 11px; letter-spacing: 0.06em; }
+html[data-layout="chronicle"] main#main-content .hero-stats { gap: 16px 40px; }
+html[data-layout="chronicle"] main#main-content .hero-stats div { font-size: 13px; }
+html[data-layout="chronicle"] main#main-content .hero-stats b { font-weight: 400; font-size: 26px; font-variant-numeric: lining-nums tabular-nums; }
+html[data-layout="chronicle"] main#main-content .pbar { height: 4px; background: var(--lx-ch-tint-strong); border-radius: var(--r-pill, 999px); }
+html[data-layout="chronicle"] main#main-content .pbar > span { border-radius: var(--r-pill, 999px); }
+html[data-layout="chronicle"] main#main-content .strip { gap: 8px; }
+html[data-layout="chronicle"] main#main-content .chip { background: transparent; border-radius: var(--r-pill, 999px); padding: 3px 10px; font-size: 13px; }
+
+/* Category filter: the same chips as the rest of Chronicle */
+html[data-layout="chronicle"] main#main-content .ach-filters { gap: 8px; margin: 28px 0 0; }
+html[data-layout="chronicle"] main#main-content .ach-filter {
+    min-height: 32px; padding: 0 12px; background: transparent; border: 1px solid var(--border);
+    border-radius: var(--r-pill, 999px); font-size: 13px; font-weight: 500; color: var(--text);
+}
+html[data-layout="chronicle"] main#main-content .ach-filter:hover { background: var(--lx-ch-tint); border-color: var(--border-strong); }
+html[data-layout="chronicle"] main#main-content .ach-filter.on { background: var(--primary-soft); border-color: var(--primary); color: var(--text); }
+html[data-layout="chronicle"] main#main-content .ach-filter.fold { color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content .ach-filter:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+
+/* Section heads */
+html[data-layout="chronicle"] main#main-content .sec { margin-top: 48px; }
+html[data-layout="chronicle"] main#main-content .sec-h { gap: 12px; padding-bottom: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border-strong); }
+html[data-layout="chronicle"] main#main-content .sec-h h2 { font-size: 26px; font-weight: 500; letter-spacing: -0.012em; line-height: 1.15; }
+html[data-layout="chronicle"] main#main-content .sec-h:hover h2 { color: var(--text); }
+html[data-layout="chronicle"] main#main-content .sec-h .em { color: var(--text-muted); }
+html[data-layout="chronicle"] main#main-content .sec-h .chev { margin-left: auto; }
+html[data-layout="chronicle"] main#main-content .sec-h .sub + .chev { margin-left: 0; }
+html[data-layout="chronicle"] main#main-content .sec-h .sub { font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] main#main-content .sec-h:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 3px; border-radius: var(--r-1, 0px); }
+html[data-layout="chronicle"] main#main-content .bdg-group-h { font-family: var(--font-display); font-size: 18px; font-weight: 500; color: var(--text); margin: 28px 0 12px; }
+
+/* Figures */
+html[data-layout="chronicle"] main#main-content .big { font-weight: 400; font-variant-numeric: lining-nums tabular-nums; letter-spacing: -0.02em; }
+html[data-layout="chronicle"] main#main-content .kv { gap: 6px 16px; font-size: 14px; }
+html[data-layout="chronicle"] main#main-content .kv dd { font-size: 13px; font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] main#main-content .record .v, html[data-layout="chronicle"] main#main-content .tile .v, html[data-layout="chronicle"] main#main-content .vs b, html[data-layout="chronicle"] main#main-content .compass .c b { font-weight: 400; font-variant-numeric: lining-nums tabular-nums; }
+
+/* Small tiles: outlined, not filled */
+html[data-layout="chronicle"] main#main-content .tile, html[data-layout="chronicle"] main#main-content .compass .c, html[data-layout="chronicle"] main#main-content .alpha .L, html[data-layout="chronicle"] main#main-content .hemi div { background: transparent; border-color: var(--border); }
+html[data-layout="chronicle"] main#main-content .tile:hover, html[data-layout="chronicle"] main#main-content .compass .c:hover, html[data-layout="chronicle"] main#main-content .alpha .L:hover { border-color: var(--border-strong); }
+html[data-layout="chronicle"] main#main-content .compass .mid { border: 0; }
+html[data-layout="chronicle"] main#main-content .hemi div.on { background: var(--primary-soft); border-color: var(--primary); }
+html[data-layout="chronicle"] main#main-content .tag-list span { background: transparent; }
+html[data-layout="chronicle"] main#main-content .stamp { border-radius: var(--r-1, 0px); }
+
+/* Badge wall: these are objects, so they keep one flat surface and a hairline */
+html[data-layout="chronicle"] main#main-content .bdg { background: var(--bg-card); box-shadow: none; }
+html[data-layout="chronicle"] main#main-content .bdg[data-tier="3"] .medal, html[data-layout="chronicle"] main#main-content .bdg[data-tier="4"] .medal { box-shadow: none; }
+html[data-layout="chronicle"] main#main-content .bdg .tiername { font-size: 11px; letter-spacing: 0.02em; text-transform: none; }
+html[data-layout="chronicle"] main#main-content .bdg[data-tier="0"] { opacity: 0.7; }
+
+/* Tables */
+html[data-layout="chronicle"] main#main-content .tbl { font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] main#main-content .tbl th {
+    position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 8px 8px;
+    border-bottom: 1px solid var(--border-strong); font-size: 12px; font-weight: 500; text-transform: none; letter-spacing: 0;
+}
+html[data-layout="chronicle"] main#main-content .tbl th:first-child, html[data-layout="chronicle"] main#main-content .tbl td:first-child { padding-left: 0; }
+html[data-layout="chronicle"] main#main-content .tbl th:last-child, html[data-layout="chronicle"] main#main-content .tbl td:last-child { padding-right: 0; }
+html[data-layout="chronicle"] main#main-content .tbl td { padding: 9px 8px; }
+html[data-layout="chronicle"] main#main-content .tbl th:not(:first-child) { text-align: right; }   /* the classic th is always left; its figure cells are right */
+html[data-layout="chronicle"] main#main-content .tbl tbody tr:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] main#main-content .tbl-wrap { max-height: 460px; overscroll-behavior: contain; border: 0; border-radius: 0; }
+html[data-layout="chronicle"] main#main-content .rank li { padding: 9px 0; font-size: 14px; }
+html[data-layout="chronicle"] main#main-content .rank .n { font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* Milestones: a one-pixel spine */
+html[data-layout="chronicle"] main#main-content .timeline { border-left: 1px solid var(--border-strong); margin-left: 5px; }
+html[data-layout="chronicle"] main#main-content .timeline li { padding: 0 0 18px 20px; font-size: 14px; }
+html[data-layout="chronicle"] main#main-content .timeline li::before { left: -5px; top: 0.4em; width: 9px; height: 9px; border-width: 1.5px; background: var(--bg); }
+html[data-layout="chronicle"] main#main-content .timeline .when { font-size: 12px; margin-bottom: 2px; }
+
+/* Maps and charts keep a hairline frame */
+html[data-layout="chronicle"] main#main-content .mapbox { background: var(--bg-elevated); border-radius: var(--r-3, 0px); overflow: hidden; }
+html[data-layout="chronicle"] main#main-content .map-tip { background: var(--bg-elevated); }
+
+@media (max-width: 768px) {
+    html[data-layout="chronicle"] main#main-content .ach .grid { gap: 24px; }
+    html[data-layout="chronicle"] main#main-content .sec { margin-top: 36px; }
+    html[data-layout="chronicle"] main#main-content .sec-h h2 { font-size: 22px; }
+    html[data-layout="chronicle"] main#main-content .sec-h { min-height: 44px; align-items: center; }
+    html[data-layout="chronicle"] main#main-content .ach-filter { min-height: 40px; }
+    html[data-layout="chronicle"] main#main-content .hero-title { font-size: 26px; }
+    html[data-layout="chronicle"] main#main-content .tbl-wrap { max-height: 380px; }
+}
+{% endblock %}
