@@ -29,15 +29,21 @@ html[data-layout="chronicle"] .lx-ch-st-snap { display: inline-flex; align-items
 html[data-layout="chronicle"] .lx-ch-st-snap .lx-ch-kicker { white-space: nowrap; }
 
 /* ── Headline figures ─────────────────────────────────────────────── */
+html[data-layout="chronicle"] .lx-ch-st-figwrap { container-type: inline-size; container-name: lx-ch-st-figs; }
 html[data-layout="chronicle"] .lx-ch-st-figs {
     display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px 32px;
     margin-top: 28px; padding-top: 28px; border-top: 1px solid var(--border);
+}
+/* Sized from the column the page actually has: the sidebar eats viewport width, so vw would overshoot. */
+@container lx-ch-st-figs (max-width: 760px) {
+    html[data-layout="chronicle"] .lx-ch-st-figs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    html[data-layout="chronicle"] .lx-ch-st-fig-val { font-size: clamp(32px, 8cqw, 56px); }
 }
 html[data-layout="chronicle"] .lx-ch-st-fig { min-width: 0; }
 html[data-layout="chronicle"] .lx-ch-st-fig-val {
     display: block; min-height: 1.05em;
     font-family: var(--font-display); font-weight: 400; line-height: 1;
-    font-size: clamp(40px, 5.4vw, 62px); letter-spacing: -0.025em;
+    font-size: clamp(32px, 5cqw, 60px); letter-spacing: -0.025em;
     font-variant-numeric: lining-nums tabular-nums; color: var(--text);
     overflow-wrap: anywhere;
 }
@@ -162,9 +168,6 @@ html[data-layout="chronicle"] .lx-ch-st-mv-meta { flex: none; font-family: var(-
 html[data-layout="chronicle"] .lx-ch-st-mv-bar { height: 3px; margin-top: 8px; background: var(--lx-ch-tint); border-radius: var(--r-pill, 999px); }
 html[data-layout="chronicle"] .lx-ch-st-mv-bar > span { display: block; height: 100%; background: var(--primary); border-radius: var(--r-pill, 999px); }
 
-@media (max-width: 1100px) {
-    html[data-layout="chronicle"] .lx-ch-st-figs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 @media (max-width: 768px) {
     html[data-layout="chronicle"] .lx-ch-st-snap { margin-left: 0; width: 100%; justify-content: space-between; }
     html[data-layout="chronicle"] .lx-ch-st-figs { gap: 24px 20px; margin-top: 24px; padding-top: 24px; }
@@ -216,7 +219,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-st-bar { transition: no
         </div>
     </div>
 
-    <section aria-label="Headline figures" aria-live="polite">
+    <section class="lx-ch-st-figwrap" aria-label="Headline figures" aria-live="polite">
         <div class="lx-ch-st-figs" id="stats-grid">
             <div class="lx-ch-st-fig">
                 <span class="lx-ch-st-fig-val" id="stat-distance"><span class="skeleton lx-ch-st-skel-fig"></span></span>
@@ -793,11 +796,21 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-st-bar { transition: no
         bindTips(host.firstChild);
     }
 
-    let resizeTimer = 0;
-    window.addEventListener('resize', () => {
+    // The label spacing depends on the chart's width, which the sidebar collapsing changes without any
+    // window resize, so watch the chart's own box.
+    let resizeTimer = 0, lastChartW = 0;
+    function scheduleRedraw() {
         clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => { try { drawDistance(); } catch (e) {} }, 200);
-    });
+        resizeTimer = setTimeout(() => { try { drawDistance(); } catch (e) {} }, 150);
+    }
+    if (window.ResizeObserver && $('distance-chart')) {
+        new ResizeObserver(entries => {
+            const w = Math.round(entries[0].contentRect.width);
+            if (w && w !== lastChartW) { lastChartW = w; scheduleRedraw(); }
+        }).observe($('distance-chart'));
+    } else {
+        window.addEventListener('resize', scheduleRedraw);
+    }
 
     // ── Daily distance calendar (one whole year, independent of the range) ──
     const HEAT_DOWS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -886,7 +899,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-st-bar { transition: no
                 if (km > 0) { mKm += km; mDays++; }
                 const level = levelOf ? levelOf(km) : 0;
                 const label = fmtDay(iso, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) + (km > 0 ? ', ' + formatDistance(km) : ', no distance');
-                cells += '<a class="lx-ch-st-day' + (iso === today ? ' is-today' : '') + '" data-l="' + level + '" href="/timeline/?d=' + iso + '"'
+                cells += '<a class="lx-ch-st-day' + (iso === today ? ' is-today' : '') + '" data-l="' + level + '" data-d="' + iso + '" href="/timeline/?d=' + iso + '"'
                     + ' data-tip="' + esc(fmtDay(iso, { weekday: 'short', day: 'numeric', month: 'short' }) + '\n' + (km > 0 ? formatDistance(km) : 'no distance')) + '"'
                     + ' aria-label="' + esc(label) + '"></a>';
             }
@@ -897,6 +910,12 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-st-bar { transition: no
         }
         host.removeAttribute('aria-busy');
         host.innerHTML = html;
+        // One tab stop for the whole year (today, else the first day with distance), arrow keys inside:
+        // otherwise a calendar is up to 365 links to tab through.
+        const stops = host.querySelectorAll('a.lx-ch-st-day');
+        stops.forEach(a => { a.tabIndex = -1; });
+        const entry = host.querySelector('a.is-today') || host.querySelector('a.lx-ch-st-day:not([data-l="0"])') || stops[0];
+        if (entry) entry.tabIndex = 0;
 
         $('heat-legend').innerHTML = 'Less'
             + [0, 1, 2, 3, 4].map(l => '<span class="lx-ch-st-day" data-l="' + l + '"></span>').join('')
@@ -905,6 +924,16 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-st-bar { transition: no
     $('heat-prev').addEventListener('click', () => { heatYear--; drawHeatmap(); });
     $('heat-next').addEventListener('click', () => { heatYear++; drawHeatmap(); });
     bindTips($('heat-months'));
+    // Left and right step a day, up and down a week; the year's days are one sequence across the months.
+    $('heat-months').addEventListener('keydown', e => {
+        const c = e.target.closest ? e.target.closest('a.lx-ch-st-day[data-d]') : null;
+        const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+        if (!c || !delta) return;
+        e.preventDefault();
+        const next = $('heat-months').querySelector('a.lx-ch-st-day[data-d="' + addDays(c.getAttribute('data-d'), delta) + '"]');
+        if (!next) return;
+        c.tabIndex = -1; next.tabIndex = 0; next.focus();
+    });
 
     // ── Yearly overview ───────────────────────────────────────────────
     let yearlyData = null;
