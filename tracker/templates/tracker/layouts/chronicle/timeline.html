@@ -1,41 +1,401 @@
 {% extends "tracker/base.html" %}
 {% block title %}Timeline · Roamly{% endblock %}
 {% block robots_meta %}noindex, nofollow{% endblock %}
-{% comment %} Chronicle's home: a day feed (left) with a companion map (right; a
-   collapsible strip on phones). Data: GET /api/layout/timeline/ (see
-   tracker/layout_timeline.py for the JSON shape); a day's geometry comes from
-   /api/track/?start_date=D&end_date=D. MapLibre loads through base.html's
-   default map_css/map_js blocks. The page fills the viewport, so the version
-   footer is dropped like map.html does. {% endcomment %}
+{% comment %} Chronicle's home: a scrollable day feed (left) with the selected day's
+   map (right; a full-screen sheet behind a "Map" button on phones).
+   Data: GET /api/layout/timeline/ (shape documented in tracker/layout_timeline.py):
+     ?limit=10        the first screen (small on purpose: it is the slow query)
+     ?before=D&limit  older pages
+     ?only=strip      the 24-month year strip, requested in parallel
+     ?meta=1          the user's basemap list + whether AI is set up
+   POST {action:'recap', date} on the same URL writes the one-day AI recap.
+   A day's geometry comes from /api/track/?start_date=D&end_date=D.
+   Everything here is namespaced lx-ch-tm-*; the only shared primitives used are
+   .lx-ch-btn, .lx-ch-badge, .lx-ch-empty(-title) and the skeleton helpers.
+   MapLibre loads through base.html's default map_css/map_js blocks. The page
+   fills the viewport, so the version footer is dropped like map.html does. {% endcomment %}
 {% block version_footer %}{% endblock %}
 {% block content %}
-<div class="lx-ch-tl" id="lx-ch-tl" data-tile-qs="{{ CARTO_TILE_QS }}">
-    <section class="lx-ch-tl-feedcol" aria-label="Your days">
-        <div class="lx-ch-tl-head">
-            <h1 class="lx-ch-tl-title">Timeline</h1>
-            <button type="button" class="lx-ch-btn lx-ch-tl-latest" id="lx-ch-latest" hidden>Back to latest</button>
-        </div>
-        <div class="lx-ch-strip" id="lx-ch-strip" aria-label="The last two years, one mark per day">
-            <div class="skeleton lx-ch-strip-skel" id="lx-ch-strip-skel" aria-hidden="true"></div>
-            <div class="lx-ch-strip-scroll" id="lx-ch-strip-scroll" hidden>
-                <div class="lx-ch-strip-track" id="lx-ch-strip-track"></div>
+{% if basemaps %}{{ basemaps|json_script:"roamly-basemaps" }}{% endif %}
+<style>
+html[data-layout="chronicle"] .lx-ch-tm {
+    --tm-pad: 24px;
+    --tm-spine: 28px;
+    --tm-gutter: 60px;
+    --tm-ring: var(--lx-ch-ring, color-mix(in srgb, var(--primary) 70%, transparent));
+    --tm-tint: var(--lx-ch-tint, color-mix(in srgb, var(--text) 5%, transparent));
+    position: relative; z-index: 1;
+    display: grid;
+    grid-template-columns: clamp(420px, 40%, 600px) minmax(0, 1fr);
+    height: calc(100vh - var(--nav-h, 0px));
+    height: calc(100dvh - var(--nav-h, 0px));
+    min-height: 420px;
+}
+html[data-layout="chronicle"] .lx-ch-tm.is-map-collapsed { grid-template-columns: minmax(0, 1fr); }
+html[data-layout="chronicle"] .lx-ch-tm-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ── Feed column ─────────────────────────────────────────────────── */
+html[data-layout="chronicle"] .lx-ch-tm-feedcol {
+    display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    border-right: 1px solid var(--border);
+}
+html[data-layout="chronicle"] .lx-ch-tm.is-map-collapsed .lx-ch-tm-feedcol { border-right: 0; width: 100%; max-width: 860px; margin: 0 auto; }
+html[data-layout="chronicle"] .lx-ch-tm-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    padding: 20px var(--tm-pad) 8px;
+}
+html[data-layout="chronicle"] .lx-ch-tm-title {
+    margin: 0; font-family: var(--font-display); font-size: 28px; line-height: 1.1; font-weight: 500;
+    letter-spacing: -0.01em; color: var(--text);
+}
+html[data-layout="chronicle"] .lx-ch-tm-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+html[data-layout="chronicle"] .lx-ch-tm-tools [hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-tm-jump input {
+    height: 36px; padding: 0 10px; font: inherit; font-size: 13px; color: var(--text);
+    background: transparent; border: 1px solid var(--border); border-radius: var(--r-2, 0px);
+    color-scheme: light dark; min-width: 0;
+}
+html[data-layout="chronicle"] .lx-ch-tm-jump input:hover { border-color: var(--border-strong); }
+html[data-layout="chronicle"] .lx-ch-tm-jump input:focus-visible,
+html[data-layout="chronicle"] .lx-ch-tm button:focus-visible,
+html[data-layout="chronicle"] .lx-ch-tm a:focus-visible { outline: 2px solid var(--tm-ring); outline-offset: 2px; }
+html[data-layout="chronicle"] .lx-ch-tm-status {
+    margin: 0 var(--tm-pad); padding: 8px 0; font-size: 13px; color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+}
+html[data-layout="chronicle"] .lx-ch-tm-status[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-tm-status button {
+    margin-left: 8px; padding: 0; font: inherit; color: var(--link); background: none; border: 0; cursor: pointer; text-decoration: underline;
+}
+
+/* Year strip */
+html[data-layout="chronicle"] .lx-ch-tm-strip { padding: 4px 0 10px; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-tm-strip[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-tm-strip-skel { height: 42px; margin: 4px var(--tm-pad) 2px; }
+html[data-layout="chronicle"] .lx-ch-tm-strip-scroll {
+    overflow-x: auto; overflow-y: hidden; padding: 4px var(--tm-pad) 2px; scrollbar-width: none; cursor: grab;
+}
+html[data-layout="chronicle"] .lx-ch-tm-strip-scroll::-webkit-scrollbar { display: none; }
+html[data-layout="chronicle"] .lx-ch-tm-strip-scroll[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-tm-strip-scroll.is-dragging { cursor: grabbing; user-select: none; }
+html[data-layout="chronicle"] .lx-ch-tm-strip-track { display: flex; align-items: flex-end; gap: 10px; width: max-content; min-height: 50px; }
+html[data-layout="chronicle"] .lx-ch-tm-strip-month { display: flex; flex-direction: column; gap: 4px; flex: none; }
+html[data-layout="chronicle"] .lx-ch-tm-strip-label {
+    padding: 2px 0; font-family: var(--font-mono); font-size: 11px; line-height: 1.2; color: var(--text-dim);
+    background: none; border: 0; cursor: pointer; text-align: left;
+}
+html[data-layout="chronicle"] .lx-ch-tm-strip-label:hover { color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-tm-strip-days { display: flex; align-items: flex-end; height: 26px; }
+html[data-layout="chronicle"] .lx-ch-tm-tick { display: flex; align-items: flex-end; justify-content: center; width: 4px; height: 100%; cursor: pointer; }
+html[data-layout="chronicle"] .lx-ch-tm-tick::before { content: ''; width: 2px; height: 3px; background: var(--border-strong); opacity: 0.55; }
+html[data-layout="chronicle"] .lx-ch-tm-tick[data-s="1"]::before { height: 8px; background: var(--text-muted); opacity: 0.6; }
+html[data-layout="chronicle"] .lx-ch-tm-tick[data-s="2"]::before { height: 13px; background: var(--text-muted); opacity: 0.8; }
+html[data-layout="chronicle"] .lx-ch-tm-tick[data-s="3"]::before { height: 19px; background: var(--text); opacity: 0.7; }
+html[data-layout="chronicle"] .lx-ch-tm-tick[data-s="4"]::before { height: 25px; background: var(--text); opacity: 0.9; }
+html[data-layout="chronicle"] .lx-ch-tm-tick:hover::before { background: var(--text); opacity: 1; }
+html[data-layout="chronicle"] .lx-ch-tm-tick.is-current::before { width: 3px; height: 26px; background: var(--primary); opacity: 1; }
+
+/* The feed itself */
+html[data-layout="chronicle"] .lx-ch-tm-feed {
+    flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding-bottom: 96px; scrollbar-width: thin;
+}
+html[data-layout="chronicle"] .lx-ch-tm-feed:focus { outline: none; }
+html[data-layout="chronicle"] .lx-ch-tm-feed:focus-visible { box-shadow: inset 0 0 0 2px var(--tm-ring); }
+html[data-layout="chronicle"] .lx-ch-tm-spined { position: relative; padding-left: var(--tm-gutter); }
+html[data-layout="chronicle"] .lx-ch-tm-spined::before {
+    content: ''; position: absolute; left: var(--tm-spine); top: 0; bottom: 0; width: 1px; background: var(--border);
+}
+html[data-layout="chronicle"] .lx-ch-tm-feed > .lx-ch-tm-spined:first-child::before { top: 28px; }
+html[data-layout="chronicle"] .lx-ch-tm-month {
+    margin: 0; padding-top: 28px; padding-bottom: 2px; font-family: var(--font-display); font-size: 15px; font-weight: 500;
+    color: var(--text-muted); letter-spacing: 0;
+}
+html[data-layout="chronicle"] .lx-ch-tm-feed > .lx-ch-tm-month:first-child { padding-top: 12px; }
+
+/* A day: flat, on the page. The spine and the title carry the selection. */
+html[data-layout="chronicle"] .lx-ch-tm-day { content-visibility: auto; contain-intrinsic-size: auto 280px; cursor: pointer; scroll-margin-top: 4px; }
+html[data-layout="chronicle"] .lx-ch-tm-day.is-selected::before { background: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-tm-node {
+    position: absolute; left: calc(var(--tm-spine) - 5px); top: 31px; width: 11px; height: 11px; box-sizing: border-box;
+    border: 1.5px solid var(--border-strong); background: var(--bg); border-radius: var(--r-pill, 999px);
+}
+html[data-layout="chronicle"] .lx-ch-tm-day.is-today .lx-ch-tm-node { border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-tm-day.is-selected .lx-ch-tm-node { background: var(--primary); border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-tm-dbody { padding: 24px var(--tm-pad) 24px 0; border-top: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-tm-month + .lx-ch-tm-day .lx-ch-tm-dbody { border-top: 0; padding-top: 12px; }
+html[data-layout="chronicle"] .lx-ch-tm-month + .lx-ch-tm-day .lx-ch-tm-node { top: 19px; }
+html[data-layout="chronicle"] .lx-ch-tm-dhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+html[data-layout="chronicle"] .lx-ch-tm-dtitle { margin: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-weight: 500; }
+html[data-layout="chronicle"] .lx-ch-tm-wd { font-family: var(--font-display); font-size: 26px; line-height: 1.15; letter-spacing: -0.01em; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-tm-dt { font-family: var(--font-display); font-size: 17px; font-weight: 400; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-tm-day:not(.is-selected) .lx-ch-tm-wd { color: color-mix(in srgb, var(--text) 82%, var(--text-muted)); }
+html[data-layout="chronicle"] .lx-ch-tm-tag { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-tm-day.is-today .lx-ch-tm-tag { color: var(--primary); }
+
+/* Glance: the day's headline figures */
+html[data-layout="chronicle"] .lx-ch-tm-glance { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 14px 0 0; padding: 0; }
+html[data-layout="chronicle"] .lx-ch-tm-glance:empty { display: none; }
+html[data-layout="chronicle"] .lx-ch-tm-glance > div { display: flex; flex-direction: column-reverse; gap: 2px; }
+html[data-layout="chronicle"] .lx-ch-tm-glance dd { margin: 0; font-family: var(--font-mono); font-size: 18px; line-height: 1.2; font-variant-numeric: tabular-nums; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-tm-glance dt { font-size: 12px; color: var(--text-muted); font-weight: 400; }
+
+html[data-layout="chronicle"] .lx-ch-tm-places { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 14px; }
+html[data-layout="chronicle"] .lx-ch-tm-place { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; font-size: 14px; color: var(--text); text-decoration: none; }
+html[data-layout="chronicle"] .lx-ch-tm-place svg { flex: none; width: 14px; height: 14px; fill: none; stroke: var(--text-dim); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+html[data-layout="chronicle"] .lx-ch-tm-place span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-tm-place:hover span { text-decoration: underline; text-underline-offset: 3px; }
+html[data-layout="chronicle"] .lx-ch-tm-more { font-size: 13px; color: var(--text-muted); align-self: center; }
+
+html[data-layout="chronicle"] .lx-ch-tm-mix { margin-top: 14px; }
+html[data-layout="chronicle"] .lx-ch-tm-mix-bar { display: flex; height: 4px; gap: 2px; overflow: hidden; border-radius: var(--r-1, 0px); }
+html[data-layout="chronicle"] .lx-ch-tm-mix-seg { height: 100%; min-width: 2px; background: var(--tm-mode, var(--text-muted)); }
+html[data-layout="chronicle"] .lx-ch-tm-mix-legend { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-tm-mix-key { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-tm-mix-key::before { content: ''; width: 7px; height: 7px; border-radius: var(--r-pill, 999px); background: var(--tm-mode, var(--text-muted)); }
+html[data-layout="chronicle"] [data-mode="walk"] { --tm-mode: var(--clay-mint, var(--text-muted)); }
+html[data-layout="chronicle"] [data-mode="cycle"] { --tm-mode: var(--clay-amber, var(--text-muted)); }
+html[data-layout="chronicle"] [data-mode="vehicle"] { --tm-mode: var(--clay-sky, var(--text-muted)); }
+html[data-layout="chronicle"] [data-mode="plane"] { --tm-mode: var(--clay-lavender, var(--text-muted)); }
+
+html[data-layout="chronicle"] .lx-ch-tm-journal { margin-top: 16px; padding-left: 14px; border-left: 2px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-tm-journal-title { font-family: var(--font-display); font-size: 17px; font-weight: 500; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-tm-journal-text { margin: 4px 0 0; font-size: 14.5px; line-height: 1.6; color: var(--text); max-width: 62ch; overflow-wrap: anywhere; }
+html[data-layout="chronicle"] .lx-ch-tm-journal-foot { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 12.5px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-tm-journal-foot a { color: var(--link); text-decoration: none; }
+html[data-layout="chronicle"] .lx-ch-tm-journal-foot a:hover { text-decoration: underline; }
+
+html[data-layout="chronicle"] .lx-ch-tm-facts { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
+html[data-layout="chronicle"] .lx-ch-tm-fact { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 1.5; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-tm-fact > svg { flex: none; width: 16px; height: 16px; margin-top: 2px; fill: none; stroke: var(--text-dim); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+html[data-layout="chronicle"] .lx-ch-tm-fact-text { min-width: 0; overflow-wrap: anywhere; }
+html[data-layout="chronicle"] .lx-ch-tm-fact-num { font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-tm-fact a { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+html[data-layout="chronicle"] .lx-ch-tm-fact a:hover { text-decoration-color: currentColor; }
+html[data-layout="chronicle"] .lx-ch-tm-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+html[data-layout="chronicle"] .lx-ch-tm-badges a { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+html[data-layout="chronicle"] .lx-ch-tm-badges svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Daily recap: the first thing under the date, ruled off, never in a corner */
+html[data-layout="chronicle"] .lx-ch-tm-recap { margin-top: 14px; padding: 12px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-tm-recap-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+html[data-layout="chronicle"] .lx-ch-tm-recap-hint { display: none; font-size: 13px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-tm-day.is-selected .lx-ch-tm-recap-hint { display: inline; }
+html[data-layout="chronicle"] .lx-ch-tm-recap-text { margin: 0 0 10px; font-family: var(--font-display); font-size: 17.5px; line-height: 1.6; color: var(--text); max-width: 62ch; overflow-wrap: anywhere; }
+html[data-layout="chronicle"] .lx-ch-tm-recap-text:last-of-type { margin-bottom: 8px; }
+html[data-layout="chronicle"] .lx-ch-tm-recap-foot { display: flex; align-items: center; gap: 4px 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-tm-recap-foot a { color: var(--link); }
+html[data-layout="chronicle"] .lx-ch-tm-recap-msg { margin: 0; font-size: 14px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-tm-recap-msg.is-error { color: var(--danger); }
+html[data-layout="chronicle"] .lx-ch-tm-recap-wait { display: flex; flex-direction: column; gap: 8px; }
+html[data-layout="chronicle"] .lx-ch-tm-recap-wait .skeleton { height: 14px; width: 100%; max-width: 62ch; }
+html[data-layout="chronicle"] .lx-ch-tm-recap-wait .skeleton:nth-child(2) { width: 84%; }
+html[data-layout="chronicle"] .lx-ch-tm-recap-wait .skeleton:nth-child(3) { width: 52%; }
+html[data-layout="chronicle"] .lx-ch-tm-recap-wait p { margin: 0; font-size: 13px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-tm-linkbtn { padding: 0; font: inherit; font-size: 12.5px; color: var(--link); background: none; border: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+/* The quiet AI button (a fallback; any shared .lx-ch-ai style outranks this) */
+html[data-layout="chronicle"] :where(.lx-ch-ai) {
+    position: relative; display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 14px;
+    font-family: var(--font-body); font-size: 13px; color: var(--text); background: transparent;
+    border: 1px solid var(--border); border-radius: var(--r-2, 0px); cursor: pointer; overflow: hidden;
+}
+html[data-layout="chronicle"] :where(.lx-ch-ai):hover { border-color: var(--border-strong); }
+html[data-layout="chronicle"] :where(.lx-ch-ai):disabled { opacity: 0.6; cursor: default; }
+html[data-layout="chronicle"] :where(.lx-ch-ai) svg { flex: none; width: 16px; height: 16px; fill: none; stroke: var(--primary); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+html[data-layout="chronicle"] :where(.lx-ch-ai)::after {
+    content: ''; position: absolute; left: 8%; right: 8%; bottom: 0; height: 2px; pointer-events: none;
+    background: linear-gradient(90deg, transparent, var(--primary), transparent); background-size: 200% 100%;
+    opacity: 0.75; animation: lx-ch-tm-glow 3.4s linear infinite;
+}
+@keyframes lx-ch-tm-glow { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { html[data-layout="chronicle"] :where(.lx-ch-ai)::after { animation: none; } }
+html[data-motion="calm"][data-layout="chronicle"] :where(.lx-ch-ai)::after { animation: none; }
+
+/* Quiet days and the end of the feed */
+html[data-layout="chronicle"] .lx-ch-tm-quiet-row {
+    display: block; width: 100%; padding: 12px 0; font: inherit; font-size: 13px; text-align: left; color: var(--text-muted);
+    background: none; border: 0; border-top: 1px solid var(--border); cursor: pointer;
+}
+html[data-layout="chronicle"] .lx-ch-tm-quiet-row:hover { color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-tm-quiet-list { padding: 0 0 12px; }
+html[data-layout="chronicle"] .lx-ch-tm-quiet-list[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-tm-quiet-day { padding: 3px 0; font-size: 13px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-tm-end { padding: 28px var(--tm-pad) 12px var(--tm-gutter); font-size: 14px; color: var(--text-muted); border-top: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-tm-end > div { margin-top: 12px; }
+html[data-layout="chronicle"] .lx-ch-tm-sentinel { height: 1px; }
+html[data-layout="chronicle"] .lx-ch-tm-skel { padding: 24px var(--tm-pad) 20px var(--tm-gutter); border-top: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-tm-feed > .lx-ch-tm-skel:first-child { border-top: 0; }
+html[data-layout="chronicle"] .lx-ch-tm-feed .lx-ch-empty { margin: 48px var(--tm-pad) 0 var(--tm-pad); }
+
+/* ── Map column ──────────────────────────────────────────────────── */
+html[data-layout="chronicle"] .lx-ch-tm-mapcol { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg-card, var(--bg)); }
+html[data-layout="chronicle"] .lx-ch-tm.is-map-collapsed .lx-ch-tm-mapcol { display: none; }
+html[data-layout="chronicle"] .lx-ch-tm-map { position: absolute; inset: 0; }
+html[data-layout="chronicle"] .lx-ch-tm-map .maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-tm-map .maplibregl-ctrl-attrib a { color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-tm-map .maplibregl-ctrl-group { background: var(--bg); border: 1px solid var(--border); box-shadow: none; border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-tm-map .maplibregl-ctrl-group button + button { border-top-color: var(--border); }
+html[data-layout="chronicle"] .lx-ch-tm-map-fallback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; font-size: 14px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-tm-mapbar {
+    position: absolute; z-index: 3; top: 12px; left: 12px; right: 12px; display: flex; align-items: center; gap: 8px; pointer-events: none;
+}
+html[data-layout="chronicle"] .lx-ch-tm-mapbar > * { pointer-events: auto; }
+html[data-layout="chronicle"] .lx-ch-tm-mapcap {
+    flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 36px; padding: 0 12px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-2, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-tm-mapcap[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-tm-mapdate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-tm-mapopen { flex: none; font-size: 13px; color: var(--link); text-decoration: none; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-tm-mapopen:hover { text-decoration: underline; }
+html[data-layout="chronicle"] .lx-ch-tm-iconbtn {
+    flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0;
+    color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-2, 0px); cursor: pointer;
+}
+html[data-layout="chronicle"] .lx-ch-tm-iconbtn:hover:not(:disabled) { border-color: var(--border-strong); }
+html[data-layout="chronicle"] .lx-ch-tm-iconbtn:disabled { opacity: 0.4; cursor: default; }
+html[data-layout="chronicle"] .lx-ch-tm-iconbtn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+html[data-layout="chronicle"] .lx-ch-tm-iconbtn[aria-expanded="true"] { border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-tm-mapclose { display: none; }
+html[data-layout="chronicle"] .lx-ch-tm-mapnote {
+    position: absolute; z-index: 3; left: 12px; right: 12px; bottom: 36px; margin: 0 auto; width: fit-content; max-width: calc(100% - 24px);
+    padding: 8px 12px; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-2, 0px);
+    text-align: center;
+}
+html[data-layout="chronicle"] .lx-ch-tm-mapnote[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-tm-mapnote button { margin-left: 10px; padding: 0; font: inherit; color: var(--link); background: none; border: 0; cursor: pointer; text-decoration: underline; }
+html[data-layout="chronicle"] .lx-ch-tm-mapfab { display: none; }
+
+/* View settings popover */
+html[data-layout="chronicle"] .lx-ch-tm-vs {
+    position: absolute; z-index: 4; top: 56px; right: 12px; width: min(320px, calc(100% - 24px)); max-height: calc(100% - 72px); overflow-y: auto;
+    padding: 4px 16px 16px; background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--r-3, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-tm-vs[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-tm-vs-h { margin: 16px 0 8px; font-size: 12px; font-weight: 500; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-tm-vs-sub { margin: 10px 0 6px; font-size: 11.5px; color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-tm-bms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+html[data-layout="chronicle"] .lx-ch-tm-bm {
+    min-height: 36px; padding: 6px 10px; font: inherit; font-size: 13px; text-align: left; color: var(--text); background: transparent;
+    border: 1px solid var(--border); border-radius: var(--r-2, 0px); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+html[data-layout="chronicle"] .lx-ch-tm-bm:hover { border-color: var(--border-strong); }
+html[data-layout="chronicle"] .lx-ch-tm-bm[aria-pressed="true"] { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+html[data-layout="chronicle"] .lx-ch-tm-sw {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 40px; padding: 0;
+    font: inherit; font-size: 14px; color: var(--text); background: none; border: 0; border-top: 1px solid var(--border); cursor: pointer; text-align: left;
+}
+html[data-layout="chronicle"] .lx-ch-tm-sw:first-of-type { border-top: 0; }
+html[data-layout="chronicle"] .lx-ch-tm-sw i {
+    position: relative; flex: none; width: 32px; height: 18px; border: 1px solid var(--border-strong); border-radius: var(--r-pill, 999px); background: transparent;
+}
+html[data-layout="chronicle"] .lx-ch-tm-sw i::after {
+    content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: var(--r-pill, 999px); background: var(--text-muted);
+    transition: transform 140ms ease-out, background-color 140ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-tm-sw[aria-checked="true"] i { border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-tm-sw[aria-checked="true"] i::after { transform: translateX(14px); background: var(--primary); }
+@media (prefers-reduced-motion: reduce) { html[data-layout="chronicle"] .lx-ch-tm-sw i::after { transition: none; } }
+
+/* ── Tablet ─────────────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+    html[data-layout="chronicle"] .lx-ch-tm { grid-template-columns: 380px minmax(0, 1fr); --tm-pad: 20px; }
+}
+
+/* ── Phone: the feed is the page; the map is a sheet behind a button ── */
+@media (max-width: 768px) {
+    html[data-layout="chronicle"] .lx-ch-tm {
+        --tm-pad: 16px; --tm-spine: 18px; --tm-gutter: 44px;
+        display: block;
+        height: calc(100dvh - var(--nav-h, 0px) - var(--bottom-nav-height, 0px));
+        min-height: 360px;
+    }
+    html[data-layout="chronicle"] .lx-ch-tm-feedcol { height: 100%; border-right: 0; }
+    html[data-layout="chronicle"] .lx-ch-tm.is-map-collapsed .lx-ch-tm-feedcol { max-width: none; }
+    html[data-layout="chronicle"] .lx-ch-tm-title { font-size: 24px; }
+    html[data-layout="chronicle"] .lx-ch-tm-maptoggle { display: none; }
+    html[data-layout="chronicle"] .lx-ch-tm-jump input { height: 44px; font-size: 16px; }
+    html[data-layout="chronicle"] .lx-ch-tm-tools .lx-ch-btn { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-tm-wd { font-size: 23px; }
+    html[data-layout="chronicle"] .lx-ch-tm-recap .lx-ch-ai { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-tm-recap-hint { display: inline; }
+    html[data-layout="chronicle"] .lx-ch-tm-place { min-height: 32px; }
+    html[data-layout="chronicle"] .lx-ch-tm-feed { padding-bottom: 88px; }
+    html[data-layout="chronicle"] .lx-ch-tm-mapcol {
+        display: none; position: fixed; z-index: 950; left: 0; right: 0; top: 0; bottom: var(--bottom-nav-height, 0px);
+    }
+    html[data-layout="chronicle"] .lx-ch-tm.is-map-collapsed .lx-ch-tm-mapcol { display: none; }
+    html[data-layout="chronicle"] .lx-ch-tm.is-map-open .lx-ch-tm-mapcol,
+    html[data-layout="chronicle"] .lx-ch-tm.is-map-collapsed.is-map-open .lx-ch-tm-mapcol { display: block; }
+    html[data-layout="chronicle"] .lx-ch-tm-mapclose { display: inline-flex; }
+    html[data-layout="chronicle"] .lx-ch-tm-iconbtn { width: 44px; height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-tm-mapcap { height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-tm-mapbar { top: 8px; left: 8px; right: 8px; }
+    html[data-layout="chronicle"] .lx-ch-tm-vs { top: 60px; right: 8px; }
+    html[data-layout="chronicle"] .lx-ch-tm-bm { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-tm-sw { min-height: 48px; }
+    html[data-layout="chronicle"] .lx-ch-tm-mapfab {
+        display: inline-flex; align-items: center; gap: 8px; position: fixed; z-index: 900; right: 16px;
+        bottom: calc(var(--bottom-nav-height, 0px) + 16px); min-height: 44px; padding: 0 16px;
+        font: inherit; font-size: 14px; font-weight: 500; color: var(--text); background: var(--bg-elevated, var(--bg));
+        border: 1px solid var(--border-strong); border-radius: var(--r-pill, 999px); cursor: pointer;
+    }
+    html[data-layout="chronicle"] .lx-ch-tm.is-map-open .lx-ch-tm-mapfab { display: none; }
+    html[data-layout="chronicle"] .lx-ch-tm-mapfab svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+}
+</style>
+
+<div class="lx-ch-tm" id="lx-ch-tm" data-tile-qs="{{ CARTO_TILE_QS }}" data-uid="{{ user.id }}" data-ai="{% if AI_ASK_ENABLED %}1{% else %}0{% endif %}">
+    <section class="lx-ch-tm-feedcol" aria-label="Your days">
+        <header class="lx-ch-tm-head">
+            <h1 class="lx-ch-tm-title">Timeline</h1>
+            <div class="lx-ch-tm-tools">
+                <label class="lx-ch-tm-jump"><span class="lx-ch-tm-sr">Go to a day</span><input type="date" id="lx-ch-tm-date" aria-label="Go to a day"></label>
+                <button type="button" class="lx-ch-btn" id="lx-ch-tm-latest" hidden>Back to latest</button>
+                <button type="button" class="lx-ch-btn lx-ch-tm-maptoggle" id="lx-ch-tm-maptoggle" aria-controls="lx-ch-tm-mapcol" aria-expanded="true">Hide map</button>
+            </div>
+        </header>
+        <p class="lx-ch-tm-status" id="lx-ch-tm-status" role="status" hidden></p>
+        <div class="lx-ch-tm-strip" id="lx-ch-tm-strip" aria-label="The last two years, one mark per day">
+            <div class="skeleton lx-ch-tm-strip-skel" id="lx-ch-tm-strip-skel" aria-hidden="true"></div>
+            <div class="lx-ch-tm-strip-scroll" id="lx-ch-tm-strip-scroll" hidden>
+                <div class="lx-ch-tm-strip-track" id="lx-ch-tm-strip-track"></div>
             </div>
         </div>
-        <div class="lx-ch-feed" id="lx-ch-feed" role="feed" aria-busy="true" aria-label="Days, newest first. Use the up and down arrow keys to move between days." tabindex="0">
-            <div class="lx-ch-day-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div><div class="skeleton lx-ch-skel-line"></div></div>
-            <div class="lx-ch-day-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div></div>
-            <div class="lx-ch-day-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line"></div></div>
+        <div class="lx-ch-tm-feed" id="lx-ch-tm-feed" role="feed" aria-busy="true" aria-label="Days, newest first. Use the up and down arrow keys to move between days." tabindex="0">
+            <div class="lx-ch-tm-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div><div class="skeleton lx-ch-skel-line"></div></div>
+            <div class="lx-ch-tm-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div><div class="skeleton lx-ch-skel-line is-short"></div></div>
+            <div class="lx-ch-tm-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line"></div></div>
         </div>
     </section>
-    <button type="button" class="lx-ch-maphandle" id="lx-ch-maphandle" aria-controls="lx-ch-mapcol" aria-expanded="true"><span id="lx-ch-maphandle-text">Hide map</span></button>
-    <section class="lx-ch-tl-mapcol" id="lx-ch-mapcol" aria-label="Map of the selected day">
-        <div class="lx-ch-map" id="lx-ch-map"></div>
-        <div class="lx-ch-map-cap" id="lx-ch-map-cap" hidden>
-            <span class="lx-ch-map-date" id="lx-ch-map-date"></span>
-            <a class="lx-ch-map-open" id="lx-ch-map-open" href="{% url 'tracker:map' %}">Open on the map</a>
+
+    <section class="lx-ch-tm-mapcol" id="lx-ch-tm-mapcol" aria-label="Map of the selected day">
+        <div class="lx-ch-tm-map" id="lx-ch-tm-map"></div>
+        <div class="lx-ch-tm-mapbar">
+            <button type="button" class="lx-ch-tm-iconbtn lx-ch-tm-mapclose" id="lx-ch-tm-mapclose" aria-label="Back to the timeline"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+            <div class="lx-ch-tm-mapcap" id="lx-ch-tm-mapcap" hidden>
+                <span class="lx-ch-tm-mapdate" id="lx-ch-tm-mapdate"></span>
+                <a class="lx-ch-tm-mapopen" id="lx-ch-tm-mapopen" href="{% url 'tracker:map' %}">Open on the map</a>
+            </div>
+            <button type="button" class="lx-ch-tm-iconbtn" id="lx-ch-tm-older" aria-label="Previous day" title="Previous day" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
+            <button type="button" class="lx-ch-tm-iconbtn" id="lx-ch-tm-newer" aria-label="Next day" title="Next day" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+            <button type="button" class="lx-ch-tm-iconbtn" id="lx-ch-tm-vsbtn" aria-label="Map settings" title="Map settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="lx-ch-tm-vs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button>
         </div>
-        <div class="lx-ch-map-note" id="lx-ch-map-note" role="status" hidden></div>
+        <div class="lx-ch-tm-vs" id="lx-ch-tm-vs" role="dialog" aria-label="Map settings" hidden>
+            <div class="lx-ch-tm-vs-h">Basemap</div>
+            <div id="lx-ch-tm-vs-bm"></div>
+            <div class="lx-ch-tm-vs-h">View</div>
+            <button type="button" class="lx-ch-tm-sw" role="switch" aria-checked="false" data-opt="globe"><span>3D globe</span><i></i></button>
+            <button type="button" class="lx-ch-tm-sw" role="switch" aria-checked="true" data-opt="gradient"><span>Colour track by speed</span><i></i></button>
+            <button type="button" class="lx-ch-tm-sw" role="switch" aria-checked="true" data-opt="suspect"><span>Hide outlier points</span><i></i></button>
+            <button type="button" class="lx-ch-tm-sw" role="switch" aria-checked="true" data-opt="ctx"><span>Show neighbouring days</span><i></i></button>
+            <button type="button" class="lx-ch-tm-sw" role="switch" aria-checked="true" data-opt="pins"><span>Show stops</span><i></i></button>
+        </div>
+        <div class="lx-ch-tm-mapnote" id="lx-ch-tm-mapnote" role="status" hidden></div>
     </section>
+
+    <button type="button" class="lx-ch-tm-mapfab" id="lx-ch-tm-mapfab" aria-controls="lx-ch-tm-mapcol" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4L3 6.5v13L9 17l6 3 6-2.5v-13L15 7zM9 4v13M15 7v13"/></svg>Map</button>
 </div>
 
 <script>
@@ -43,16 +403,27 @@
     'use strict';
 
     const API = '/api/layout/timeline/';
-    const PAGE = 30;
+    const FIRST_LIMIT = 10;            // the first screen: small, because it is the slow query
+    const PAGE = 20;
     const MAX_EMPTY_HOPS = 4;          // empty pages followed automatically before asking
     const TRACK_GAP_S = 20 * 60;       // split a drawn track across a tracking hole
     const TRACK_CACHE = 40;
+    const CACHE_TTL = 3 * 3600 * 1000; // a saved first page is shown for this long while it refreshes
+    const RECAP_TTL_TODAY = 30 * 60 * 1000;
+    const CSRF = '{{ csrf_token }}';
 
     function init() {
-        const root = document.getElementById('lx-ch-tl');
+        const root = document.getElementById('lx-ch-tm');
         if (!root) return;
-        const feed = document.getElementById('lx-ch-feed');
-        const latestBtn = document.getElementById('lx-ch-latest');
+        const $ = id => document.getElementById(id);
+        const feed = $('lx-ch-tm-feed');
+        const latestBtn = $('lx-ch-tm-latest');
+        const statusEl = $('lx-ch-tm-status');
+        const dateInput = $('lx-ch-tm-date');
+        const UID = root.getAttribute('data-uid') || '0';
+        const AI = root.getAttribute('data-ai') === '1';
+        const K_PAGE = 'roamly_ch_tm1:' + UID;
+        const K_STRIP = 'roamly_ch_tmstrip1:' + UID;
 
         // ── Helpers ───────────────────────────────────────────────────
         const pad = n => String(n).padStart(2, '0');
@@ -61,7 +432,7 @@
             if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
             const p = iso.split('-');
             const d = new Date(+p[0], +p[1] - 1, +p[2], 12, 0, 0);
-            return isNaN(d.getTime()) ? null : d;
+            return isNaN(d.getTime()) || isoOf(d) !== iso ? null : d;
         }
         function utc(iso) { const p = iso.split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]); }
         function dayDiff(a, b) { return Math.round((utc(a) - utc(b)) / 86400000); }
@@ -84,11 +455,21 @@
             } catch (e) {}
             return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
         }
+        function lsGet(k, fb) { try { const v = localStorage.getItem(k); return v == null ? fb : v; } catch (e) { return fb; } }
+        function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+        function cacheRead(k) {
+            try {
+                const o = JSON.parse(sessionStorage.getItem(k) || 'null');
+                if (o && typeof o.t === 'number' && Date.now() - o.t < CACHE_TTL && o.data) return o.data;
+            } catch (e) {}
+            return null;
+        }
+        function cacheWrite(k, data) { try { sessionStorage.setItem(k, JSON.stringify({ t: Date.now(), data: data })); } catch (e) {} }
+        const phoneMQ = window.matchMedia ? window.matchMedia('(max-width: 768px)') : { matches: false };
         const CH = window.RoamlyChronicle || {
             selectedDate: null, setDate: function () {}, onDate: function () { return function () {}; },
         };
-        let miles = false;
-        try { miles = localStorage.getItem('roamly_speed_unit') === 'mph'; } catch (e) {}
+        const miles = lsGet('roamly_speed_unit', 'kmh') === 'mph';
         function fmtDist(km) {
             const v = miles ? km * 0.621371 : km;
             return (v < 10 ? v.toFixed(1) : Math.round(v).toLocaleString()) + (miles ? ' mi' : ' km');
@@ -108,6 +489,7 @@
             plane: '<path d="M10.5 13.5L4 11l1.2-1.6 7 .6 4.6-4.6a1.8 1.8 0 0 1 2.6 2.6l-4.6 4.6.6 7L13.8 21l-2.5-6.5L8 17.8V20l-1.2 1.2-1.4-3.4L2 16.4 3.2 15.2H5.4z"/>',
             pen: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
             flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+            spark: '<path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 1.7 1.7.8-1.7.8L19 20l-.8-1.7-1.7-.8 1.7-.8z"/>',
         };
         const svg = name => '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">' + (ICON[name] || '') + '</svg>';
         const MODE_LABEL = { walk: 'On foot', cycle: 'Cycling', vehicle: 'Vehicle', plane: 'Flying' };
@@ -137,6 +519,10 @@
         let pinned = false;            // selection came from a click/key, not scrolling
         let failed = false;            // the last older-page load failed: wait for Try again
         let stripReady = false;
+        let staleShown = false;        // the saved first page is on screen, awaiting fresh data
+        let staleSig = '';
+        let firstBefore = null;
+        let pendingTarget = null;      // a day to select once the first page lands
 
         // ── Rendering ─────────────────────────────────────────────────
         function quietHtml(newer, older) {
@@ -146,87 +532,96 @@
             if (n <= 14) {
                 list = '';
                 for (let i = 1; i <= n; i++) {
-                    list += '<div class="lx-ch-quiet-day">' + esc(fmt(addDays(newer, -i), { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })) + '</div>';
+                    list += '<div class="lx-ch-tm-quiet-day">' + esc(fmt(addDays(newer, -i), { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })) + '</div>';
                 }
             } else {
                 const opts = { day: 'numeric', month: 'short', year: 'numeric' };
-                list = '<div class="lx-ch-quiet-day">' + esc(fmt(addDays(older, 1), opts)) + ' to ' + esc(fmt(addDays(newer, -1), opts)) + ', nothing recorded</div>';
+                list = '<div class="lx-ch-tm-quiet-day">' + esc(fmt(addDays(older, 1), opts)) + ' to ' + esc(fmt(addDays(newer, -1), opts)) + ', nothing recorded</div>';
             }
-            return '<div class="lx-ch-rail lx-ch-quiet">'
-                + '<button type="button" class="lx-ch-quiet-row" aria-expanded="false">' + esc(plural(n, 'quiet day', 'quiet days')) + '</button>'
-                + '<div class="lx-ch-quiet-list" hidden>' + list + '</div></div>';
+            return '<div class="lx-ch-tm-spined lx-ch-tm-quiet">'
+                + '<button type="button" class="lx-ch-tm-quiet-row" aria-expanded="false">' + esc(plural(n, 'quiet day', 'quiet days')) + '</button>'
+                + '<div class="lx-ch-tm-quiet-list" hidden>' + list + '</div></div>';
+        }
+
+        function recapSlot(iso) {
+            if (!AI) return '';
+            return '<div class="lx-ch-tm-recap" data-recap="' + esc(iso) + '">' + recapHtml(iso) + '</div>';
         }
 
         function dayHtml(d, index) {
             const iso = d.date;
             const dt = parse(iso);
             const thisYear = new Date().getFullYear();
-            let kicker = '';
-            if (iso === todayIso) kicker = 'Today';
-            else if (iso === addDays(todayIso, -1)) kicker = 'Yesterday';
-            else if (dt && dt.getFullYear() !== thisYear) kicker = String(dt.getFullYear());
-
-            const meta = [];
+            let tag = '';
+            if (iso === todayIso) tag = 'Today';
+            else if (iso === addDays(todayIso, -1)) tag = 'Yesterday';
+            const dateOpts = (dt && dt.getFullYear() !== thisYear) ? { day: 'numeric', month: 'long', year: 'numeric' } : { day: 'numeric', month: 'long' };
             const places = Array.isArray(d.places) ? d.places : [];
-            if (places.length) meta.push(plural(places.length, 'place', 'places'));
-            if (d.distance_km >= 0.05) meta.push(fmtDist(d.distance_km));
-            const mv = fmtDur(d.moving_seconds);
-            if (mv) meta.push(mv + ' moving');
+            const hl = d.health;
 
-            let h = '<article class="lx-ch-rail lx-ch-day is-new' + (iso === todayIso ? ' is-today' : '') + '" data-date="' + esc(iso) + '"'
-                + ' aria-labelledby="lx-ch-d-' + esc(iso) + '" aria-posinset="' + (index + 1) + '" aria-setsize="-1">'
-                + '<span class="lx-ch-day-node" aria-hidden="true"></span><div class="lx-ch-day-body">'
-                + '<div class="lx-ch-kicker lx-ch-day-kicker">' + esc(kicker) + '</div>'
-                + '<h2 class="lx-ch-day-title" id="lx-ch-d-' + esc(iso) + '"><span>' + esc(fmt(iso, { weekday: 'long' })) + '</span>'
-                + '<span class="lx-ch-day-date">' + esc(fmt(iso, { day: 'numeric', month: 'long' })) + '</span></h2>'
-                + '<div class="lx-ch-day-meta">' + esc(meta.join(' · ')) + '</div>';
+            let h = '<article class="lx-ch-tm-spined lx-ch-tm-day' + (iso === todayIso ? ' is-today' : '') + (iso === selected ? ' is-selected' : '') + '" data-date="' + esc(iso) + '"'
+                + (iso === selected ? ' aria-current="date"' : '')
+                + ' aria-labelledby="lx-ch-tm-d-' + esc(iso) + '" aria-posinset="' + (index + 1) + '" aria-setsize="-1">'
+                + '<span class="lx-ch-tm-node" aria-hidden="true"></span><div class="lx-ch-tm-dbody">'
+                + '<div class="lx-ch-tm-dhead"><h2 class="lx-ch-tm-dtitle" id="lx-ch-tm-d-' + esc(iso) + '"><span class="lx-ch-tm-wd">' + esc(fmt(iso, { weekday: 'long' })) + '</span>'
+                + '<span class="lx-ch-tm-dt">' + esc(fmt(iso, dateOpts)) + '</span></h2>'
+                + (tag ? '<span class="lx-ch-tm-tag">' + esc(tag) + '</span>' : '') + '</div>'
+                + recapSlot(iso);
+
+            const glance = [];
+            if (d.distance_km >= 0.05) glance.push(['Distance', fmtDist(d.distance_km)]);
+            const mv = fmtDur(d.moving_seconds);
+            if (mv) glance.push(['Moving', mv]);
+            if (places.length) glance.push(['Places', String(places.length) + ((d.visit_count || 0) > places.length && places.length >= 8 ? '+' : '')]);
+            if (hl && hl.steps) glance.push(['Steps', Number(hl.steps).toLocaleString()]);
+            if (glance.length) {
+                h += '<dl class="lx-ch-tm-glance">' + glance.map(g => '<div><dt>' + esc(g[0]) + '</dt><dd>' + esc(g[1]) + '</dd></div>').join('') + '</dl>';
+            }
 
             if (places.length) {
-                h += '<div class="lx-ch-day-places">';
+                h += '<div class="lx-ch-tm-places">';
                 places.forEach(p => {
                     const href = p.kind === 'place' ? '/places/' : '/visits/';
-                    h += '<a class="lx-ch-chip" href="' + href + '" title="' + esc(p.name) + '">' + svg('pin') + '<span>' + esc(p.name) + '</span></a>';
+                    h += '<a class="lx-ch-tm-place" href="' + href + '" title="' + esc(p.name) + '">' + svg('pin') + '<span>' + esc(p.name) + '</span></a>';
                 });
-                if ((d.visit_count || 0) > places.length && places.length >= 8) {
-                    h += '<span class="lx-ch-day-more">and more</span>';
-                }
+                if ((d.visit_count || 0) > places.length && places.length >= 8) h += '<span class="lx-ch-tm-more">and more</span>';
                 h += '</div>';
             }
 
             const modes = Object.entries(d.transport || {}).filter(e => MODE_LABEL[e[0]] && e[1] > 0);
             const modeTotal = modes.reduce((a, e) => a + e[1], 0);
             if (modeTotal >= 60) {
-                h += '<div class="lx-ch-mix"><div class="lx-ch-mix-bar" role="img" aria-label="'
+                h += '<div class="lx-ch-tm-mix"><div class="lx-ch-tm-mix-bar" role="img" aria-label="'
                     + esc('How you moved: ' + modes.map(e => MODE_LABEL[e[0]] + ' ' + (fmtDur(e[1]) || 'under a minute')).join(', ')) + '">';
-                modes.forEach(e => { h += '<span class="lx-ch-mix-seg" data-mode="' + esc(e[0]) + '" style="flex:' + (e[1] / modeTotal).toFixed(4) + ' 1 0"></span>'; });
-                h += '</div><div class="lx-ch-mix-legend" aria-hidden="true">';
+                modes.forEach(e => { h += '<span class="lx-ch-tm-mix-seg" data-mode="' + esc(e[0]) + '" style="flex:' + (e[1] / modeTotal).toFixed(4) + ' 1 0"></span>'; });
+                h += '</div><div class="lx-ch-tm-mix-legend" aria-hidden="true">';
                 modes.forEach(e => {
                     const t = fmtDur(e[1]);
-                    if (t) h += '<span class="lx-ch-mix-key" data-mode="' + esc(e[0]) + '">' + esc(MODE_LABEL[e[0]]) + ' ' + esc(t) + '</span>';
+                    if (t) h += '<span class="lx-ch-tm-mix-key" data-mode="' + esc(e[0]) + '">' + esc(MODE_LABEL[e[0]]) + ' ' + esc(t) + '</span>';
                 });
                 h += '</div></div>';
             }
 
             const j = d.journal;
             if (j) {
-                h += '<div class="lx-ch-journal">';
-                if (j.title) h += '<div class="lx-ch-journal-title">' + esc(j.title) + '</div>';
-                if (j.excerpt) h += '<p class="lx-ch-journal-text">' + esc(j.excerpt) + '</p>';
+                h += '<div class="lx-ch-tm-journal">';
+                if (j.title) h += '<div class="lx-ch-tm-journal-title">' + esc(j.title) + '</div>';
+                if (j.excerpt) h += '<p class="lx-ch-tm-journal-text">' + esc(j.excerpt) + '</p>';
                 const foot = [];
                 if (j.mood) foot.push('<span>Mood: ' + esc(j.mood) + '</span>');
                 if (j.weather) foot.push('<span>' + esc(j.weather) + '</span>');
                 if (j.photo_count) foot.push('<span>' + esc(plural(j.photo_count, 'photo', 'photos')) + '</span>');
                 if (j.favorite) foot.push('<span>Favourite</span>');
                 foot.push('<a href="/journals/?date=' + encodeURIComponent(iso) + '">Open journal</a>');
-                h += '<div class="lx-ch-journal-foot">' + foot.join('') + '</div></div>';
+                h += '<div class="lx-ch-tm-journal-foot">' + foot.join('') + '</div></div>';
             }
 
             const facts = [];
-            const notes = Array.isArray(d.notes) ? d.notes : [];
-            notes.forEach(n => { facts.push('<div class="lx-ch-fact lx-ch-fact--note">' + svg('pen') + '<span class="lx-ch-fact-text">' + esc(n) + '</span></div>'); });
-            const hl = d.health;
+            (Array.isArray(d.notes) ? d.notes : []).forEach(n => {
+                facts.push('<div class="lx-ch-tm-fact">' + svg('pen') + '<span class="lx-ch-tm-fact-text">' + esc(n) + '</span></div>');
+            });
             if (hl && hl.steps) {
-                facts.push('<div class="lx-ch-fact">' + svg('feet') + '<span class="lx-ch-fact-text"><a href="/health/?day=' + encodeURIComponent(iso) + '">'
+                facts.push('<div class="lx-ch-tm-fact">' + svg('feet') + '<span class="lx-ch-tm-fact-text"><a href="/health/?day=' + encodeURIComponent(iso) + '">'
                     + esc(Number(hl.steps).toLocaleString()) + ' steps</a></span></div>');
             }
             if (hl && Array.isArray(hl.workouts)) {
@@ -234,41 +629,45 @@
                     const dur = fmtDur(w.duration_s);
                     const name = esc(workoutName(w));
                     const label = w.url ? '<a href="' + esc(w.url) + '">' + name + '</a>' : name;
-                    facts.push('<div class="lx-ch-fact">' + svg('pulse') + '<span class="lx-ch-fact-text">' + label
-                        + (dur ? ' <span class="lx-ch-fact-num">' + esc(dur) + '</span>' : '') + '</span></div>');
+                    facts.push('<div class="lx-ch-tm-fact">' + svg('pulse') + '<span class="lx-ch-tm-fact-text">' + label
+                        + (dur ? ' <span class="lx-ch-tm-fact-num">' + esc(dur) + '</span>' : '') + '</span></div>');
                 });
             }
             (Array.isArray(d.flights) ? d.flights : []).forEach(f => {
                 const route = [f.from, f.to].filter(Boolean).join(' → ');
                 const text = [f.number, route].filter(Boolean).join(' ') || 'Flight';
-                facts.push('<div class="lx-ch-fact">' + svg('plane') + '<span class="lx-ch-fact-text"><a href="/flights/">' + esc(text) + '</a></span></div>');
+                facts.push('<div class="lx-ch-tm-fact">' + svg('plane') + '<span class="lx-ch-tm-fact-text"><a href="/flights/">' + esc(text) + '</a></span></div>');
             });
-            if (facts.length) h += '<div class="lx-ch-facts">' + facts.join('') + '</div>';
+            if (facts.length) h += '<div class="lx-ch-tm-facts">' + facts.join('') + '</div>';
 
             if (d.adventure && d.adventure.id) {
-                h += '<div class="lx-ch-day-badges"><a class="lx-ch-badge" href="/adventures/' + encodeURIComponent(d.adventure.id) + '/edit/">'
+                h += '<div class="lx-ch-tm-badges"><a class="lx-ch-badge" href="/adventures/' + encodeURIComponent(d.adventure.id) + '/edit/">'
                     + svg('flag') + '<span>' + esc(d.adventure.name || 'Adventure') + '</span></a></div>';
             }
             return h + '</div></article>';
         }
 
         function monthHtml(iso) {
-            return '<div class="lx-ch-rail lx-ch-month">' + esc(fmt(iso, { month: 'long', year: 'numeric' })) + '</div>';
+            return '<h3 class="lx-ch-tm-spined lx-ch-tm-month">' + esc(fmt(iso, { month: 'long', year: 'numeric' })) + '</h3>';
         }
 
         let sentinel = null;
         function ensureSentinel() {
-            if (!sentinel) { sentinel = document.createElement('div'); sentinel.className = 'lx-ch-sentinel'; sentinel.setAttribute('aria-hidden', 'true'); }
+            if (!sentinel) { sentinel = document.createElement('div'); sentinel.className = 'lx-ch-tm-sentinel'; sentinel.setAttribute('aria-hidden', 'true'); }
             feed.appendChild(sentinel);
             if (sentinelObserver) { sentinelObserver.unobserve(sentinel); sentinelObserver.observe(sentinel); }
         }
         function clearTransient() {
-            feed.querySelectorAll('.lx-ch-day-skel, .lx-ch-feed-end, .lx-ch-feed-error').forEach(el => el.remove());
+            feed.querySelectorAll('.lx-ch-tm-skel, .lx-ch-tm-end').forEach(el => el.remove());
         }
-        function showSkeleton() {
+        function skelHtml() {
+            return '<div class="lx-ch-tm-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div><div class="skeleton lx-ch-skel-line"></div></div>';
+        }
+        function showSkeleton(n) {
             clearTransient();
-            const s = '<div class="lx-ch-day-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div></div>';
-            feed.insertAdjacentHTML('beforeend', s + s);
+            let s = '';
+            for (let i = 0; i < (n || 2); i++) s += skelHtml();
+            feed.insertAdjacentHTML('beforeend', s);
             ensureSentinel();
         }
 
@@ -288,18 +687,14 @@
             });
             if (!html) return;
             feed.insertAdjacentHTML('beforeend', html);
-            feed.querySelectorAll('.lx-ch-day.is-new').forEach(el => {
+            feed.querySelectorAll('.lx-ch-tm-day').forEach(el => {
                 const rec = byDate.get(el.getAttribute('data-date'));
                 if (rec && !rec.el) {
                     rec.el = el;
                     if (readObserver) readObserver.observe(el);
-                    bindHover(el);
                     markStripDay(rec.day);
                 }
-                el.addEventListener('animationend', () => el.classList.remove('is-new'), { once: true });
-                if (reduced()) el.classList.remove('is-new');
             });
-            if (selected && byDate.get(selected) && byDate.get(selected).el) byDate.get(selected).el.classList.add('is-selected');
             ensureSentinel();
         }
 
@@ -307,13 +702,13 @@
             clearTransient();
             const first = days.length ? days[days.length - 1].date : null;
             if (!first) return;
-            feed.insertAdjacentHTML('beforeend', '<div class="lx-ch-rail lx-ch-feed-end">'
+            feed.insertAdjacentHTML('beforeend', '<div class="lx-ch-tm-spined lx-ch-tm-end">'
                 + esc('Your history starts on ' + fmt(first, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '.') + '</div>');
             ensureSentinel();
         }
         function renderMoreButton() {
             clearTransient();
-            feed.insertAdjacentHTML('beforeend', '<div class="lx-ch-rail lx-ch-feed-end">Nothing recorded for a long stretch before this.'
+            feed.insertAdjacentHTML('beforeend', '<div class="lx-ch-tm-spined lx-ch-tm-end">Nothing recorded for a long stretch before this.'
                 + '<div><button type="button" class="lx-ch-btn" data-ch-more>Look further back</button></div></div>');
             ensureSentinel();
         }
@@ -324,23 +719,115 @@
                 + 'From the first day it sends a location, each day appears here with where you went, how far you travelled and what you wrote.</p>'
                 + '<a class="lx-ch-btn lx-ch-btn--primary" href="/settings/#data">Open Data &amp; Tracking</a></div>';
             sentinel = null;
-            document.getElementById('lx-ch-strip').hidden = true;
+            $('lx-ch-tm-strip').hidden = true;
         }
         function renderError(first) {
             clearTransient();
-            const html = '<div class="lx-ch-rail lx-ch-feed-end lx-ch-feed-error" role="alert">'
+            const html = '<div class="lx-ch-tm-spined lx-ch-tm-end" role="alert">'
                 + (first ? 'The timeline didn’t load. Check your connection, then try again.' : 'Older days didn’t load.')
                 + '<div><button type="button" class="lx-ch-btn" data-ch-retry>Try again</button></div></div>';
             if (first) { feed.innerHTML = html; sentinel = null; }
             else feed.insertAdjacentHTML('beforeend', html);
             ensureSentinel();
         }
+        function setStatus(msg, retry) {
+            statusEl.innerHTML = '';
+            statusEl.hidden = !msg;
+            if (!msg) return;
+            statusEl.appendChild(document.createTextNode(msg));
+            if (retry) {
+                const b = document.createElement('button');
+                b.type = 'button'; b.textContent = 'Try again';
+                b.addEventListener('click', retry);
+                statusEl.appendChild(b);
+            }
+        }
+
+        // ── Daily recap (AI) ──────────────────────────────────────────
+        // One request per click: the model is never asked on selection or scroll.
+        // A written recap is kept for this browser tab only (sessionStorage).
+        const recaps = new Map();      // iso -> {state, paras, msg, ts, journalsUsed, journalsAllowed}
+        function recapKey(iso) { return 'roamly_ch_recap1:' + UID + ':' + iso; }
+        function recapGet(iso) {
+            let r = recaps.get(iso);
+            if (r) return r;
+            r = { state: 'idle' };
+            try {
+                const o = JSON.parse(sessionStorage.getItem(recapKey(iso)) || 'null');
+                const fresh = o && typeof o.ts === 'number' && (iso !== todayIso || Date.now() - o.ts < RECAP_TTL_TODAY);
+                if (fresh && Array.isArray(o.paras) && o.paras.length) {
+                    r = { state: 'ok', paras: o.paras, ts: o.ts, journalsUsed: o.journalsUsed || 0, journalsAllowed: !!o.journalsAllowed };
+                }
+            } catch (e) {}
+            recaps.set(iso, r);
+            return r;
+        }
+        function recapButton(label) {
+            return '<button type="button" class="lx-ch-ai" data-recap-go>' + svg('spark') + '<span>' + esc(label) + '</span></button>';
+        }
+        function recapHtml(iso) {
+            const r = recapGet(iso);
+            if (r.state === 'busy') {
+                return '<div class="lx-ch-tm-recap-wait" role="status"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><p>Reading your day…</p></div>';
+            }
+            if (r.state === 'ok') {
+                let h = r.paras.map(p => '<p class="lx-ch-tm-recap-text">' + esc(p) + '</p>').join('');
+                h += '<div class="lx-ch-tm-recap-foot"><span>Written by your AI provider from where you went'
+                    + (r.journalsUsed ? ' and ' + esc(plural(r.journalsUsed, 'journal entry', 'journal entries')) : '')
+                    + '. Kept in this tab only.</span><button type="button" class="lx-ch-tm-linkbtn" data-recap-go>Write it again</button></div>';
+                return h;
+            }
+            if (r.state === 'empty') return '<p class="lx-ch-tm-recap-msg">Nothing was recorded on this day, so there is nothing to recap.</p>';
+            if (r.state === 'setup') {
+                return '<p class="lx-ch-tm-recap-msg">Recaps use the AI provider from your AI Ask settings. <a href="/settings/#notifications">Set up AI in Settings</a></p>';
+            }
+            if (r.state === 'error') {
+                return '<div class="lx-ch-tm-recap-row"><p class="lx-ch-tm-recap-msg is-error">' + esc(r.msg || 'Could not write your recap.') + '</p>'
+                    + '<button type="button" class="lx-ch-tm-linkbtn" data-recap-go>Try again</button></div>';
+            }
+            return '<div class="lx-ch-tm-recap-row">' + recapButton('Recap this day')
+                + '<span class="lx-ch-tm-recap-hint">A short written summary of where you went.</span></div>';
+        }
+        function paintRecap(iso) {
+            const rec = byDate.get(iso);
+            const slot = rec && rec.el ? rec.el.querySelector('[data-recap]') : null;
+            if (slot) slot.innerHTML = recapHtml(iso);
+        }
+        function startRecap(iso) {
+            const r = recapGet(iso);
+            if (r.state === 'busy') return;
+            recaps.set(iso, { state: 'busy' });
+            paintRecap(iso);
+            fetch(API, {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF, Accept: 'application/json' },
+                body: JSON.stringify({ action: 'recap', date: iso }),
+            }).then(res => res.json().catch(() => ({})).then(data => ({ ok: res.ok, data: data || {} })))
+              .then(res => {
+                  const data = res.data;
+                  if (res.ok && data.status === 'ok' && Array.isArray(data.summary) && data.summary.length) {
+                      const out = { state: 'ok', paras: data.summary.map(String), ts: Date.now(), journalsUsed: data.journals_used || 0, journalsAllowed: !!data.journals_allowed };
+                      recaps.set(iso, out);
+                      try { sessionStorage.setItem(recapKey(iso), JSON.stringify({ ts: out.ts, paras: out.paras, journalsUsed: out.journalsUsed, journalsAllowed: out.journalsAllowed })); } catch (e) {}
+                  } else if (res.ok && data.status === 'empty') {
+                      recaps.set(iso, { state: 'empty' });
+                  } else if (data.setup) {
+                      recaps.set(iso, { state: 'setup' });
+                  } else {
+                      recaps.set(iso, { state: 'error', msg: data.error || 'Could not write your recap.' });
+                  }
+                  paintRecap(iso);
+              })
+              .catch(() => {
+                  recaps.set(iso, { state: 'error', msg: 'Could not reach Roamly. Check your connection.' });
+                  paintRecap(iso);
+              });
+        }
 
         // ── Loading ───────────────────────────────────────────────────
-        async function fetchPage(before, withStrip) {
-            const qs = new URLSearchParams({ limit: String(PAGE) });
+        async function fetchPage(before, limit) {
+            const qs = new URLSearchParams({ limit: String(limit) });
             if (before) qs.set('before', before);
-            if (withStrip) qs.set('year_strip', '1');
             const r = await fetch(API + '?' + qs.toString(), { credentials: 'same-origin', headers: { Accept: 'application/json' } });
             if (!r.ok) throw new Error('HTTP ' + r.status);
             const data = await r.json();
@@ -348,47 +835,21 @@
             return data;
         }
 
-        async function load(first) {
-            if (loading || (ended && !first) || (failed && !first)) return;
-            loading = true;
+        // Shows one first page (saved or fresh): the part of the old load() after the fetch.
+        function applyFirst(data) {
             const gen = generation;
-            feed.setAttribute('aria-busy', 'true');
-            if (!first) showSkeleton();
-            let data;
-            try {
-                data = await fetchPage(first ? firstBefore : nextBefore, first && !stripReady);
-            } catch (e) {
-                if (gen !== generation) return;
-                loading = false;
-                // Without this the sentinel (re-observed under the error row)
-                // would retry at once, forever, while offline.
-                failed = true;
-                feed.setAttribute('aria-busy', 'false');
-                renderError(first);
-                return;
-            }
-            if (gen !== generation) return;
-            loading = false;
-            failed = false;
             feed.setAttribute('aria-busy', 'false');
             if (typeof data.today === 'string' && parse(data.today)) todayIso = data.today;
-            if (data.activity && !stripReady) renderStrip(data.activity);
-
-            if (first) {
-                feed.innerHTML = '';
-                sentinel = null;
-            } else {
-                clearTransient();
-            }
+            feed.innerHTML = '';
+            sentinel = null;
             nextBefore = (typeof data.next_before === 'string' && parse(data.next_before)) ? data.next_before : null;
             appendDays(data.days);
-            ensureSentinel();   // an empty page appends nothing but must still be able to continue
-            emptyHops = data.days.length ? 0 : emptyHops + 1;
-
+            ensureSentinel();
+            emptyHops = data.days.length ? 0 : 1;
             if (!days.length && !nextBefore) { ended = true; renderEmpty(); afterFirst(); return; }
             if (!nextBefore) { ended = true; renderEnd(); }
-            else if (emptyHops >= MAX_EMPTY_HOPS) { renderMoreButton(); }
-            if (first) afterFirst();
+            else if (emptyHops >= MAX_EMPTY_HOPS) renderMoreButton();
+            afterFirst();
             // The sentinel observer only fires on a change, so a short page
             // that leaves it in view has to ask again itself.
             if (nextBefore && emptyHops < MAX_EMPTY_HOPS) {
@@ -396,8 +857,92 @@
             }
         }
 
-        let firstBefore = null;
-        let pendingTarget = null;      // a day to select once the first page lands
+        function sigOf(list) { try { return JSON.stringify(list); } catch (e) { return String(Math.random()); } }
+
+        async function loadFirst() {
+            const gen = generation;
+            const before = firstBefore;
+            let data;
+            try {
+                data = await fetchPage(before, FIRST_LIMIT);
+            } catch (e) {
+                if (gen !== generation) return;
+                feed.setAttribute('aria-busy', 'false');
+                if (staleShown) setStatus('Couldn’t refresh. These are the days from earlier in this visit.', () => { setStatus(''); loadFirst(); });
+                else renderError(true);
+                return;
+            }
+            if (gen !== generation) return;
+            if (!before) cacheWrite(K_PAGE, data);
+            setStatus('');
+            if (!staleShown) { applyFirst(data); return; }
+            // Fresh data over a saved page: leave the screen alone unless something changed.
+            staleShown = false;
+            if (sigOf(data.days) === staleSig) return;
+            if (feed.scrollTop < 40 && days.length <= data.days.length) {
+                resetState();
+                applyFirst(data);
+            } else {
+                data.days.forEach(d => {
+                    const rec = byDate.get(d.date);
+                    if (rec && sigOf(rec.day) !== sigOf(d)) mountDay(rec, d);
+                });
+            }
+        }
+
+        // Replaces one rendered day in place (the scroll position is untouched).
+        function mountDay(rec, d) {
+            const idx = days.indexOf(rec.day);
+            const tmp = document.createElement('div');
+            tmp.innerHTML = dayHtml(d, idx < 0 ? 0 : idx);
+            const fresh = tmp.firstElementChild;
+            if (!fresh || !rec.el) return;
+            if (readObserver) readObserver.unobserve(rec.el);
+            rec.el.replaceWith(fresh);
+            if (idx >= 0) days[idx] = d;
+            rec.day = d;
+            rec.el = fresh;
+            if (readObserver) readObserver.observe(fresh);
+            markStripDay(d);
+        }
+
+        async function load(first) {
+            if (first) { loadFirst(); return; }
+            if (loading || ended || failed) return;
+            loading = true;
+            const gen = generation;
+            feed.setAttribute('aria-busy', 'true');
+            showSkeleton(2);
+            let data;
+            try {
+                data = await fetchPage(nextBefore, PAGE);
+            } catch (e) {
+                if (gen !== generation) return;
+                loading = false;
+                // Without this the sentinel (re-observed under the error row)
+                // would retry at once, forever, while offline.
+                failed = true;
+                feed.setAttribute('aria-busy', 'false');
+                renderError(false);
+                return;
+            }
+            if (gen !== generation) return;
+            loading = false;
+            failed = false;
+            feed.setAttribute('aria-busy', 'false');
+            if (typeof data.today === 'string' && parse(data.today)) todayIso = data.today;
+            clearTransient();
+            nextBefore = (typeof data.next_before === 'string' && parse(data.next_before)) ? data.next_before : null;
+            appendDays(data.days);
+            ensureSentinel();   // an empty page appends nothing but must still be able to continue
+            emptyHops = data.days.length ? 0 : emptyHops + 1;
+            if (!nextBefore) { ended = true; renderEnd(); }
+            else if (emptyHops >= MAX_EMPTY_HOPS) renderMoreButton();
+            if (nextBefore && emptyHops < MAX_EMPTY_HOPS) {
+                requestAnimationFrame(() => { if (gen === generation && sentinelInView()) load(false); });
+            }
+        }
+
         function afterFirst() {
             const target = pendingTarget;
             pendingTarget = null;
@@ -411,23 +956,28 @@
             select(days[0].date, { scroll: false });
         }
 
-        function reset(before, target) {
+        function resetState() {
             generation += 1;
-            failed = false;
+            failed = false; staleShown = false;
             days = []; byDate.clear();
             nextBefore = null; loading = false; ended = false;
             lastIso = null; lastMonth = ''; emptyHops = 0;
+            if (readObserver) readObserver.disconnect();
+            visibleCards.clear();
+            selected = null;
+        }
+
+        function reset(before, target) {
+            resetState();
             fromLatest = !before;
             firstBefore = before || null;
             pendingTarget = target || null;
-            if (readObserver) readObserver.disconnect();
-            visibleCards.clear();
             latestBtn.hidden = fromLatest;
             feed.innerHTML = '';
             sentinel = null;
-            showSkeleton();
+            showSkeleton(3);
             feed.scrollTop = 0;
-            load(true);
+            loadFirst();
         }
 
         function closestLoaded(iso) {
@@ -493,6 +1043,24 @@
         }
 
         // ── Selection ─────────────────────────────────────────────────
+        let mapTimer = 0;
+        function pinsOf(d) {
+            return (Array.isArray(d.places) ? d.places : [])
+                .filter(p => typeof p.lat === 'number' && typeof p.lon === 'number')
+                .map(p => [p.lon, p.lat]);
+        }
+        function scheduleMap(iso, source) {
+            clearTimeout(mapTimer);
+            const go = () => {
+                const rec = byDate.get(iso);
+                if (!rec || iso !== selected) return;
+                const i = days.indexOf(rec.day);
+                const ctx = [days[i - 1], days[i + 1]].filter(Boolean).map(d => d.date);
+                mapView.showDay(iso, ctx, pinsOf(rec.day));
+            };
+            // Scrolling through the feed must not fire a track request per day passed.
+            if (source === 'scroll') mapTimer = setTimeout(go, 240); else go();
+        }
         function select(iso, opts) {
             opts = opts || {};
             const rec = byDate.get(iso);
@@ -505,9 +1073,7 @@
                 try { CH.setDate(iso, 'timeline'); } catch (e) {}
                 markStripCurrent(iso);
                 updateCaption(iso);
-                const i = days.indexOf(rec.day);
-                const ctx = [days[i - 1], days[i + 1]].filter(Boolean).map(d => d.date);
-                mapView.showDay(iso, ctx, pinsOf(rec.day));
+                scheduleMap(iso, opts.source);
             }
             pinned = opts.source !== 'scroll' && !!opts.scroll;
             if (opts.scroll && rec.el) {
@@ -515,22 +1081,38 @@
                 rec.el.scrollIntoView({ block: 'start', behavior: (opts.instant || reduced()) ? 'auto' : 'smooth' });
             }
         }
-        function pinsOf(d) {
-            return (Array.isArray(d.places) ? d.places : [])
-                .filter(p => typeof p.lat === 'number' && typeof p.lon === 'number')
-                .map(p => [p.lon, p.lat]);
-        }
+        const olderBtn = $('lx-ch-tm-older'), newerBtn = $('lx-ch-tm-newer');
         function updateCaption(iso) {
-            const cap = document.getElementById('lx-ch-map-cap');
-            if (!iso) { cap.hidden = true; return; }
-            document.getElementById('lx-ch-map-date').textContent = fmt(iso, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-            document.getElementById('lx-ch-map-open').href = '/map/?date=' + encodeURIComponent(iso);
+            const cap = $('lx-ch-tm-mapcap');
+            if (!iso) { cap.hidden = true; olderBtn.disabled = newerBtn.disabled = true; return; }
+            $('lx-ch-tm-mapdate').textContent = fmt(iso, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+            $('lx-ch-tm-mapopen').href = '/map/?date=' + encodeURIComponent(iso);
             cap.hidden = false;
+            if (dateInput) { dateInput.value = iso; dateInput.max = todayIso; }
+            const i = days.findIndex(d => d.date === iso);
+            olderBtn.disabled = !(i >= 0 && (i < days.length - 1 || nextBefore));
+            newerBtn.disabled = !(i > 0);
         }
+        function step(dir) {   // +1 = older, -1 = newer
+            const i = days.findIndex(d => d.date === selected);
+            if (i < 0) return;
+            const n = i + dir;
+            if (n >= 0 && n < days.length) select(days[n].date, { scroll: true });
+            if (dir > 0 && n >= days.length - 3 && nextBefore && !loading) load(false);
+        }
+        olderBtn.addEventListener('click', () => step(1));
+        newerBtn.addEventListener('click', () => step(-1));
 
         feed.addEventListener('click', e => {
             const t = e.target;
-            const quiet = t.closest('.lx-ch-quiet-row');
+            if (!t || !t.closest) return;
+            const go = t.closest('[data-recap-go]');
+            if (go) {
+                const day = go.closest('.lx-ch-tm-day');
+                if (day) { select(day.getAttribute('data-date'), { scroll: false }); startRecap(day.getAttribute('data-date')); }
+                return;
+            }
+            const quiet = t.closest('.lx-ch-tm-quiet-row');
             if (quiet) {
                 const list = quiet.nextElementSibling;
                 const open = quiet.getAttribute('aria-expanded') === 'true';
@@ -538,10 +1120,14 @@
                 if (list) list.hidden = open;
                 return;
             }
-            if (t.closest('[data-ch-retry]')) { failed = false; if (days.length) { ended = false; load(false); } else reset(firstBefore, pendingTarget); return; }
+            if (t.closest('[data-ch-retry]')) {
+                failed = false;
+                if (days.length) { ended = false; load(false); } else reset(firstBefore, pendingTarget);
+                return;
+            }
             if (t.closest('[data-ch-more]')) { emptyHops = 0; load(false); return; }
             if (t.closest('a, button')) return;
-            const card = t.closest('.lx-ch-day');
+            const card = t.closest('.lx-ch-tm-day');
             if (card) select(card.getAttribute('data-date'), { scroll: true });
         });
 
@@ -561,18 +1147,30 @@
         });
 
         latestBtn.addEventListener('click', () => reset(null, null));
+        if (dateInput) {
+            dateInput.max = todayIso;
+            dateInput.addEventListener('change', () => {
+                const v = dateInput.value;
+                if (parse(v)) jumpTo(v);
+            });
+        }
+        // The sidebar's jump control and other pages set the day through the shared context.
         CH.onDate((iso, source) => { if (source !== 'timeline' && iso) jumpTo(iso); });
 
         // ── Year strip ────────────────────────────────────────────────
-        const stripEl = document.getElementById('lx-ch-strip');
-        const stripScroll = document.getElementById('lx-ch-strip-scroll');
-        const stripTrack = document.getElementById('lx-ch-strip-track');
+        const stripScroll = $('lx-ch-tm-strip-scroll');
+        const stripTrack = $('lx-ch-tm-strip-track');
         const ticks = new Map();
         let currentTick = null;
+        let stripSig = '';
 
         function renderStrip(activity) {
             const months = Object.keys(activity || {}).filter(k => /^\d{4}-\d{2}$/.test(k)).sort();
             if (!months.length) return;
+            const sig = sigOf(activity);
+            if (sig === stripSig) return;
+            stripSig = sig;
+            const keepLeft = stripReady ? stripScroll.scrollLeft : -1;
             let html = '';
             months.forEach((m, idx) => {
                 const y = +m.slice(0, 4), mo = +m.slice(5, 7);
@@ -584,18 +1182,20 @@
                     const iso = m + '-' + pad(d);
                     if (iso > todayIso) break;
                     const s = +scores[iso] || 0;
-                    ticksHtml += '<span class="lx-ch-tick" data-d="' + iso + '"' + (s ? ' data-s="' + Math.min(4, s) + '"' : '') + ' title="' + esc(fmt(iso, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })) + '"></span>';
+                    ticksHtml += '<span class="lx-ch-tm-tick" data-d="' + iso + '"' + (s ? ' data-s="' + Math.min(4, s) + '"' : '') + ' title="' + esc(fmt(iso, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })) + '"></span>';
                 }
-                html += '<div class="lx-ch-strip-month"><button type="button" class="lx-ch-strip-label" data-month="' + m + '" aria-label="'
+                html += '<div class="lx-ch-tm-strip-month"><button type="button" class="lx-ch-tm-strip-label" data-month="' + m + '" aria-label="'
                     + esc('Jump to ' + fmt(m + '-01', { month: 'long', year: 'numeric' })) + '">' + esc(label) + '</button>'
-                    + '<div class="lx-ch-strip-days" aria-hidden="true">' + ticksHtml + '</div></div>';
+                    + '<div class="lx-ch-tm-strip-days" aria-hidden="true">' + ticksHtml + '</div></div>';
             });
             stripTrack.innerHTML = html;
-            stripTrack.querySelectorAll('.lx-ch-tick').forEach(t => ticks.set(t.getAttribute('data-d'), t));
-            document.getElementById('lx-ch-strip-skel').hidden = true;
+            ticks.clear();
+            currentTick = null;
+            stripTrack.querySelectorAll('.lx-ch-tm-tick').forEach(t => ticks.set(t.getAttribute('data-d'), t));
+            $('lx-ch-tm-strip-skel').hidden = true;
             stripScroll.hidden = false;
             stripReady = true;
-            stripScroll.scrollLeft = stripScroll.scrollWidth;
+            stripScroll.scrollLeft = keepLeft >= 0 ? keepLeft : stripScroll.scrollWidth;
             days.forEach(markStripDay);
             if (selected) markStripCurrent(selected);
         }
@@ -613,6 +1213,19 @@
                 const left = stripScroll.scrollLeft + (tr.left - sr.left) - sr.width / 2;
                 try { stripScroll.scrollTo({ left: left, behavior: reduced() ? 'auto' : 'smooth' }); }
                 catch (e) { stripScroll.scrollLeft = left; }
+            }
+        }
+        async function loadStrip() {
+            const saved = cacheRead(K_STRIP);
+            if (saved && saved.activity) renderStrip(saved.activity);
+            try {
+                const r = await fetch(API + '?only=strip', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const data = await r.json();
+                if (data && data.activity) { cacheWrite(K_STRIP, data); renderStrip(data.activity); }
+            } catch (e) {
+                // The strip is a convenience; the feed works without it.
+                if (!stripReady) $('lx-ch-tm-strip').hidden = true;
             }
         }
         let drag = null, dragged = false;
@@ -642,7 +1255,7 @@
         stripScroll.addEventListener('pointercancel', endDrag);
         stripScroll.addEventListener('click', e => {
             if (dragged) { e.preventDefault(); return; }
-            const label = e.target.closest('.lx-ch-strip-label');
+            const label = e.target.closest('.lx-ch-tm-strip-label');
             if (label) {
                 const m = label.getAttribute('data-month');
                 const p = m.split('-');
@@ -650,50 +1263,121 @@
                 jumpTo(last > todayIso ? todayIso : last);
                 return;
             }
-            const tick = e.target.closest('.lx-ch-tick');
+            const tick = e.target.closest('.lx-ch-tm-tick');
             if (tick) jumpTo(tick.getAttribute('data-d'));
         });
 
+        // ── Map panel: collapse (desktop), sheet (phone) ──────────────
+        const mapCol = $('lx-ch-tm-mapcol');
+        const mapToggle = $('lx-ch-tm-maptoggle');
+        const mapFab = $('lx-ch-tm-mapfab');
+        let mapHidden = lsGet('roamly_ch_map_hidden', '0') === '1';
+        function applyMapHidden() {
+            root.classList.toggle('is-map-collapsed', mapHidden);
+            mapToggle.setAttribute('aria-expanded', mapHidden ? 'false' : 'true');
+            mapToggle.textContent = mapHidden ? 'Show map' : 'Hide map';
+        }
+        applyMapHidden();
+        mapToggle.addEventListener('click', () => {
+            mapHidden = !mapHidden;
+            lsSet('roamly_ch_map_hidden', mapHidden ? '1' : '0');
+            applyMapHidden();
+            if (!mapHidden) requestAnimationFrame(() => { mapView.ensure(); mapView.refresh(); });
+        });
+        function openSheet() {
+            root.classList.add('is-map-open');
+            mapFab.setAttribute('aria-expanded', 'true');
+            requestAnimationFrame(() => { mapView.ensure(); mapView.refresh(); const c = $('lx-ch-tm-mapclose'); if (c) c.focus({ preventScroll: true }); });
+        }
+        function closeSheet() {
+            if (!root.classList.contains('is-map-open')) return;
+            root.classList.remove('is-map-open');
+            mapFab.setAttribute('aria-expanded', 'false');
+            closeSettings(false);
+            try { mapFab.focus({ preventScroll: true }); } catch (e) {}
+        }
+        mapFab.addEventListener('click', openSheet);
+        $('lx-ch-tm-mapclose').addEventListener('click', closeSheet);
+        const onBreak = () => { if (!phoneMQ.matches) root.classList.remove('is-map-open'); mapView.ensure(); mapView.refresh(); };
+        if (phoneMQ.addEventListener) phoneMQ.addEventListener('change', onBreak);
+        else if (phoneMQ.addListener) phoneMQ.addListener(onBreak);
+
         // ── Map ───────────────────────────────────────────────────────
-        const mapView = createMap();
-        bindHandle();
-
-        function bindHover(el) {
-            if (!window.matchMedia || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
-            el.addEventListener('mouseenter', () => mapView.hover(el.getAttribute('data-date')));
-            el.addEventListener('mouseleave', () => mapView.hover(null));
-        }
-
-        function bindHandle() {
-            const btn = document.getElementById('lx-ch-maphandle');
-            const text = document.getElementById('lx-ch-maphandle-text');
-            let hidden = false;
-            try { hidden = localStorage.getItem('roamly_ch_map_hidden') === '1'; } catch (e) {}
-            function apply() {
-                root.classList.toggle('is-map-collapsed', hidden);
-                btn.setAttribute('aria-expanded', hidden ? 'false' : 'true');
-                text.textContent = hidden ? 'Show map' : 'Hide map';
+        // The facade lets the feed talk to the map before MapLibre exists: the
+        // map is only built once its column is actually on screen (a hidden
+        // 0px container is how a map ends up blank).
+        const mapView = (function () {
+            let impl = null, pending = null;
+            function visible() { return mapCol.offsetHeight > 40 && mapCol.offsetWidth > 40; }
+            function ensure() {
+                if (impl || !visible()) return;
+                impl = createMap();
+                if (pending) impl.showDay(pending[0], pending[1], pending[2]);
             }
-            apply();
-            btn.addEventListener('click', () => {
-                hidden = !hidden;
-                try { localStorage.setItem('roamly_ch_map_hidden', hidden ? '1' : '0'); } catch (e) {}
-                apply();
-                if (!hidden) requestAnimationFrame(() => mapView.refresh());
-            });
+            return {
+                showDay(iso, ctx, pins) { pending = [iso, ctx, pins]; if (impl) impl.showDay(iso, ctx, pins); else ensure(); },
+                ensure: ensure,
+                refresh() { if (impl) impl.refresh(); },
+                setBasemaps(list) { basemapList = list; if (impl) impl.basemapsChanged(); },
+            };
+        })();
+
+        // Basemap list: rendered into the page as #roamly-basemaps when the
+        // view provides it; else the copy saved from the last visit; always
+        // revalidated through ?meta=1 (an admin may have switched some on or off).
+        let basemapList = null;
+        let metaInline = false;
+        try {
+            const el = document.getElementById('roamly-basemaps');
+            const list = el ? JSON.parse(el.textContent) : null;
+            if (Array.isArray(list) && list.length) { basemapList = list; metaInline = true; }
+        } catch (e) {}
+        if (!basemapList) {
+            try {
+                const o = JSON.parse(lsGet('roamly_ch_bm1', 'null'));
+                if (o && Array.isArray(o.list) && o.list.length) basemapList = o.list;
+            } catch (e) {}
         }
+        async function loadMeta() {
+            if (metaInline) return;
+            try {
+                const r = await fetch(API + '?meta=1', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const data = await r.json();
+                if (data && Array.isArray(data.basemaps) && data.basemaps.length) {
+                    let stored = '';
+                    try { stored = JSON.stringify({ list: data.basemaps }); } catch (e) {}
+                    if (stored) lsSet('roamly_ch_bm1', stored);
+                    mapView.setBasemaps(data.basemaps);
+                }
+            } catch (e) { /* the theme's default basemap stays */ }
+        }
+
+        let closeSettings = function () {};
 
         function createMap() {
-            const holder = document.getElementById('lx-ch-map');
-            const col = document.getElementById('lx-ch-mapcol');
-            const note = document.getElementById('lx-ch-map-note');
-            const noop = { showDay() {}, hover() {}, refresh() {} };
-            function setNote(msg) { note.textContent = msg || ''; note.hidden = !msg; }
+            const holder = $('lx-ch-tm-map');
+            const note = $('lx-ch-tm-mapnote');
+            const noop = { showDay() {}, refresh() {}, basemapsChanged() {} };
+            function setNote(msg, actions) {
+                note.innerHTML = '';
+                note.hidden = !msg;
+                if (!msg) return;
+                note.appendChild(document.createTextNode(msg));
+                (actions || []).forEach(a => {
+                    const b = document.createElement('button');
+                    b.type = 'button'; b.textContent = a[0];
+                    b.addEventListener('click', a[1]);
+                    note.appendChild(b);
+                });
+            }
             function fallback(msg) {
-                holder.innerHTML = '<div class="lx-ch-map-fallback">' + esc(msg) + '</div>';
+                const vb = $('lx-ch-tm-vsbtn');
+                if (vb) vb.hidden = true;
+                holder.innerHTML = '<div class="lx-ch-tm-map-fallback">' + esc(msg) + '</div>';
                 return noop;
             }
-            if (!window.maplibregl || !holder) return fallback('The map couldn’t load on this device.');
+            if (!window.maplibregl) return fallback('The map couldn’t load on this device.');
 
             // MapLibre can't read CSS variables, and color-mix()/oklch() output
             // doesn't always parse, so paint each token into a pixel and read it back.
@@ -719,110 +1403,236 @@
             };
             const light = document.documentElement.getAttribute('data-theme') === 'light';
             const qs = root.getAttribute('data-tile-qs') || '';
-            const tiles = 'https://basemaps.cartocdn.com/' + (light ? 'light_all' : 'dark_all') + '/{z}/{x}/{y}.png' + qs;
+
+            // View options. The first four use the classic map's own keys, so a
+            // choice made there carries over (and back).
+            const opts = {
+                globe: lsGet('roamly_globe', 'off') === 'on',
+                gradient: lsGet('roamly_speed_gradient', 'on') === 'on',
+                suspect: lsGet('roamly_hide_suspect', 'on') === 'on',
+                ctx: lsGet('roamly_ch_tm_ctx', 'on') === 'on',
+                pins: lsGet('roamly_ch_tm_pins', 'on') === 'on',
+            };
+            const OPT_KEY = { globe: 'roamly_globe', gradient: 'roamly_speed_gradient', suspect: 'roamly_hide_suspect', ctx: 'roamly_ch_tm_ctx', pins: 'roamly_ch_tm_pins' };
+
+            // Basemaps
+            function themeStyle() {
+                const flavor = light ? 'light_all' : 'dark_all';
+                return {
+                    version: 8,
+                    sources: { base: { type: 'raster', tiles: ['https://basemaps.cartocdn.com/' + flavor + '/{z}/{x}/{y}.png' + qs], tileSize: 256, maxzoom: 19, attribution: '© OpenStreetMap contributors © CARTO' } },
+                    layers: [{ id: 'base', type: 'raster', source: 'base' }],
+                };
+            }
+            function findBase(id) { return (basemapList || []).find(b => b && b.id === id) || null; }
+            function defaultId() {
+                const want = light ? 'Streets' : 'Dark';
+                if (findBase(want)) return want;
+                return basemapList && basemapList.length ? basemapList[0].id : null;
+            }
+            function chosenId() {
+                const saved = lsGet('roamly_map_tile_style', '');
+                if (saved && findBase(saved)) return saved;
+                return defaultId();
+            }
+            let appliedId = null;       // null = the built-in theme style
+            function styleForInit() {
+                const id = chosenId();
+                const b = id && findBase(id);
+                if (b && b.style) { appliedId = id; return b.style; }
+                return themeStyle();
+            }
 
             let map;
             try {
                 map = new maplibregl.Map({
                     container: holder,
-                    style: {
-                        version: 8,
-                        sources: { base: { type: 'raster', tiles: [tiles], tileSize: 256, maxzoom: 19, attribution: '© OpenStreetMap contributors © CARTO' } },
-                        layers: [{ id: 'base', type: 'raster', source: 'base' }],
-                    },
+                    style: styleForInit(),
                     center: [0, 25], zoom: 1.3,
                     attributionControl: false,
                     dragRotate: false, pitchWithRotate: false, touchPitch: false,
-                    cooperativeGestures: false,
                 });
             } catch (e) {
                 return fallback('The map needs WebGL, which this browser has turned off.');
             }
             try {
-                map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-                map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+                map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
+                map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
                 if (map.touchZoomRotate && map.touchZoomRotate.disableRotation) map.touchZoomRotate.disableRotation();
             } catch (e) {}
 
             const EMPTY = { type: 'FeatureCollection', features: [] };
             let ready = false;
-            let pending = null;          // last showDay call before the style loaded
             let seq = 0;
             let current = null;          // {iso, ctx, pins}
-            let hoverIso = null, hoverTimer = 0;
-            const cache = new Map();     // iso -> FeatureCollection
+            let dayFc = EMPTY, ctxFc = EMPTY;
+            let tileErrors = 0;
+            let dirty = true;            // a day was asked for before the style was up
+            const raw = new Map();       // iso -> /api/track/ payload
             const inflight = new Map();  // iso -> Promise
 
-            map.on('load', () => {
-                map.addSource('ctx', { type: 'geojson', data: EMPTY });
-                map.addSource('hover', { type: 'geojson', data: EMPTY });
-                map.addSource('day', { type: 'geojson', data: EMPTY });
-                map.addSource('pins', { type: 'geojson', data: EMPTY });
+            function applyProjection() {
+                try { map.setProjection({ type: opts.globe ? 'globe' : 'mercator' }); } catch (e) {}
+            }
+            function addLayers() {
+                ['ctx', 'day', 'pins'].forEach(id => { if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY }); });
                 const lineLayout = { 'line-join': 'round', 'line-cap': 'round' };
-                map.addLayer({ id: 'ctx-line', type: 'line', source: 'ctx', layout: lineLayout,
+                if (!map.getLayer('ctx-line')) map.addLayer({ id: 'ctx-line', type: 'line', source: 'ctx', layout: lineLayout,
                     paint: { 'line-color': C.primary, 'line-width': 2, 'line-opacity': 0.35 } });
-                map.addLayer({ id: 'hover-line', type: 'line', source: 'hover', layout: lineLayout,
-                    paint: { 'line-color': C.ink, 'line-width': 2.5, 'line-opacity': 0.6 } });
-                map.addLayer({ id: 'day-casing', type: 'line', source: 'day', layout: lineLayout,
+                if (!map.getLayer('day-casing')) map.addLayer({ id: 'day-casing', type: 'line', source: 'day', layout: lineLayout,
                     paint: { 'line-color': C.bg, 'line-width': 6.5, 'line-opacity': 0.85 } });
-                map.addLayer({ id: 'day-line', type: 'line', source: 'day', layout: lineLayout,
-                    paint: { 'line-color': C.primary, 'line-width': 3.5 } });
-                map.addLayer({ id: 'pins', type: 'circle', source: 'pins',
+                if (!map.getLayer('day-line')) map.addLayer({ id: 'day-line', type: 'line', source: 'day', layout: lineLayout,
+                    paint: { 'line-color': ['coalesce', ['get', 'color'], C.primary], 'line-width': 3.5 } });
+                if (!map.getLayer('pins')) map.addLayer({ id: 'pins', type: 'circle', source: 'pins',
                     paint: { 'circle-radius': 5, 'circle-color': C.bg, 'circle-stroke-color': C.primary, 'circle-stroke-width': 2 } });
+            }
+            function setData(id, data) { const s = ready ? map.getSource(id) : null; if (s) s.setData(data); }
+            function pushData() {
+                setData('day', dayFc);
+                setData('ctx', opts.ctx ? ctxFc : EMPTY);
+                setData('pins', pinsFc());
+            }
+            function pinsFc() {
+                if (!opts.pins || !current) return EMPTY;
+                return { type: 'FeatureCollection', features: current.pins.map(c => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: c } })) };
+            }
+
+            // The style (re)loads on first paint and after every basemap swap;
+            // our layers live in it, so each load puts them back.
+            map.on('style.load', () => {
                 ready = true;
-                if (pending) { const p = pending; pending = null; showDay(p.iso, p.ctx, p.pins); }
+                addLayers();
+                applyProjection();
+                tileErrors = 0;
+                setNote('');
+                if (current && (dirty || !raw.has(current.iso))) showDay(current.iso, current.ctx, current.pins);
+                else { derive(); pushData(); }
             });
-            map.on('error', () => {});  // a failed tile must not reach the page's error toast
+            map.on('error', ev => {
+                const err = ev && ev.error;
+                if (!ready && !ev.sourceId && !(ev.tile)) {
+                    // The style itself failed (a style URL, a revoked key): use the theme's own.
+                    if (appliedId !== null) useThemeStyle();
+                    return;
+                }
+                if (ev && (ev.sourceId === 'day' || ev.sourceId === 'ctx' || ev.sourceId === 'pins')) return;
+                // A 404 is a tile the basemap simply does not have (past its coverage).
+                if (err && err.status !== 404 && err.status !== 204) tileErrors += 1;
+            });
+            map.on('idle', () => {
+                if (tileErrors >= 3) {
+                    setNote('This basemap’s tiles didn’t load.', [['Try again', () => reloadStyle()], ['Use the default', () => chooseBasemap(defaultId())]]);
+                } else if (note && !note.hidden && /basemap/.test(note.textContent) && tileErrors === 0) setNote('');
+            });
 
-            function src(id) { return ready ? map.getSource(id) : null; }
-            function setData(id, data) { const s = src(id); if (s) s.setData(data); }
+            function swapStyle(style) {
+                ready = false;
+                tileErrors = 0;
+                setNote('');
+                try { map.setStyle(style, { diff: false }); } catch (e) { fallback('The map couldn’t load on this device.'); }
+            }
+            function useThemeStyle() { appliedId = null; swapStyle(themeStyle()); }
+            function reloadStyle() {
+                const b = appliedId && findBase(appliedId);
+                swapStyle(b && b.style ? b.style : themeStyle());
+            }
+            function chooseBasemap(id) {
+                const b = id && findBase(id);
+                if (!b || !b.style) { useThemeStyle(); renderSettings(); return; }
+                lsSet('roamly_map_tile_style', id);
+                appliedId = id;
+                swapStyle(b.style);
+                renderSettings();
+            }
+            function basemapsChanged() {
+                renderSettings();
+                const id = chosenId();
+                if (!id || id === appliedId) return;
+                // Nothing saved and the theme's own style is up: it already is the default basemap.
+                if (!lsGet('roamly_map_tile_style', '') && appliedId === null && id === defaultId()) { appliedId = id; return; }
+                const b = findBase(id);
+                if (b && b.style) { appliedId = id; swapStyle(b.style); }
+            }
 
-            function toCollection(payload) {
+            // Tracks
+            function toFeatures(payload, gradient) {
                 const features = [];
                 const devices = payload && Array.isArray(payload.devices) ? payload.devices : [];
                 devices.forEach(dev => {
-                    const pts = Array.isArray(dev.points) ? dev.points : [];
+                    const pts = (Array.isArray(dev.points) ? dev.points : []).filter(p => {
+                        const c = p && p.c;
+                        if (!Array.isArray(c) || typeof c[0] !== 'number' || typeof c[1] !== 'number') return false;
+                        return !(opts.suspect && p.flag === 'suspect');
+                    });
+                    if (gradient) {
+                        for (let i = 1; i < pts.length; i++) {
+                            const a = pts[i - 1], b = pts[i];
+                            const dt = (typeof a.ts === 'number' && typeof b.ts === 'number') ? b.ts - a.ts : 0;
+                            if (dt > TRACK_GAP_S) continue;
+                            let sp = typeof b.speed === 'number' && b.speed > 0 ? b.speed : 0;
+                            if (!sp && dt > 0) sp = metres(a.c, b.c) / dt;
+                            features.push({ type: 'Feature', properties: { color: speedColor(sp) }, geometry: { type: 'LineString', coordinates: [a.c, b.c] } });
+                        }
+                        return;
+                    }
                     let line = [], lastTs = null;
                     const flush = () => { if (line.length >= 2) features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: line } }); line = []; };
                     pts.forEach(p => {
-                        const c = p && p.c;
-                        if (!Array.isArray(c) || typeof c[0] !== 'number' || typeof c[1] !== 'number') return;
                         if (lastTs != null && typeof p.ts === 'number' && p.ts - lastTs > TRACK_GAP_S) flush();
-                        line.push([c[0], c[1]]);
+                        line.push([p.c[0], p.c[1]]);
                         if (typeof p.ts === 'number') lastTs = p.ts;
                     });
                     flush();
                 });
                 return { type: 'FeatureCollection', features: features };
             }
-            function trackFor(iso) {
-                if (cache.has(iso)) return Promise.resolve(cache.get(iso));
+            function metres(a, b) {
+                const R = 6371000, rad = Math.PI / 180;
+                const dLat = (b[1] - a[1]) * rad, dLon = (b[0] - a[0]) * rad;
+                const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * rad) * Math.cos(b[1] * rad) * Math.sin(dLon / 2) ** 2;
+                return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+            }
+            // The classic map's speed ramp (m/s), a functional encoding: blue, green, amber, red.
+            function speedColor(v) {
+                const stops = [[1, [59, 130, 246]], [5, [34, 197, 94]], [15, [245, 158, 11]], [30, [239, 68, 68]]];
+                if (v <= 1) return C.primary;
+                if (v >= 30) return 'rgb(239,68,68)';
+                for (let i = 1; i < stops.length; i++) {
+                    if (v <= stops[i][0]) {
+                        const lo = stops[i - 1], hi = stops[i], t = (v - lo[0]) / (hi[0] - lo[0]);
+                        const m = k => Math.round(lo[1][k] + (hi[1][k] - lo[1][k]) * t);
+                        return 'rgb(' + m(0) + ',' + m(1) + ',' + m(2) + ')';
+                    }
+                }
+                return C.primary;
+            }
+            function trackRaw(iso) {
+                if (raw.has(iso)) return Promise.resolve(raw.get(iso));
                 if (inflight.has(iso)) return inflight.get(iso);
                 const url = '/api/track/?start_date=' + encodeURIComponent(iso) + '&end_date=' + encodeURIComponent(iso);
                 const p = fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
                     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
                     .then(json => {
-                        const fc = toCollection(json);
-                        cache.set(iso, fc);
-                        if (cache.size > TRACK_CACHE) cache.delete(cache.keys().next().value);
-                        return fc;
+                        raw.set(iso, json);
+                        if (raw.size > TRACK_CACHE) raw.delete(raw.keys().next().value);
+                        return json;
                     })
                     .finally(() => inflight.delete(iso));
                 inflight.set(iso, p);
                 return p;
             }
-            function visible() { return col.offsetHeight > 40 && col.offsetWidth > 40; }
+            function visible() { return mapCol.offsetHeight > 40 && mapCol.offsetWidth > 40; }
             function fit(fc, pins) {
-                if (!visible()) return;
+                if (!visible()) return false;
                 let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, n = 0;
                 const add = c => { minX = Math.min(minX, c[0]); maxX = Math.max(maxX, c[0]); minY = Math.min(minY, c[1]); maxY = Math.max(maxY, c[1]); n++; };
                 fc.features.forEach(f => f.geometry.coordinates.forEach(add));
                 (pins || []).forEach(add);
                 if (!n) return false;
                 const dur = reduced() ? 0 : 600;
-                const w = col.offsetWidth, h = col.offsetHeight;
-                const phone = w < 520 || h < 360;
-                const padding = phone ? { top: 52, bottom: 20, left: 20, right: 20 } : { top: 76, bottom: 40, left: 40, right: 56 };
+                const w = mapCol.offsetWidth, h = mapCol.offsetHeight;
+                const small = w < 520 || h < 360;
+                const padding = small ? { top: 64, bottom: 24, left: 24, right: 24 } : { top: 76, bottom: 44, left: 44, right: 56 };
                 if (padding.top + padding.bottom >= h - 40 || padding.left + padding.right >= w - 40) {
                     padding.top = padding.bottom = padding.left = padding.right = 8;
                 }
@@ -832,71 +1642,151 @@
                 } catch (e) {}
                 return true;
             }
+            function derive() {
+                const day = current && raw.get(current.iso);
+                dayFc = day ? toFeatures(day, opts.gradient) : EMPTY;
+                const feats = [];
+                if (current) current.ctx.forEach(d => { if (raw.has(d)) feats.push.apply(feats, toFeatures(raw.get(d), false).features); });
+                ctxFc = { type: 'FeatureCollection', features: feats };
+            }
             function showDay(iso, ctx, pins) {
                 current = { iso: iso, ctx: ctx || [], pins: pins || [] };
-                if (!ready) { pending = current; return; }
                 const mine = ++seq;
-                setData('pins', { type: 'FeatureCollection', features: current.pins.map(c => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: c } })) });
-                setData('hover', EMPTY);
+                if (!ready) { dirty = true; return; }   // style.load picks it up once the style is up
+                dirty = false;
                 setNote('');
-                trackFor(iso).then(fc => {
+                if (raw.has(iso)) derive(); else { dayFc = EMPTY; ctxFc = EMPTY; }
+                pushData();
+                trackRaw(iso).then(() => {
                     if (mine !== seq) return;
-                    setData('day', fc);
-                    const fitted = fit(fc, current.pins);
-                    if (!fc.features.length) setNote(current.pins.length ? 'No track recorded, showing where you stopped' : 'No track recorded on this day');
+                    derive();
+                    pushData();
+                    const fitted = fit(dayFc, current.pins);
+                    if (!dayFc.features.length) setNote(current.pins.length ? 'No track recorded, showing where you stopped' : 'No track recorded on this day');
                     else if (fitted === false) setNote('');
+                    if (opts.ctx && current.ctx.length) {
+                        Promise.all(current.ctx.map(d => trackRaw(d).catch(() => null))).then(() => {
+                            if (mine !== seq) return;
+                            derive(); pushData();
+                        });
+                    }
                 }).catch(() => {
                     if (mine !== seq) return;
-                    setData('day', EMPTY);
-                    setNote('This day’s track didn’t load');
-                });
-                Promise.all(current.ctx.map(d => trackFor(d).catch(() => EMPTY))).then(list => {
-                    if (mine !== seq) return;
-                    setData('ctx', { type: 'FeatureCollection', features: [].concat.apply([], list.map(fc => fc.features)) });
+                    setNote('This day’s track didn’t load', [['Try again', () => { if (current) showDay(current.iso, current.ctx, current.pins); }]]);
                 });
             }
-            function hover(iso) {
-                clearTimeout(hoverTimer);
-                hoverIso = iso;
-                if (!iso || (current && iso === current.iso)) { setData('hover', EMPTY); return; }
-                hoverTimer = setTimeout(() => {
-                    trackFor(iso).then(fc => { if (hoverIso === iso) setData('hover', fc); }).catch(() => {});
-                }, 150);
-            }
-            let rz = 0;
             function refresh() {
-                cancelAnimationFrame(rz);
-                rz = requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
                     try { map.resize(); } catch (e) {}
-                    if (current && cache.has(current.iso)) fit(cache.get(current.iso), current.pins);
+                    if (current && raw.has(current.iso)) fit(dayFc, current.pins);
                 });
             }
             if ('ResizeObserver' in window) {
                 let was = visible();
+                let rz = 0;
                 new ResizeObserver(() => {
                     const now = visible();
                     cancelAnimationFrame(rz);
                     rz = requestAnimationFrame(() => {
                         try { map.resize(); } catch (e) {}
-                        // Re-fit only when the map comes back into view (phone handle).
-                        if (now && !was && current && cache.has(current.iso)) fit(cache.get(current.iso), current.pins);
+                        // Re-fit only when the map comes back into view (the sheet, the collapse).
+                        if (now && !was && current && raw.has(current.iso)) fit(dayFc, current.pins);
                         was = now;
                     });
-                }).observe(col);
+                }).observe(mapCol);
             }
-            return { showDay: showDay, hover: hover, refresh: refresh };
+
+            // ── View settings popover ─────────────────────────────────
+            const vs = $('lx-ch-tm-vs'), vsBtn = $('lx-ch-tm-vsbtn'), vsBm = $('lx-ch-tm-vs-bm');
+            const GROUPS = { 'built-in': '', free: 'Free', mapbox: 'Mapbox', maptiler: 'MapTiler', thunderforest: 'Thunderforest', stadia: 'Stadia', custom: 'Custom' };
+            function renderSettings() {
+                const list = (basemapList || []).filter(b => b && b.id);
+                if (!list.length) { vsBm.innerHTML = '<p class="lx-ch-tm-vs-sub">Using the default basemap.</p>'; return; }
+                const curId = appliedId || chosenId();
+                let html = '', group = null;
+                list.forEach((b, i) => {
+                    if (b.group !== group) {
+                        if (group !== null) html += '</div>';
+                        const name = GROUPS[b.group] !== undefined ? GROUPS[b.group] : b.group;
+                        if (i > 0 && name) html += '<div class="lx-ch-tm-vs-sub">' + esc(name) + '</div>';
+                        html += '<div class="lx-ch-tm-bms">';
+                        group = b.group;
+                    }
+                    html += '<button type="button" class="lx-ch-tm-bm" data-bm="' + esc(b.id) + '" aria-pressed="' + (b.id === curId ? 'true' : 'false') + '" title="' + esc(b.name || b.label || b.id) + '">' + esc(b.label || b.name || b.id) + '</button>';
+                });
+                vsBm.innerHTML = html + '</div>';
+            }
+            function paintSwitches() {
+                vs.querySelectorAll('[data-opt]').forEach(b => b.setAttribute('aria-checked', opts[b.getAttribute('data-opt')] ? 'true' : 'false'));
+            }
+            closeSettings = function (focusBtn) {
+                if (vs.hidden) return;
+                vs.hidden = true;
+                vsBtn.setAttribute('aria-expanded', 'false');
+                if (focusBtn) vsBtn.focus();
+            };
+            function openSettings() {
+                renderSettings(); paintSwitches();
+                vs.hidden = false;
+                vsBtn.setAttribute('aria-expanded', 'true');
+                const first = vs.querySelector('[aria-pressed="true"]') || vs.querySelector('button');
+                if (first) first.focus({ preventScroll: true });
+            }
+            vsBtn.addEventListener('click', () => { if (vs.hidden) openSettings(); else closeSettings(false); });
+            vs.addEventListener('click', e => {
+                const bm = e.target.closest ? e.target.closest('[data-bm]') : null;
+                if (bm) { chooseBasemap(bm.getAttribute('data-bm')); return; }
+                const sw = e.target.closest ? e.target.closest('[data-opt]') : null;
+                if (!sw) return;
+                const k = sw.getAttribute('data-opt');
+                opts[k] = !opts[k];
+                lsSet(OPT_KEY[k], opts[k] ? 'on' : 'off');
+                paintSwitches();
+                if (k === 'globe') applyProjection();
+                else if (k === 'ctx' && opts.ctx && current) showDay(current.iso, current.ctx, current.pins);
+                else { derive(); pushData(); }
+            });
+            vs.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeSettings(true); } });
+            document.addEventListener('mousedown', e => {
+                if (vs.hidden || !e.target.closest) return;
+                if (!e.target.closest('#lx-ch-tm-vs') && !e.target.closest('#lx-ch-tm-vsbtn')) closeSettings(false);
+            });
+            renderSettings(); paintSwitches();
+
+            return { showDay: showDay, refresh: refresh, basemapsChanged: basemapsChanged };
         }
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && root.classList.contains('is-map-open') && $('lx-ch-tm-vs').hidden) closeSheet();
+        });
 
         // ── Start ─────────────────────────────────────────────────────
-        const initial = CH.selectedDate;
+        // A day to land on: ?date= (the sidebar's jump), ?d= (the shared context), else the latest.
+        let initial = null;
+        try {
+            const sp = new URLSearchParams(location.search);
+            initial = sp.get('date') || sp.get('d');
+        } catch (e) {}
+        if (!(initial && parse(initial))) initial = CH.selectedDate;
         pendingTarget = initial && parse(initial) ? initial : null;
+        if (pendingTarget && pendingTarget > todayIso) pendingTarget = null;
+        let cached = null;
         if (pendingTarget) {
-            // Load from the latest unless the day is far back; the first page
-            // covers the last 30 days with data, so a recent ?d= lands in it.
+            // Start the feed at that day unless it is within the first screen.
             const back = dayDiff(todayIso, pendingTarget);
-            if (back > 45) { fromLatest = false; firstBefore = addDays(pendingTarget, 1); latestBtn.hidden = false; }
+            if (back > 7) { fromLatest = false; firstBefore = addDays(pendingTarget, 1); latestBtn.hidden = false; }
         }
-        load(true);
+        if (!firstBefore) cached = cacheRead(K_PAGE);
+        if (cached && Array.isArray(cached.days) && cached.days.length) {
+            staleShown = true;
+            staleSig = sigOf(cached.days);
+            applyFirst(cached);
+        }
+        loadFirst();
+        loadStrip();
+        loadMeta();
+        // Build the map after the first paint, only if its column is on screen.
+        if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(() => mapView.ensure(), { timeout: 800 });
+        else setTimeout(() => mapView.ensure(), 60);
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
