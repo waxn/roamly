@@ -23,7 +23,7 @@ def _page_context(request, layout, page):
     user's chosen basemap, so it gets the same server-resolved list the map and
     adventures pages render as #roamly-basemaps (keys and the CARTO instance
     key already in the URLs)."""
-    if (layout, page) != ('chronicle', 'home'):
+    if (layout, page) not in (('chronicle', 'home'), ('chronicle', 'timeline')):
         return {}
     try:
         from .views import _user_basemaps
