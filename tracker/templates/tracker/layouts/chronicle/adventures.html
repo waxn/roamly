@@ -1,0 +1,1866 @@
+{% extends "tracker/base.html" %}
+{% block title %}Adventures - Roamly{% endblock %}
+{% comment %}
+Chronicle's Adventures page: your journeys as a dated logbook, newest first.
+Same data and endpoints as the classic page (tracker/templates/tracker/adventures.html):
+  GET  /api/trips/                 list (incl. `preview`, a ~200 point [lat,lng] polyline we draw as the cover sketch)
+  POST /api/trips/create/          create
+  /api/trips/<id>/...              the map view (detail, update, toggle-public, places, timeline, blurbs,
+                                   milestones, comments, members, visits, delete)
+  GET/POST /api/tripblog/          trip blogs box
+An entry's title opens /adventures/<id>/edit/ (the editor); its "Map" action opens the full-screen map view
+with the journal / details / people / share panel, exactly the classic flow. Context: `devices`.
+Class prefix lx-ch-adv-; every selector is scoped to the chronicle layout.
+{% endcomment %}
+
+{% block extra_css %}
+/* ═══ Chronicle · Adventures ═══ */
+html[data-layout="chronicle"] .lx-ch-adv [hidden],
+html[data-layout="chronicle"] .lx-ch-adv-full [hidden],
+html[data-layout="chronicle"] .lx-ch-adv-modal-overlay[hidden] { display: none !important; }
+
+/* Page head */
+html[data-layout="chronicle"] .lx-ch-adv-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+html[data-layout="chronicle"] .lx-ch-adv-head .lx-ch-lede { margin-top: 8px; }
+
+/* Controls (shared by toolbar, modals, panel) */
+html[data-layout="chronicle"] .lx-ch-adv-input {
+    width: 100%; min-height: 36px; padding: 7px 11px;
+    background: var(--bg-input); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--r-2, 0px);
+    font-family: var(--font-body); font-size: 14px; line-height: 1.35;
+    transition: border-color 120ms ease-out;
+}
+html[data-layout="chronicle"] textarea.lx-ch-adv-input { resize: vertical; min-height: 84px; line-height: 1.55; }
+html[data-layout="chronicle"] .lx-ch-adv-input::placeholder { color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-adv-input:hover { border-color: var(--border-strong); }
+html[data-layout="chronicle"] .lx-ch-adv-input:focus { outline: none; border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-adv-input:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-adv-input--sm { min-height: 32px; padding: 4px 9px; font-size: 13px; }
+html[data-layout="chronicle"] .lx-ch-adv-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 13px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-field .lx-ch-adv-opt { color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-adv-btn-sm { min-height: 32px; padding: 0 11px; font-size: 13px; }
+html[data-layout="chronicle"] .lx-ch-btn--danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+html[data-layout="chronicle"] .lx-ch-btn--danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+html[data-layout="chronicle"] .lx-ch-btn--quiet { border-color: transparent; }
+html[data-layout="chronicle"] .lx-ch-adv-note { font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-err { font-size: 13px; color: var(--danger); min-height: 1em; margin-top: 6px; }
+
+/* Toolbar */
+html[data-layout="chronicle"] .lx-ch-adv-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 28px 0 0; }
+html[data-layout="chronicle"] .lx-ch-adv-search { flex: 0 1 220px; min-width: 150px; }
+html[data-layout="chronicle"] .lx-ch-adv-bar .lx-ch-adv-select { width: auto; flex: 0 0 auto; max-width: 100%; }
+html[data-layout="chronicle"] .lx-ch-adv-sort { margin-left: auto; }
+html[data-layout="chronicle"] .lx-ch-adv-count { margin-top: 12px; min-height: 18px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* Trip blogs (a quiet strip above the chronicle) */
+html[data-layout="chronicle"] .lx-ch-adv-blogs { margin-top: 32px; }
+html[data-layout="chronicle"] .lx-ch-adv-blogs .lx-ch-section-head { align-items: center; }
+html[data-layout="chronicle"] .lx-ch-adv-blogs-lede { margin: 0 0 4px; max-width: 62ch; font-size: 14px; line-height: 1.5; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-blogform { margin: 12px 0 8px; padding: 16px 0 4px; border-top: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-adv-grid3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; }
+html[data-layout="chronicle"] .lx-ch-adv-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+html[data-layout="chronicle"] .lx-ch-adv-check { display: flex; gap: 8px; align-items: center; margin-top: 12px; font-size: 13px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-check input { accent-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-adv-formactions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+html[data-layout="chronicle"] .lx-ch-adv-blogrow { align-items: center; gap: 12px; }
+html[data-layout="chronicle"] .lx-ch-adv-blogthumb { flex: none; width: 40px; height: 40px; object-fit: cover; border-radius: var(--r-2, 0px); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-adv-blogname { display: block; font-family: var(--font-display); font-size: 17px; line-height: 1.25; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+html[data-layout="chronicle"] .lx-ch-adv-blogsub { display: block; font-size: 13px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
+html[data-layout="chronicle"] .lx-ch-adv-blogrow .lx-ch-row-main { white-space: normal; }
+html[data-layout="chronicle"] .lx-ch-adv-blogrow .lx-ch-badge { flex: none; }
+
+/* ── The chronicle: rail, year rows, entries ── */
+html[data-layout="chronicle"] .lx-ch-adv-list { margin-top: 8px; }
+html[data-layout="chronicle"] .lx-ch-adv-entry,
+html[data-layout="chronicle"] .lx-ch-adv-yearrow { display: grid; grid-template-columns: 72px 24px minmax(0, 1fr); column-gap: 8px; }
+html[data-layout="chronicle"] .lx-ch-adv-entry.is-new { animation: lx-ch-in 200ms ease-out both; }
+html[data-layout="chronicle"] .lx-ch-adv-rail { position: relative; }
+html[data-layout="chronicle"] .lx-ch-adv-rail::before { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); }
+html[data-layout="chronicle"] .lx-ch-adv-list > :first-child .lx-ch-adv-rail::before { top: 16px; }
+html[data-layout="chronicle"] .lx-ch-adv-list > :last-child .lx-ch-adv-rail::before { bottom: auto; height: 44px; }
+html[data-layout="chronicle"] .lx-ch-adv-list > :first-child:last-child .lx-ch-adv-rail::before { top: 36px; height: 0; }
+html[data-layout="chronicle"] .lx-ch-adv-node {
+    position: absolute; left: 50%; top: 36px; width: 11px; height: 11px; margin-left: -5.5px;
+    border-radius: 50%; background: var(--bg); border: 1.5px solid var(--text-muted);
+}
+html[data-layout="chronicle"] .lx-ch-adv-entry[data-status="active"] .lx-ch-adv-node { background: var(--primary); border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-adv-entry[data-status="planned"] .lx-ch-adv-node { border-style: dashed; border-color: var(--primary); }
+
+html[data-layout="chronicle"] .lx-ch-adv-yearrow { align-items: end; padding-top: 28px; }
+html[data-layout="chronicle"] .lx-ch-adv-list > .lx-ch-adv-yearrow:first-child { padding-top: 12px; }
+html[data-layout="chronicle"] .lx-ch-adv-year { grid-column: 1; justify-self: end; padding-right: 0; font-family: var(--font-display); font-size: 17px; font-weight: 500; line-height: 1.2; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-adv-yearcount { grid-column: 3; padding-bottom: 2px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-adv-yearrow .lx-ch-adv-rail { grid-column: 2; grid-row: 1; align-self: stretch; }
+html[data-layout="chronicle"] .lx-ch-adv-yearrow .lx-ch-adv-year { grid-row: 1; }
+
+html[data-layout="chronicle"] .lx-ch-adv-when { padding-top: 24px; text-align: right; }
+html[data-layout="chronicle"] .lx-ch-adv-day { display: block; font-family: var(--font-display); font-size: 36px; line-height: 1; font-weight: 500; letter-spacing: -0.02em; color: var(--text); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-adv-mon { display: block; margin-top: 4px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+
+html[data-layout="chronicle"] .lx-ch-adv-body {
+    position: relative; min-width: 0;
+    display: grid; grid-template-columns: minmax(0, 1fr) 208px; column-gap: 24px; align-items: start;
+    padding: 24px 12px 26px; margin: 0 -12px;
+    border-bottom: 1px solid var(--border);
+    border-radius: var(--r-2, 0px);
+    transition: background-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-adv-body:hover { background: color-mix(in srgb, var(--text) 3%, transparent); }
+html[data-layout="chronicle"] .lx-ch-adv-main { min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-adv-kick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 22px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-adv-status { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-body); font-size: 12px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-status[data-s="active"] { color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-adv-status[data-s="active"]::before { background: var(--primary); border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-adv-status[data-s="planned"]::before { border-style: dashed; border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-adv-name { margin: 4px 0 0; font-family: var(--font-display); font-size: 26px; line-height: 1.15; font-weight: 500; letter-spacing: -0.015em; color: var(--text); text-transform: none; overflow-wrap: anywhere; }
+html[data-layout="chronicle"] .lx-ch-adv-name a { color: inherit; text-decoration: none; }
+html[data-layout="chronicle"] .lx-ch-adv-name a::after { content: ''; position: absolute; inset: 0; border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-adv-name a:focus-visible { outline: none; }
+html[data-layout="chronicle"] .lx-ch-adv-name a:focus-visible::after { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
+html[data-layout="chronicle"] .lx-ch-adv-desc { margin: 6px 0 0; max-width: 56ch; font-family: var(--font-display); font-size: 16px; line-height: 1.55; color: var(--text-muted); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-transform: none; }
+html[data-layout="chronicle"] .lx-ch-adv-facts { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 14px; font-size: 13px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-fact b { font-family: var(--font-mono); font-size: 13px; font-weight: 400; color: var(--text); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-adv-acts { position: relative; z-index: 2; display: flex; flex-wrap: wrap; gap: 4px 4px; margin: 12px 0 0 -8px; }
+html[data-layout="chronicle"] .lx-ch-adv-act {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 8px;
+    background: none; border: 0; border-radius: var(--r-2, 0px); cursor: pointer;
+    font-family: var(--font-body); font-size: 13px; font-weight: 500; color: var(--text-muted); text-decoration: none;
+    transition: color 120ms ease-out, background-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-adv-act:hover { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-adv-act:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-adv-act svg, html[data-layout="chronicle"] .lx-ch-adv-ico { flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+
+html[data-layout="chronicle"] .lx-ch-adv-cover {
+    position: relative; width: 208px; height: 140px; overflow: hidden; pointer-events: none;
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--r-3, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-adv-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+html[data-layout="chronicle"] .lx-ch-adv-sketch { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+html[data-layout="chronicle"] .lx-ch-adv-sketch .ln { fill: none; stroke: var(--primary); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+html[data-layout="chronicle"] .lx-ch-adv-sketch .a { fill: var(--bg-elevated); stroke: var(--primary); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+html[data-layout="chronicle"] .lx-ch-adv-sketch .b { fill: var(--primary); stroke: none; }
+html[data-layout="chronicle"] .lx-ch-adv-cover-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); }
+
+html[data-layout="chronicle"] .lx-ch-adv-skel { display: grid; grid-template-columns: 72px 24px minmax(0, 1fr); column-gap: 8px; }
+html[data-layout="chronicle"] .lx-ch-adv-skel > div { padding: 28px 0; border-bottom: 1px solid var(--border); grid-column: 3; }
+html[data-layout="chronicle"] .lx-ch-adv-empty { grid-column: 1 / -1; }
+
+/* ── Modals (create, settings, post) ── */
+html[data-layout="chronicle"] .lx-ch-adv-modal-overlay { position: fixed; inset: 0; z-index: 3000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.55); }
+html[data-layout="chronicle"] .lx-ch-adv-modal {
+    width: 100%; max-width: 520px; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain;
+    padding: 24px; background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: var(--r-4, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-adv-modal--wide { max-width: 760px; }
+html[data-layout="chronicle"] .lx-ch-adv-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+html[data-layout="chronicle"] .lx-ch-adv-modal-title { margin: 0; font-family: var(--font-display); font-size: 22px; line-height: 1.2; font-weight: 500; color: var(--text); text-transform: none; }
+html[data-layout="chronicle"] .lx-ch-adv-x { flex: none; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; cursor: pointer; border-radius: var(--r-2, 0px); color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-x:hover { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-adv-x:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-adv-x svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; }
+html[data-layout="chronicle"] .lx-ch-adv-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+html[data-layout="chronicle"] .lx-ch-adv-stack { display: flex; flex-direction: column; gap: 12px; }
+html[data-layout="chronicle"] .lx-ch-adv-modal-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 20px; }
+html[data-layout="chronicle"] .lx-ch-adv-modal-foot .grp { display: flex; gap: 8px; }
+html[data-layout="chronicle"] .lx-ch-adv-sect { margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); font-family: var(--font-display); font-size: 16px; font-weight: 500; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-adv-sect:first-child { margin-top: 0; }
+
+/* ── Full-screen map view ── */
+html[data-layout="chronicle"] .lx-ch-adv-full { position: fixed; inset: 0; z-index: 2000; background: var(--bg); --lx-adv-clear: 0px; --lx-adv-clearl: 412px; }
+html[data-layout="chronicle"] .lx-ch-adv-full.side-right { --lx-adv-clear: 412px; --lx-adv-clearl: 0px; }
+html[data-layout="chronicle"] #trip-map { position: absolute; inset: 0; width: 100%; height: 100%; }
+html[data-layout="chronicle"] #trip-map-loading-bar { position: absolute; top: 0; left: 0; right: 0; height: 2px; z-index: 20; overflow: hidden; display: none; pointer-events: none; }
+html[data-layout="chronicle"] #trip-map-loading-bar.active { display: block; }
+html[data-layout="chronicle"] #trip-map-loading-bar::after { content: ''; position: absolute; top: 0; left: -60%; width: 60%; height: 100%; background: var(--primary); animation: lx-ch-adv-sweep 1.4s infinite cubic-bezier(0.4, 0, 0.2, 1); }
+@keyframes lx-ch-adv-sweep { 0% { left: -60%; } 100% { left: 160%; } }
+html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-bottom-right { right: var(--lx-adv-clear); }
+html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-bottom-left { left: var(--lx-adv-clearl); }
+html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-group { background: var(--bg); border: 1px solid var(--border); box-shadow: none; border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-attrib a { color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-popup-content { background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-2, 0px); padding: 8px 12px; font-family: var(--font-body); font-size: 13px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); }
+html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-popup-tip { border-top-color: var(--bg-elevated); border-bottom-color: var(--bg-elevated); }
+html[data-layout="chronicle"] .lx-ch-adv-pop-t { font-weight: 600; }
+html[data-layout="chronicle"] .lx-ch-adv-pop-s { margin-top: 2px; font-size: 12px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-style { position: absolute; top: 16px; right: calc(16px + var(--lx-adv-clear)); z-index: 10; }
+html[data-layout="chronicle"] .lx-ch-adv-style.lx-ch-seg { background: var(--bg); }
+html[data-layout="chronicle"] #adv-map-info { position: absolute; bottom: 24px; right: calc(64px + var(--lx-adv-clear)); z-index: 10; padding: 6px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-pill, 999px); font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); pointer-events: none; display: none; }
+html[data-layout="chronicle"] .lx-ch-adv-hint { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 12; display: none; padding: 8px 16px; background: var(--primary); color: var(--on-primary, #fff); border-radius: var(--r-pill, 999px); font-size: 13px; font-weight: 500; white-space: nowrap; pointer-events: none; }
+html[data-layout="chronicle"] .lx-ch-adv-hint.active { display: block; }
+html[data-layout="chronicle"] .lx-ch-adv-hint + .lx-ch-adv-hint { top: 56px; }
+html[data-layout="chronicle"] .lx-ch-adv-backfloat { position: absolute; top: 16px; left: 16px; z-index: 11; }
+
+html[data-layout="chronicle"] .lx-ch-adv-panel {
+    position: absolute; left: 16px; top: 16px; bottom: 16px; width: 380px; z-index: 10;
+    display: flex; flex-direction: column; overflow: hidden;
+    background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--r-3, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-adv-full.side-right .lx-ch-adv-panel { left: auto; right: 16px; }
+html[data-layout="chronicle"] .lx-ch-adv-phead { flex: none; padding: 16px 16px 12px; }
+html[data-layout="chronicle"] .lx-ch-adv-ptitle-row { display: flex; align-items: center; gap: 4px; }
+html[data-layout="chronicle"] .lx-ch-adv-ptitle { flex: 1; min-width: 0; margin: 0; font-family: var(--font-display); font-size: 22px; line-height: 1.2; font-weight: 500; letter-spacing: -0.01em; color: var(--text); text-transform: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-adv-pmeta { margin-top: 4px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-adv-tabs { flex: none; display: flex; padding: 0 8px; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-adv-tab { position: relative; flex: 1; min-height: 40px; padding: 0 4px; background: none; border: 0; cursor: pointer; font-family: var(--font-body); font-size: 14px; font-weight: 500; color: var(--text-muted); transition: color 150ms ease-out; }
+html[data-layout="chronicle"] .lx-ch-adv-tab::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--primary); transform: scaleX(0); transition: transform 180ms var(--lx-ch-ease); }
+html[data-layout="chronicle"] .lx-ch-adv-tab:hover { color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-adv-tab[aria-selected="true"] { color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-adv-tab[aria-selected="true"]::after { transform: scaleX(1); }
+html[data-layout="chronicle"] .lx-ch-adv-tab:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -4px; }
+html[data-layout="chronicle"] .lx-ch-adv-tabpanel { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 16px; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+html[data-layout="chronicle"] .lx-ch-adv-tabpanel:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
+html[data-layout="chronicle"] .lx-ch-adv-sec { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 24px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); font-family: var(--font-display); font-size: 16px; font-weight: 500; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-adv-sec:first-child { margin-top: 0; }
+html[data-layout="chronicle"] .lx-ch-adv-link { padding: 4px 6px; margin: -4px -6px; background: none; border: 0; cursor: pointer; border-radius: var(--r-1, 0px); font-family: var(--font-body); font-size: 13px; font-weight: 500; color: var(--link); }
+html[data-layout="chronicle"] .lx-ch-adv-link:hover { text-decoration: underline; }
+html[data-layout="chronicle"] .lx-ch-adv-link:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-adv-link input { display: none; }
+
+html[data-layout="chronicle"] .lx-ch-adv-compose-btn { display: block; width: 100%; padding: 10px 12px; margin-bottom: 16px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--r-2, 0px); text-align: left; cursor: pointer; font-family: var(--font-display); font-size: 15px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-compose-btn:hover { border-color: var(--border-strong); }
+html[data-layout="chronicle"] .lx-ch-adv-compose-btn:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-adv-ev { display: block; width: 100%; padding: 12px 0; background: none; border: 0; border-bottom: 1px solid var(--border); text-align: left; font: inherit; color: var(--text); }
+html[data-layout="chronicle"] button.lx-ch-adv-ev { cursor: pointer; transition: background-color 120ms ease-out; }
+html[data-layout="chronicle"] button.lx-ch-adv-ev:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] button.lx-ch-adv-ev:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
+html[data-layout="chronicle"] .lx-ch-adv-ev-t { display: block; font-family: var(--font-display); font-size: 16px; line-height: 1.3; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-adv-ev-p { display: block; margin-top: 2px; font-size: 13px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-adv-ev-m { display: block; margin-top: 4px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-adv-ms { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-adv-ms-mark { flex: none; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-strong); border-radius: 50%; font-size: 16px; line-height: 1; }
+html[data-layout="chronicle"] .lx-ch-adv-ms-body { flex: 1; min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-adv-ms-t { font-size: 14px; font-weight: 600; text-transform: none; overflow-wrap: anywhere; }
+html[data-layout="chronicle"] .lx-ch-adv-ms-d { margin-top: 2px; font-size: 13px; color: var(--text-muted); text-transform: none; overflow-wrap: anywhere; }
+html[data-layout="chronicle"] .lx-ch-adv-ms-date { margin-top: 2px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-del { flex: none; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; cursor: pointer; border-radius: var(--r-1, 0px); color: var(--text-muted); font-size: 16px; line-height: 1; }
+html[data-layout="chronicle"] .lx-ch-adv-del:hover { color: var(--danger); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-adv-del:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-adv-msform { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-adv-msform .row { display: flex; gap: 8px; }
+html[data-layout="chronicle"] .lx-ch-adv-more { margin-top: 12px; text-align: center; }
+html[data-layout="chronicle"] .lx-ch-adv-photos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+html[data-layout="chronicle"] .lx-ch-adv-photos a { display: block; border-radius: var(--r-1, 0px); overflow: hidden; }
+html[data-layout="chronicle"] .lx-ch-adv-photos img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+html[data-layout="chronicle"] .lx-ch-adv-pin { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 4px; background: none; border: 0; border-bottom: 1px solid var(--border); cursor: pointer; text-align: left; font: inherit; font-size: 14px; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-adv-pin:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-adv-pin-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+html[data-layout="chronicle"] .lx-ch-adv-pin-meta { flex: none; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-pinwrap { display: flex; align-items: center; }
+html[data-layout="chronicle"] .lx-ch-adv-pinwrap .lx-ch-adv-pin { flex: 1; min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-adv-pinwrap.is-focus .lx-ch-adv-pin { background: var(--primary-soft); }
+html[data-layout="chronicle"] .lx-ch-adv-placeform { margin: 8px 0; padding: 12px; border: 1px solid var(--primary); border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-adv-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+html[data-layout="chronicle"] .lx-ch-adv-tbl th { padding: 4px 0; text-align: left; font-weight: 500; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-adv-tbl td { padding: 6px 0; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-adv-tbl td:last-child, html[data-layout="chronicle"] .lx-ch-adv-tbl th:last-child { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-adv-member { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+html[data-layout="chronicle"] .lx-ch-adv-avatar { flex: none; width: 28px; height: 28px; border-radius: 50%; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--primary) 16%, var(--bg-elevated)); color: var(--text); font-family: var(--font-display); font-size: 13px; font-weight: 600; }
+html[data-layout="chronicle"] .lx-ch-adv-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+html[data-layout="chronicle"] .lx-ch-adv-member-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+html[data-layout="chronicle"] .lx-ch-adv-member-role { flex: none; font-size: 12px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+html[data-layout="chronicle"] .lx-ch-adv-row .pre { flex: none; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-row .lbl { flex: 1; font-size: 13px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-pininput { width: 110px; letter-spacing: 0.1em; flex: none; }
+html[data-layout="chronicle"] .lx-ch-adv-saved { margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+
+/* Post view / compose */
+html[data-layout="chronicle"] .lx-ch-adv-postmeta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; font-size: 13px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-postmeta strong { color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-adv-postbody { max-width: 62ch; margin-bottom: 16px; font-family: var(--font-display); font-size: 17px; line-height: 1.7; color: var(--text); overflow-wrap: anywhere; text-transform: none; }
+html[data-layout="chronicle"] .lx-ch-adv-postbody h3 { margin: 16px 0 4px; font-size: 20px; line-height: 1.3; font-weight: 600; text-transform: none; }
+html[data-layout="chronicle"] .lx-ch-adv-postbody h4 { margin: 12px 0 4px; font-size: 16px; font-weight: 600; color: var(--text-muted); text-transform: none; }
+html[data-layout="chronicle"] .lx-ch-adv-postbody em { color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-postbody hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
+html[data-layout="chronicle"] .lx-ch-adv-postphotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 16px; }
+html[data-layout="chronicle"] .lx-ch-adv-postphotos img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; border-radius: var(--r-1, 0px); }
+html[data-layout="chronicle"] .lx-ch-adv-postloc { display: flex; align-items: center; gap: 6px; margin-bottom: 16px; font-size: 13px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-comments { padding-top: 16px; border-top: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-adv-comment { display: flex; gap: 8px; padding: 4px 0; font-size: 13px; }
+html[data-layout="chronicle"] .lx-ch-adv-comment b { flex: none; font-weight: 600; }
+html[data-layout="chronicle"] .lx-ch-adv-comment span { flex: 1; min-width: 0; color: var(--text-muted); overflow-wrap: anywhere; }
+html[data-layout="chronicle"] .lx-ch-adv-fmt { display: flex; gap: 2px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-adv-fmt button { min-width: 32px; min-height: 32px; padding: 0 8px; background: none; border: 0; border-radius: var(--r-1, 0px); cursor: pointer; font-family: var(--font-body); font-size: 14px; font-weight: 600; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-fmt button:hover { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-adv-fmt button:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-adv-compose-ta { width: 100%; min-height: 220px; padding: 0; background: transparent; border: 0; color: var(--text); font-family: var(--font-display); font-size: 17px; line-height: 1.7; resize: vertical; display: block; }
+html[data-layout="chronicle"] .lx-ch-adv-compose-ta:focus { outline: none; }
+html[data-layout="chronicle"] .lx-ch-adv-compose-ta::placeholder { color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-adv-compose-foot { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-adv-compose-loc { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-adv-toolbtn { flex: none; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; border-radius: var(--r-2, 0px); cursor: pointer; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-toolbtn:hover { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-adv-toolbtn:focus-visible, html[data-layout="chronicle"] .lx-ch-adv-toolbtn:focus-within { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-adv-toolbtn svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+html[data-layout="chronicle"] .lx-ch-adv-toolbtn input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+html[data-layout="chronicle"] .lx-ch-adv-photopreview { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+html[data-layout="chronicle"] .lx-ch-adv-photopreview img { width: 44px; height: 44px; object-fit: cover; border-radius: var(--r-1, 0px); }
+
+/* ── Tablet / phone ── */
+@media (max-width: 1100px) {
+    html[data-layout="chronicle"] .lx-ch-adv-body { grid-template-columns: minmax(0, 1fr) 168px; column-gap: 16px; }
+    html[data-layout="chronicle"] .lx-ch-adv-cover { width: 168px; height: 120px; }
+    html[data-layout="chronicle"] .lx-ch-adv-entry, html[data-layout="chronicle"] .lx-ch-adv-yearrow, html[data-layout="chronicle"] .lx-ch-adv-skel { grid-template-columns: 56px 20px minmax(0, 1fr); column-gap: 6px; }
+    html[data-layout="chronicle"] .lx-ch-adv-day { font-size: 30px; }
+}
+@media (max-width: 768px) {
+    html[data-layout="chronicle"] .lx-ch-adv-sort { margin-left: 0; }
+    html[data-layout="chronicle"] .lx-ch-adv-search { flex: 1 1 100%; }
+    html[data-layout="chronicle"] .lx-ch-adv-input { min-height: 44px; font-size: 16px; }
+    html[data-layout="chronicle"] .lx-ch-adv-input--sm { min-height: 40px; }
+    html[data-layout="chronicle"] .lx-ch-adv-grid3, html[data-layout="chronicle"] .lx-ch-adv-grid2 { grid-template-columns: 1fr; }
+    html[data-layout="chronicle"] .lx-ch-adv-head .lx-ch-btn { width: 100%; }
+    html[data-layout="chronicle"] .lx-ch-adv-entry, html[data-layout="chronicle"] .lx-ch-adv-yearrow, html[data-layout="chronicle"] .lx-ch-adv-skel { display: block; }
+    html[data-layout="chronicle"] .lx-ch-adv-when, html[data-layout="chronicle"] .lx-ch-adv-rail { display: none; }
+    html[data-layout="chronicle"] .lx-ch-adv-year { padding: 0; display: inline-block; font-size: 20px; color: var(--text); }
+    html[data-layout="chronicle"] .lx-ch-adv-yearrow { display: flex; align-items: baseline; justify-content: space-between; padding-top: 24px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    html[data-layout="chronicle"] .lx-ch-adv-yearrow .lx-ch-adv-rail { display: none; }
+    html[data-layout="chronicle"] .lx-ch-adv-body { display: flex; flex-direction: column; gap: 14px; padding: 20px 8px 22px; margin: 0 -8px; }
+    html[data-layout="chronicle"] .lx-ch-adv-cover { order: -1; width: 100%; height: auto; aspect-ratio: 16 / 9; }
+    html[data-layout="chronicle"] .lx-ch-adv-name { font-size: 24px; }
+    html[data-layout="chronicle"] .lx-ch-adv-act { min-height: 44px; padding: 0 12px; }
+    html[data-layout="chronicle"] .lx-ch-adv-acts { margin-left: -12px; }
+    html[data-layout="chronicle"] .lx-ch-adv-skel > div { padding: 20px 0; }
+    html[data-layout="chronicle"] .lx-ch-adv-modal-overlay { align-items: flex-end; padding: 0; }
+    html[data-layout="chronicle"] .lx-ch-adv-modal { max-width: none; max-height: 92vh; max-height: 92dvh; border-radius: var(--r-4, 0px) var(--r-4, 0px) 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px)); }
+    html[data-layout="chronicle"] .lx-ch-adv-modal-foot { flex-wrap: wrap; }
+    html[data-layout="chronicle"] .lx-ch-adv-x { width: 44px; height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-adv-full { --lx-adv-clear: 0px !important; --lx-adv-clearl: 0px !important; }
+    html[data-layout="chronicle"] .lx-ch-adv-panel, html[data-layout="chronicle"] .lx-ch-adv-full.side-right .lx-ch-adv-panel { left: 0; right: 0; top: auto; bottom: 0; width: 100%; height: 56vh; height: 56dvh; border-width: 1px 0 0; border-radius: var(--r-4, 0px) var(--r-4, 0px) 0 0; }
+    html[data-layout="chronicle"] .lx-ch-adv-tab { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-adv-style { top: 10px; right: 10px; }
+    html[data-layout="chronicle"] #adv-map-info { bottom: calc(56dvh + 12px); right: 12px; }
+    html[data-layout="chronicle"] .lx-ch-adv-backfloat { top: 10px; left: 10px; }
+    html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-bottom-right { bottom: 56dvh; }
+    html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-bottom-left { bottom: 56dvh; }
+    html[data-layout="chronicle"] .lx-ch-adv-hint { top: 56px; max-width: calc(100% - 24px); white-space: normal; text-align: center; }
+    html[data-layout="chronicle"] .lx-ch-adv-hint + .lx-ch-adv-hint { top: 100px; }
+    html[data-layout="chronicle"] .lx-ch-adv-del { width: 44px; height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-adv-pin { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-adv-link { padding: 12px 8px; margin: -12px -8px; }
+    html[data-layout="chronicle"] .lx-ch-adv-toolbtn { width: 44px; height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-adv-fmt button { min-height: 40px; min-width: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    html[data-layout="chronicle"] .lx-ch-adv-entry.is-new { animation: none; }
+    html[data-layout="chronicle"] .lx-ch-adv-tab::after { transition: none; }
+    html[data-layout="chronicle"] #trip-map-loading-bar::after { animation: none; left: 0; width: 100%; opacity: 0.5; }
+}
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { animation: none; }
+{% endblock %}
+
+{% block content %}
+<div class="lx-ch-page lx-ch-adv" id="lx-ch-adv" data-tile-qs="{{ CARTO_TILE_QS }}">
+    <span hidden>{% csrf_token %}</span>
+    <header class="lx-ch-adv-head">
+        <div>
+            <span class="lx-ch-kicker" id="adv-kicker">Your journeys</span>
+            <h1 class="lx-ch-title">Adventures</h1>
+            <p class="lx-ch-lede">An adventure pulls the points you recorded between two dates into a story you can edit, plan and share. Newest first.</p>
+        </div>
+        <button type="button" class="lx-ch-btn lx-ch-btn--primary" data-act="new">New adventure</button>
+    </header>
+
+    {% comment %} Trip blogs: shared travel blogs that friends and family follow through share links
+       (see trip_blog_views). Listed here because a trip is an adventure; the featured one also gets
+       a "Trip" item in the nav. {% endcomment %}
+    <section class="lx-ch-section lx-ch-adv-blogs" id="trip-blogs" aria-labelledby="tbl-title">
+        <div class="lx-ch-section-head">
+            <h2 class="lx-ch-section-title" id="tbl-title">Trip blogs</h2>
+            <button type="button" class="lx-ch-btn lx-ch-adv-btn-sm" id="tbl-new-btn" data-act="blog-new" aria-expanded="false" aria-controls="tbl-form">New trip blog</button>
+        </div>
+        <p class="lx-ch-adv-blogs-lede">Post photos, videos and stories from the road. Family and friends follow with a link.</p>
+        <form class="lx-ch-adv-blogform" id="tbl-form" hidden novalidate>
+            <div class="lx-ch-adv-grid3">
+                <label class="lx-ch-adv-field">Name<input class="lx-ch-adv-input" name="name" maxlength="200" required placeholder="Around the world 2027"></label>
+                <label class="lx-ch-adv-field">Starts<input class="lx-ch-adv-input" type="date" name="start_date" required></label>
+                <label class="lx-ch-adv-field">Ends <span class="lx-ch-adv-opt">(optional)</span><input class="lx-ch-adv-input" type="date" name="end_date"></label>
+            </div>
+            <label class="lx-ch-adv-check"><input type="checkbox" name="share_location" checked> Show my city and a rough spot (about 1 km) to followers</label>
+            <div class="lx-ch-adv-formactions">
+                <button class="lx-ch-btn lx-ch-adv-btn-sm" type="button" id="tbl-cancel" data-act="blog-cancel">Cancel</button>
+                <button class="lx-ch-btn lx-ch-btn--primary lx-ch-adv-btn-sm" type="submit" id="tbl-submit">Create trip blog</button>
+            </div>
+        </form>
+        <div id="tbl-list" role="list"></div>
+    </section>
+
+    <div class="lx-ch-adv-bar" role="search">
+        <input type="search" class="lx-ch-adv-input lx-ch-adv-search" id="adv-search" placeholder="Search adventures" aria-label="Search adventures" autocomplete="off">
+        <div class="lx-ch-adv-chips" id="adv-chips" role="group" aria-label="Filter adventures" style="display:contents">
+            <button type="button" class="lx-ch-chip is-active" data-act="set-filter" data-filter="all" aria-pressed="true">All</button>
+            <button type="button" class="lx-ch-chip" data-act="set-filter" data-filter="active" aria-pressed="false">Active</button>
+            <button type="button" class="lx-ch-chip" data-act="set-filter" data-filter="public" aria-pressed="false">Public</button>
+            <button type="button" class="lx-ch-chip" data-act="set-filter" data-filter="week" aria-pressed="false">This week</button>
+            <button type="button" class="lx-ch-chip" data-act="set-filter" data-filter="month" aria-pressed="false">This month</button>
+        </div>
+        <select class="lx-ch-adv-input lx-ch-adv-select" id="adv-device-filter" aria-label="Filter by device">
+            <option value="">All devices</option>
+            {% for device in devices %}
+            <option value="{{ device.name|default:device.device_id }}">{{ device.name|default:device.device_id }}</option>
+            {% endfor %}
+        </select>
+        <select class="lx-ch-adv-input lx-ch-adv-select lx-ch-adv-sort" id="adv-sort" aria-label="Sort adventures">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="points">Most points</option>
+        </select>
+    </div>
+    <div class="lx-ch-adv-count" id="adv-count" role="status" aria-live="polite"></div>
+
+    <div class="lx-ch-adv-list" id="trips-list" aria-busy="true" aria-label="Adventures, newest first">
+        <div class="lx-ch-adv-skel" aria-hidden="true"><div><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div><div class="skeleton lx-ch-skel-line is-short"></div></div></div>
+        <div class="lx-ch-adv-skel" aria-hidden="true"><div><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div><div class="skeleton lx-ch-skel-line is-short"></div></div></div>
+        <div class="lx-ch-adv-skel" aria-hidden="true"><div><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div></div></div>
+    </div>
+</div>
+
+<!-- ── Create adventure ── -->
+<div class="lx-ch-adv-modal-overlay" id="create-modal-overlay" data-modal hidden>
+    <div class="lx-ch-adv-modal" role="dialog" aria-modal="true" aria-labelledby="create-title">
+        <div class="lx-ch-adv-modal-head">
+            <h2 class="lx-ch-adv-modal-title" id="create-title">New adventure</h2>
+            <button type="button" class="lx-ch-adv-x" data-act="close-create" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
+        <div class="lx-ch-adv-presets" role="group" aria-label="Quick date ranges">
+            <button type="button" class="lx-ch-chip" data-act="preset" data-preset="today">Today</button>
+            <button type="button" class="lx-ch-chip" data-act="preset" data-preset="yesterday">Yesterday</button>
+            <button type="button" class="lx-ch-chip" data-act="preset" data-preset="week">This week</button>
+            <button type="button" class="lx-ch-chip" data-act="preset" data-preset="month">This month</button>
+            <button type="button" class="lx-ch-chip" data-act="preset" data-preset="since7">Last 7 days</button>
+            <button type="button" class="lx-ch-chip" data-act="preset" data-preset="since30">Last 30 days</button>
+            <button type="button" class="lx-ch-chip" data-act="preset" data-preset="open">From today, no end</button>
+        </div>
+        <div class="lx-ch-adv-stack">
+            <div class="lx-ch-adv-grid2" style="grid-template-columns: 2fr 1fr;">
+                <label class="lx-ch-adv-field">Name<input type="text" id="trip-name" class="lx-ch-adv-input" placeholder="Morning ride, Alps trip" maxlength="200"></label>
+                <label class="lx-ch-adv-field">Device
+                    <select id="trip-device" class="lx-ch-adv-input">
+                        {% for device in devices %}
+                        <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
+                        {% empty %}
+                        <option value="">No devices yet</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
+            <div class="lx-ch-adv-grid2">
+                <label class="lx-ch-adv-field">Start date<input type="date" id="trip-start" class="lx-ch-adv-input" required></label>
+                <label class="lx-ch-adv-field">End date <span class="lx-ch-adv-opt">(optional)</span><input type="date" id="trip-end" class="lx-ch-adv-input"></label>
+            </div>
+            <label class="lx-ch-adv-field">Description <span class="lx-ch-adv-opt">(optional)</span><input type="text" id="trip-description" class="lx-ch-adv-input" placeholder="A few words about this adventure"></label>
+            {% if not devices %}<p class="lx-ch-adv-note">An adventure is built from a device's recorded points. Add a device in <a href="{% url 'tracker:settings' %}">Settings</a> first.</p>{% endif %}
+        </div>
+        <div class="lx-ch-adv-modal-foot">
+            <span></span>
+            <div class="grp">
+                <button type="button" class="lx-ch-btn" data-act="close-create">Cancel</button>
+                <button type="button" class="lx-ch-btn lx-ch-btn--primary" data-act="create-submit" id="create-submit"{% if not devices %} disabled{% endif %}>Create adventure</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Full-screen map view ── -->
+<div id="trip-fullscreen" class="lx-ch-adv-full" role="dialog" aria-modal="true" aria-labelledby="sidebar-trip-name" hidden>
+    <div id="trip-map"></div>
+    <div id="trip-map-loading-bar"></div>
+    <div class="lx-ch-adv-hint" id="place-hint" role="status">Click the map to drop a pin. Esc cancels.</div>
+    <div class="lx-ch-adv-hint" id="blurb-pin-hint" role="status">Click the map to pin this post. Esc cancels.</div>
+
+    <div class="lx-ch-seg lx-ch-adv-style" role="group" aria-label="Map style">
+        <button type="button" data-act="map-style" data-style="Streets" aria-pressed="false">Streets</button>
+        <button type="button" data-act="map-style" data-style="Dark" aria-pressed="false">Dark</button>
+        <button type="button" data-act="map-style" data-style="Satellite" aria-pressed="false">Satellite</button>
+    </div>
+    <div id="adv-map-info"></div>
+
+    <button type="button" class="lx-ch-btn lx-ch-adv-backfloat" id="trip-back-float" data-act="close-trip" style="display:none">
+        <svg class="lx-ch-adv-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>Back
+    </button>
+
+    <aside class="lx-ch-adv-panel" id="trip-sidebar" aria-label="Adventure">
+        <div class="lx-ch-adv-phead">
+            <div class="lx-ch-adv-ptitle-row">
+                <button type="button" class="lx-ch-adv-x" id="back-embedded" data-act="close-trip" aria-label="Back to adventures"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+                <h2 class="lx-ch-adv-ptitle" id="sidebar-trip-name">Loading</h2>
+                <button type="button" class="lx-ch-adv-x" data-act="toggle-side" aria-label="Move panel to the other side" title="Move panel to the other side"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M7 7l-4 5 4 5M17 7l4 5-4 5M3 12h18"/></svg></button>
+                <button type="button" class="lx-ch-adv-x" data-act="open-settings" aria-label="Adventure settings" title="Adventure settings"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+            </div>
+            <div class="lx-ch-adv-pmeta" id="sidebar-trip-dates"></div>
+        </div>
+
+        <div class="lx-ch-adv-tabs" role="tablist" aria-label="Adventure sections">
+            <button type="button" class="lx-ch-adv-tab" role="tab" id="advtab-journal" data-act="tab" data-tab="journal" aria-selected="true" aria-controls="tab-journal">Journal</button>
+            <button type="button" class="lx-ch-adv-tab" role="tab" id="advtab-details" data-act="tab" data-tab="details" aria-selected="false" aria-controls="tab-details" tabindex="-1">Details</button>
+            <button type="button" class="lx-ch-adv-tab" role="tab" id="advtab-people" data-act="tab" data-tab="people" aria-selected="false" aria-controls="tab-people" tabindex="-1">People</button>
+            <button type="button" class="lx-ch-adv-tab" role="tab" id="advtab-share" data-act="tab" data-tab="share" aria-selected="false" aria-controls="tab-share" tabindex="-1">Share</button>
+        </div>
+
+        <!-- Journal -->
+        <div class="lx-ch-adv-tabpanel" id="tab-journal" role="tabpanel" aria-labelledby="advtab-journal" tabindex="0">
+            <button type="button" class="lx-ch-adv-compose-btn" id="compose-area-btn" data-act="compose">Write a post</button>
+            <div id="timeline-list"></div>
+            <div class="lx-ch-adv-more" id="timeline-load-more" hidden>
+                <button type="button" class="lx-ch-btn lx-ch-adv-btn-sm" data-act="load-more">Load more</button>
+            </div>
+            <div style="margin-top:16px"><button type="button" class="lx-ch-adv-link" data-act="milestone-toggle" aria-expanded="false" aria-controls="milestone-form">Add a milestone</button></div>
+            <div class="lx-ch-adv-msform" id="milestone-form" hidden>
+                <div class="row" style="margin-bottom:8px">
+                    <input type="text" id="ms-emoji" class="lx-ch-adv-input lx-ch-adv-input--sm" style="max-width:56px;text-align:center" maxlength="4" placeholder="Mark" aria-label="Milestone symbol">
+                    <input type="text" id="ms-title" class="lx-ch-adv-input lx-ch-adv-input--sm" placeholder="Milestone title" aria-label="Milestone title" maxlength="200">
+                </div>
+                <input type="text" id="ms-desc" class="lx-ch-adv-input lx-ch-adv-input--sm" placeholder="Description (optional)" aria-label="Milestone description" style="margin-bottom:8px">
+                <input type="datetime-local" id="ms-date" class="lx-ch-adv-input lx-ch-adv-input--sm" aria-label="Milestone date" style="margin-bottom:12px">
+                <div style="display:flex;gap:8px">
+                    <button type="button" class="lx-ch-btn lx-ch-btn--primary lx-ch-adv-btn-sm" data-act="milestone-save">Save milestone</button>
+                    <button type="button" class="lx-ch-btn lx-ch-adv-btn-sm" data-act="milestone-toggle">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Details -->
+        <div class="lx-ch-adv-tabpanel" id="tab-details" role="tabpanel" aria-labelledby="advtab-details" tabindex="0" hidden>
+            <div class="lx-ch-adv-sec">Notes</div>
+            <textarea class="lx-ch-adv-input" id="trip-notes" placeholder="Write about this adventure" aria-label="Adventure notes"></textarea>
+            <div class="lx-ch-adv-note" id="notes-status" role="status" aria-live="polite" style="min-height:1.2em;margin-top:4px"></div>
+
+            <div class="lx-ch-adv-sec">Photos
+                <label class="lx-ch-adv-link" style="cursor:pointer">Add photos<input type="file" accept="image/*" multiple id="adv-photo-input"></label>
+            </div>
+            <div class="lx-ch-adv-photos" id="adv-photos-grid"><span class="lx-ch-adv-note">No photos yet</span></div>
+
+            <div class="lx-ch-adv-sec">Pins <button type="button" class="lx-ch-adv-link" id="add-pin-btn" data-act="add-pin-toggle">Add a pin</button></div>
+            <div id="places-list"></div>
+            <div id="place-form-container"></div>
+
+            <div class="lx-ch-adv-sec">Visits</div>
+            <div class="lx-ch-seg" role="group" aria-label="Group visits by" style="margin-bottom:8px">
+                <button type="button" data-act="visits-tab" data-tab="countries" aria-pressed="true">Countries</button>
+                <button type="button" data-act="visits-tab" data-tab="cities" aria-pressed="false">Cities</button>
+            </div>
+            <div id="visits-countries-pane">
+                <table class="lx-ch-adv-tbl">
+                    <thead><tr><th>Country</th><th>Cities</th><th>Time</th></tr></thead>
+                    <tbody id="visits-countries-body"><tr><td colspan="3" class="lx-ch-adv-note">Loading</td></tr></tbody>
+                </table>
+            </div>
+            <div id="visits-cities-pane" hidden>
+                <table class="lx-ch-adv-tbl">
+                    <thead><tr><th>City</th><th>Country</th><th>Time</th></tr></thead>
+                    <tbody id="visits-cities-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- People -->
+        <div class="lx-ch-adv-tabpanel" id="tab-people" role="tabpanel" aria-labelledby="advtab-people" tabindex="0" hidden>
+            <div class="lx-ch-adv-sec">Members</div>
+            <div id="members-list"></div>
+            <div id="add-member-area" hidden style="margin-top:12px">
+                <div style="display:flex;gap:8px">
+                    <input type="text" id="add-member-input" class="lx-ch-adv-input lx-ch-adv-input--sm" placeholder="Username" aria-label="Username to invite" autocomplete="off" autocapitalize="off">
+                    <button type="button" class="lx-ch-btn lx-ch-adv-btn-sm" data-act="member-add">Invite</button>
+                </div>
+                <div class="lx-ch-adv-err" id="add-member-error" role="alert"></div>
+            </div>
+        </div>
+
+        <!-- Share -->
+        <div class="lx-ch-adv-tabpanel" id="tab-share" role="tabpanel" aria-labelledby="advtab-share" tabindex="0" hidden>
+            <div id="creator-share-section" hidden>
+                <div class="lx-ch-adv-row" style="margin-top:0">
+                    <span class="lbl">Visibility</span>
+                    <button type="button" id="toggle-public-btn" class="lx-ch-btn lx-ch-adv-btn-sm" data-act="toggle-public">Make public</button>
+                </div>
+            </div>
+            <div id="share-link-area" hidden style="margin-top:12px">
+                <div class="lx-ch-adv-row">
+                    <span class="pre">/adventure/</span>
+                    <input type="text" class="lx-ch-adv-input lx-ch-adv-input--sm" id="share-slug-input" aria-label="Public page address">
+                    <button type="button" class="lx-ch-btn lx-ch-adv-btn-sm" data-act="copy-link">Copy</button>
+                </div>
+                <div class="lx-ch-adv-row">
+                    <span class="lbl">Access pin</span>
+                    <input type="text" class="lx-ch-adv-input lx-ch-adv-input--sm lx-ch-adv-pininput" id="share-pin-input" placeholder="None" maxlength="20" aria-label="Access pin">
+                </div>
+                <div class="lx-ch-adv-saved" id="share-saved-msg" role="status" hidden>Saved</div>
+            </div>
+            <div id="member-share-link" hidden style="margin-top:12px">
+                <div class="lx-ch-adv-row">
+                    <input type="text" id="share-link-input" class="lx-ch-adv-input lx-ch-adv-input--sm" readonly aria-label="Public link">
+                    <button type="button" class="lx-ch-btn lx-ch-adv-btn-sm" data-act="copy-link">Copy</button>
+                </div>
+            </div>
+            <div style="margin-top:32px">
+                <button type="button" class="lx-ch-btn lx-ch-btn--danger lx-ch-adv-btn-sm" data-act="delete-trip" id="delete-trip-share" hidden>Delete adventure</button>
+            </div>
+        </div>
+    </aside>
+</div>
+
+<!-- ── Post view / compose ── -->
+<div class="lx-ch-adv-modal-overlay" id="post-modal-overlay" data-modal hidden>
+    <div class="lx-ch-adv-modal lx-ch-adv-modal--wide" role="dialog" aria-modal="true" aria-labelledby="post-modal-label">
+        <div class="lx-ch-adv-modal-head" style="margin-bottom:8px">
+            <h2 class="lx-ch-adv-modal-title" id="post-modal-label" style="font-size:18px">Post</h2>
+            <button type="button" class="lx-ch-adv-x" data-act="post-close" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
+        <div id="post-modal-body"></div>
+    </div>
+</div>
+
+<!-- ── Adventure settings ── -->
+<div class="lx-ch-adv-modal-overlay" id="settings-modal-overlay" data-modal hidden>
+    <div class="lx-ch-adv-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="lx-ch-adv-modal-head">
+            <h2 class="lx-ch-adv-modal-title" id="settings-title">Adventure settings</h2>
+            <button type="button" class="lx-ch-adv-x" data-act="close-settings" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
+
+        <div class="lx-ch-adv-sect">Name and dates</div>
+        <div class="lx-ch-adv-stack">
+            <label class="lx-ch-adv-field">Name<input type="text" id="settings-name" class="lx-ch-adv-input" placeholder="Adventure name" maxlength="200"></label>
+            <div class="lx-ch-adv-grid2">
+                <label class="lx-ch-adv-field">Start date<input type="date" id="settings-start" class="lx-ch-adv-input"></label>
+                <label class="lx-ch-adv-field">End date <span class="lx-ch-adv-opt">(optional)</span><input type="date" id="settings-end" class="lx-ch-adv-input"></label>
+            </div>
+        </div>
+
+        <div class="lx-ch-adv-sect">Device</div>
+        <select id="settings-device" class="lx-ch-adv-input" aria-label="Device">
+            {% for device in devices %}
+            <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
+            {% endfor %}
+        </select>
+
+        <div class="lx-ch-adv-sect">Notes</div>
+        <textarea class="lx-ch-adv-input" id="settings-notes" placeholder="Write about this adventure" aria-label="Notes"></textarea>
+
+        <div class="lx-ch-adv-sect">Sharing</div>
+        <div id="settings-share-section" hidden>
+            <div class="lx-ch-adv-row" style="margin-top:0">
+                <span class="lbl">Visibility</span>
+                <button type="button" id="settings-public-btn" class="lx-ch-btn lx-ch-adv-btn-sm" data-act="settings-toggle-public">Make public</button>
+            </div>
+            <div id="settings-link-area" hidden style="margin-top:12px">
+                <div class="lx-ch-adv-row">
+                    <span class="pre">/adventure/</span>
+                    <input type="text" class="lx-ch-adv-input lx-ch-adv-input--sm" id="settings-slug-input" aria-label="Public page address">
+                    <button type="button" class="lx-ch-btn lx-ch-adv-btn-sm" data-act="settings-copy">Copy</button>
+                </div>
+                <div class="lx-ch-adv-row">
+                    <span class="lbl">Access pin</span>
+                    <input type="text" class="lx-ch-adv-input lx-ch-adv-input--sm lx-ch-adv-pininput" id="settings-pin-input" placeholder="None" maxlength="20" aria-label="Access pin">
+                </div>
+            </div>
+        </div>
+        <p class="lx-ch-adv-note" id="settings-share-note" hidden>Only the adventure's owner can change its sharing.</p>
+
+        <div class="lx-ch-adv-modal-foot">
+            <button type="button" class="lx-ch-btn lx-ch-btn--danger" data-act="delete-trip">Delete</button>
+            <div class="grp">
+                <button type="button" class="lx-ch-btn" data-act="close-settings">Cancel</button>
+                <button type="button" class="lx-ch-btn lx-ch-btn--primary" data-act="settings-save" id="settings-save">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    'use strict';
+
+    // ── Helpers ─────────────────────────────────────────────────────
+    const $ = (id) => document.getElementById(id);
+    const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const num = (n) => Number(n || 0).toLocaleString();
+    const reduced = () => { try { return !!(window.RoamlyStyle && window.RoamlyStyle.reducedMotion && window.RoamlyStyle.reducedMotion()); } catch (e) { return false; } };
+    const ask = (msg) => (window.roamlyConfirm ? window.roamlyConfirm(msg, { danger: true }) : Promise.resolve(window.confirm(msg)));
+    const say = (msg) => (window.roamlyAlert ? window.roamlyAlert(msg) : Promise.resolve(window.alert(msg)));
+    const toast = (msg, type) => { try { if (window.roamlyToast) window.roamlyToast(msg, { type: type || 'success' }); } catch (e) { /* toasts are optional */ } };
+    function api(url, opts) {
+        opts = Object.assign({ toast: false }, opts || {});
+        if (typeof window.roamlyFetch === 'function') return window.roamlyFetch(url, opts);
+        return Promise.reject(new Error('The page is still loading. Try again.'));
+    }
+    function post(url, json) { return api(url, json === undefined ? { method: 'POST' } : { method: 'POST', json: json }); }
+    function storeGet(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } }
+    function storeSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
+    function toDateInput(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+    function localDateToUTC(dateStr, endOfDay) {
+        const p = dateStr.split('-').map(Number);
+        return (endOfDay ? new Date(p[0], p[1] - 1, p[2], 23, 59, 59) : new Date(p[0], p[1] - 1, p[2], 0, 0, 0)).toISOString();
+    }
+    function formatDuration(s) {
+        if (!s) return '-';
+        if (s < 60) return s + 's';
+        const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+        if (d > 0) return d + 'd ' + h + 'h';
+        if (h > 0) return h + 'h ' + m + 'm';
+        return m + 'm';
+    }
+    const ICON = {
+        map: '<path d="M3 6.5l6-2.5 6 2.5 6-2.5v13.5l-6 2.5-6-2.5-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/>',
+        plan: '<rect x="3.5" y="5" width="17" height="15.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+        link: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/>',
+        pin: '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0113 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>',
+        photo: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>'
+    };
+    const svg = (name, size) => '<svg class="lx-ch-adv-ico" viewBox="0 0 24 24" width="' + (size || 16) + '" height="' + (size || 16) + '" aria-hidden="true">' + (ICON[name] || '') + '</svg>';
+    function tokenColor(token, fallback) {
+        try {
+            const el = document.createElement('span');
+            el.style.display = 'none'; el.style.color = 'var(' + token + ')';
+            document.body.appendChild(el);
+            const c = getComputedStyle(el).color;
+            el.remove();
+            return /^(rgb|hsl|#)/i.test(c) ? c : fallback;
+        } catch (e) { return fallback; }
+    }
+    function safeColor(c) { return typeof c === 'string' && /^#[0-9a-f]{3,8}$/i.test(c) ? c : ''; }
+
+    // ── Modals ──────────────────────────────────────────────────────
+    const modalFocus = {};
+    function openModal(id, focusSel) {
+        const ov = $(id);
+        if (!ov) return;
+        modalFocus[id] = document.activeElement;
+        ov.hidden = false;
+        const target = (focusSel && ov.querySelector(focusSel)) || ov.querySelector('input:not([type=hidden]), textarea, select, button');
+        if (target) setTimeout(() => { try { target.focus({ preventScroll: true }); } catch (e) { /* gone */ } }, 20);
+    }
+    function closeModal(id, restore) {
+        const ov = $(id);
+        if (!ov || ov.hidden) return;
+        ov.hidden = true;
+        const f = modalFocus[id]; modalFocus[id] = null;
+        if (restore !== false && f && f.focus && document.contains(f)) { try { f.focus({ preventScroll: true }); } catch (e) { /* gone */ } }
+    }
+    function topModal() {
+        const open = Array.prototype.slice.call(document.querySelectorAll('.lx-ch-adv-modal-overlay[data-modal]')).filter((m) => !m.hidden);
+        return open.length ? open[open.length - 1] : null;
+    }
+    document.addEventListener('mousedown', (e) => {
+        const t = e.target;
+        if (t && t.matches && t.matches('.lx-ch-adv-modal-overlay[data-modal]')) {
+            if (t.id === 'create-modal-overlay') closeModal('create-modal-overlay');
+            else if (t.id === 'settings-modal-overlay') closeSettings();
+            else if (t.id === 'post-modal-overlay') closePost();
+        }
+    });
+
+    // ════════════════════════════════════════════════════════════════
+    //  LIST
+    // ════════════════════════════════════════════════════════════════
+    let allTrips = [];
+    let currentFilter = 'all';
+    let firstRender = true;
+
+    function tripInfo(t, now) {
+        const s = new Date(t.start_time), e = new Date(t.end_time);
+        const open = e.getFullYear() >= 2099;
+        let status;
+        if (s > now) status = 'planned';
+        else if (open || e >= now) status = 'active';
+        else status = 'finished';
+        return { s: s, e: e, open: open, status: status, running: open || e >= now };
+    }
+    function haversineKm(a, b) {
+        const R = 6371, rad = Math.PI / 180;
+        const dLat = (b[0] - a[0]) * rad, dLng = (b[1] - a[1]) * rad;
+        const x = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * rad) * Math.cos(b[0] * rad) * Math.sin(dLng / 2) ** 2;
+        return 2 * R * Math.asin(Math.min(1, Math.sqrt(x)));
+    }
+    function previewPts(t) {
+        const p = Array.isArray(t.preview) ? t.preview : [];
+        return p.filter((q) => Array.isArray(q) && isFinite(q[0]) && isFinite(q[1]));
+    }
+    function approxKm(pts) {
+        let km = 0;
+        for (let i = 1; i < pts.length; i++) km += haversineKm(pts[i - 1], pts[i]);
+        return km;
+    }
+    function sketchSvg(pts) {
+        const W = 208, H = 140, PAD = 18;
+        let minLa = 90, maxLa = -90, minLn = 180, maxLn = -180;
+        pts.forEach((p) => { minLa = Math.min(minLa, p[0]); maxLa = Math.max(maxLa, p[0]); minLn = Math.min(minLn, p[1]); maxLn = Math.max(maxLn, p[1]); });
+        const k = Math.cos(((minLa + maxLa) / 2) * Math.PI / 180) || 1;
+        const w = Math.max((maxLn - minLn) * k, 1e-6), h = Math.max(maxLa - minLa, 1e-6);
+        const sc = Math.min((W - PAD * 2) / w, (H - PAD * 2) / h);
+        const ox = (W - w * sc) / 2, oy = (H - h * sc) / 2;
+        const xy = (p) => [(ox + (p[1] - minLn) * k * sc), (oy + (maxLa - p[0]) * sc)];
+        const d = pts.map((p) => { const q = xy(p); return q[0].toFixed(1) + ',' + q[1].toFixed(1); });
+        const a = xy(pts[0]), b = xy(pts[pts.length - 1]);
+        return '<svg class="lx-ch-adv-sketch" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">'
+            + (pts.length > 1 ? '<polyline class="ln" points="' + d.join(' ') + '"/>' : '')
+            + '<circle class="a" cx="' + a[0].toFixed(1) + '" cy="' + a[1].toFixed(1) + '" r="4"/>'
+            + '<circle class="b" cx="' + b[0].toFixed(1) + '" cy="' + b[1].toFixed(1) + '" r="3.5"/></svg>';
+    }
+    function dayCount(info, now) {
+        const startDay = new Date(info.s.getFullYear(), info.s.getMonth(), info.s.getDate());
+        const end = info.status === 'planned' ? (info.open ? info.s : info.e) : (info.open || info.e > now ? now : info.e);
+        const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+        return Math.max(1, Math.round((endDay - startDay) / 86400000) + 1);
+    }
+    function rangeText(t, info) {
+        const o1 = { month: 'short', day: 'numeric' }, o2 = { month: 'short', day: 'numeric', year: 'numeric' };
+        if (info.open) return info.s.toLocaleDateString([], o2) + ' to ongoing';
+        if (info.s.toDateString() === info.e.toDateString()) return info.s.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+        return info.s.toLocaleDateString([], o1) + ' to ' + info.e.toLocaleDateString([], o2);
+    }
+    const STATUS_LABEL = { active: 'Active', planned: 'Planned', finished: 'Finished' };
+
+    function entryHtml(t, now, animate) {
+        const info = tripInfo(t, now);
+        const id = Number(t.id);
+        const pts = previewPts(t);
+        const km = pts.length > 1 ? approxKm(pts) : 0;
+        const days = dayCount(info, now);
+        const facts = [];
+        facts.push('<span class="lx-ch-adv-fact"><b>' + days + '</b> ' + (days === 1 ? 'day' : 'days') + (info.status === 'active' ? ' so far' : '') + '</span>');
+        if (km >= 1) facts.push('<span class="lx-ch-adv-fact"><b>~' + num(Math.round(km)) + '</b> km</span>');
+        facts.push('<span class="lx-ch-adv-fact"><b>' + num(t.location_count) + '</b> points</span>');
+        if (t.member_count > 1) facts.push('<span class="lx-ch-adv-fact"><b>' + num(t.member_count) + '</b> members</span>');
+        if (t.device) facts.push('<span class="lx-ch-adv-fact">' + esc(t.device) + '</span>');
+        if (t.read_time_min) facts.push('<span class="lx-ch-adv-fact"><b>' + num(t.read_time_min) + '</b> min read</span>');
+        let cover;
+        if (t.cover_thumbnail) cover = '<img src="' + esc(t.cover_thumbnail) + '" alt="" loading="lazy">';
+        else if (pts.length) cover = sketchSvg(pts);
+        else cover = '<span class="lx-ch-adv-cover-empty">' + (info.status === 'planned' ? 'Not started' : 'No track yet') + '</span>';
+        const badges = [];
+        if (t.is_public) badges.push('<span class="lx-ch-badge">Public</span>');
+        if (t.is_creator === false) badges.push('<span class="lx-ch-badge">Shared with you</span>');
+        const mon = info.s.toLocaleDateString([], { month: 'short' });
+        const name = t.name || 'Untitled adventure';
+        return '<article class="lx-ch-adv-entry' + (animate ? ' is-new' : '') + '" data-id="' + id + '" data-status="' + info.status + '">'
+            + '<div class="lx-ch-adv-when" aria-hidden="true"><span class="lx-ch-adv-day">' + info.s.getDate() + '</span><span class="lx-ch-adv-mon">' + esc(mon) + '</span></div>'
+            + '<div class="lx-ch-adv-rail" aria-hidden="true"><span class="lx-ch-adv-node"></span></div>'
+            + '<div class="lx-ch-adv-body">'
+            + '<div class="lx-ch-adv-main">'
+            + '<div class="lx-ch-adv-kick"><span class="lx-ch-adv-status" data-s="' + info.status + '">' + STATUS_LABEL[info.status] + '</span><span>' + esc(rangeText(t, info)) + '</span>' + badges.join('') + '</div>'
+            + '<h3 class="lx-ch-adv-name"><a href="/adventures/' + id + '/edit/">' + esc(name) + '</a></h3>'
+            + (t.subtitle ? '<p class="lx-ch-adv-desc">' + esc(t.subtitle) + '</p>' : (t.description ? '<p class="lx-ch-adv-desc">' + esc(t.description) + '</p>' : ''))
+            + '<div class="lx-ch-adv-facts">' + facts.join('') + '</div>'
+            + '<div class="lx-ch-adv-acts">'
+            + '<button type="button" class="lx-ch-adv-act" data-act="open-trip" data-id="' + id + '" aria-label="Open map view of ' + esc(name) + '">' + svg('map') + 'Map</button>'
+            + '<a class="lx-ch-adv-act" href="/adventures/' + id + '/plan/" aria-label="Plan ' + esc(name) + '">' + svg('plan') + 'Plan</a>'
+            + (t.is_public && t.public_slug ? '<a class="lx-ch-adv-act" href="/adventure/' + encodeURIComponent(t.public_slug) + '/" target="_blank" rel="noopener" aria-label="Public page of ' + esc(name) + ' (opens in a new tab)">' + svg('link') + 'Public page</a>' : '')
+            + '</div></div>'
+            + '<div class="lx-ch-adv-cover" aria-hidden="true">' + cover + '</div>'
+            + '</div></article>';
+    }
+
+    function filteredTrips() {
+        const search = ($('adv-search').value || '').trim().toLowerCase();
+        const dev = $('adv-device-filter').value;
+        const sort = $('adv-sort').value;
+        const now = new Date();
+        const trips = allTrips.filter((t) => {
+            if (search && !String(t.name || '').toLowerCase().includes(search)) return false;
+            if (dev && t.device !== dev) return false;
+            const start = new Date(t.start_time), end = new Date(t.end_time);
+            const open = end.getFullYear() >= 2099;
+            if (currentFilter === 'active') return open || end >= now;
+            if (currentFilter === 'public') return t.is_public;
+            if (currentFilter === 'week') return start >= new Date(now - 7 * 86400000);
+            if (currentFilter === 'month') return start >= new Date(now - 30 * 86400000);
+            return true;
+        });
+        if (sort === 'oldest') trips.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+        else if (sort === 'points') trips.sort((a, b) => b.location_count - a.location_count);
+        else trips.sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
+        return { trips: trips, sort: sort };
+    }
+
+    function setFilter(filter) {
+        currentFilter = filter;
+        document.querySelectorAll('#adv-chips .lx-ch-chip').forEach((b) => {
+            const on = b.dataset.filter === filter;
+            b.classList.toggle('is-active', on);
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+        renderAdventures();
+    }
+
+    function renderAdventures() {
+        const host = $('trips-list');
+        const res = filteredTrips();
+        const trips = res.trips;
+        const now = new Date();
+        const animate = firstRender && !reduced();
+        firstRender = false;
+        $('adv-count').textContent = allTrips.length ? (trips.length === allTrips.length ? num(allTrips.length) + (allTrips.length === 1 ? ' adventure' : ' adventures') : num(trips.length) + ' of ' + num(allTrips.length) + ' adventures') : '';
+        if (!trips.length) {
+            const filtered = allTrips.length > 0;
+            host.innerHTML = filtered
+                ? '<div class="lx-ch-empty"><div class="lx-ch-empty-title">Nothing matches</div><p>No adventure fits this search and filter.</p><button type="button" class="lx-ch-btn" data-act="clear-filters">Show all adventures</button></div>'
+                : '<div class="lx-ch-empty"><div class="lx-ch-empty-title">No adventures yet</div><p>An adventure pulls the points you already recorded between two dates into a story you can share: a ride, a hike, a road trip.</p><button type="button" class="lx-ch-btn lx-ch-btn--primary" data-act="new">Create your first adventure</button></div>';
+            return;
+        }
+        let html = '', lastYear = null;
+        const groupByYear = res.sort !== 'points';
+        if (groupByYear) {
+            const counts = {};
+            trips.forEach((t) => { const y = new Date(t.start_time).getFullYear(); counts[y] = (counts[y] || 0) + 1; });
+            trips.forEach((t) => {
+                const y = new Date(t.start_time).getFullYear();
+                if (y !== lastYear) {
+                    html += '<div class="lx-ch-adv-yearrow" role="presentation"><span class="lx-ch-adv-year">' + y + '</span><div class="lx-ch-adv-rail" aria-hidden="true"></div><span class="lx-ch-adv-yearcount">' + counts[y] + (counts[y] === 1 ? ' adventure' : ' adventures') + '</span></div>';
+                    lastYear = y;
+                }
+                html += entryHtml(t, now, animate);
+            });
+        } else {
+            trips.forEach((t) => { html += entryHtml(t, now, animate); });
+        }
+        host.innerHTML = html;
+    }
+
+    function updateKicker() {
+        const k = $('adv-kicker');
+        if (!k) return;
+        if (!allTrips.length) { k.textContent = 'Your journeys'; return; }
+        const years = allTrips.map((t) => new Date(t.start_time).getFullYear()).filter((y) => isFinite(y));
+        const first = years.length ? Math.min.apply(null, years) : null;
+        const active = allTrips.filter((t) => tripInfo(t, new Date()).status === 'active').length;
+        k.textContent = num(allTrips.length) + (allTrips.length === 1 ? ' adventure' : ' adventures') + (first ? ', since ' + first : '') + (active ? ', ' + active + ' active' : '');
+    }
+
+    async function loadAdventures() {
+        const host = $('trips-list');
+        host.setAttribute('aria-busy', 'true');
+        try {
+            const data = await api('/api/trips/');
+            allTrips = (data && data.trips) || [];
+            updateKicker();
+            renderAdventures();
+        } catch (e) {
+            host.innerHTML = '<div class="lx-ch-empty" role="alert"><div class="lx-ch-empty-title">Could not load your adventures</div><p>' + esc(e && e.message ? e.message : 'Check your connection and try again.') + '</p><button type="button" class="lx-ch-btn" data-act="retry">Try again</button></div>';
+        } finally {
+            host.removeAttribute('aria-busy');
+        }
+    }
+
+    // ── Trip blogs ──────────────────────────────────────────────────
+    const blogFmt = (d) => d ? new Date(d + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    async function loadBlogs() {
+        const list = $('tbl-list');
+        if (!list) return;
+        let blogs = [];
+        try { const d = await api('/api/tripblog/'); blogs = (d && d.blogs) || []; } catch (e) { blogs = []; }
+        list.innerHTML = blogs.filter((b) => b.accepted).map((b) => {
+            const range = blogFmt(b.start_date) + (b.end_date ? ' to ' + blogFmt(b.end_date) : '');
+            return '<a class="lx-ch-row lx-ch-adv-blogrow" role="listitem" href="/trip/' + encodeURIComponent(b.id) + '/">'
+                + (b.cover ? '<img class="lx-ch-adv-blogthumb" src="' + esc(b.cover) + '" alt="" loading="lazy">' : '')
+                + '<span class="lx-ch-row-main"><span class="lx-ch-adv-blogname">' + esc(b.name) + '</span>' + (b.subtitle ? '<span class="lx-ch-adv-blogsub">' + esc(b.subtitle) + '</span>' : '') + '</span>'
+                + (b.live ? '<span class="lx-ch-badge">Live</span>' : '') + (b.featured ? '<span class="lx-ch-badge">In menu</span>' : '')
+                + '<span class="lx-ch-row-meta">' + esc(range) + '</span></a>';
+        }).join('');
+    }
+    function blogToggle(show) {
+        const form = $('tbl-form'), btn = $('tbl-new-btn');
+        if (!form) return;
+        form.hidden = show === undefined ? !form.hidden : !show;
+        if (btn) btn.setAttribute('aria-expanded', form.hidden ? 'false' : 'true');
+        if (!form.hidden) {
+            if (!form.start_date.value) form.start_date.value = toDateInput(new Date());
+            form.name.focus();
+        } else if (btn) btn.focus();
+    }
+    const blogForm = $('tbl-form');
+    if (blogForm) blogForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const f = blogForm;
+        if (!f.name.value.trim() || !f.start_date.value) { await say('Give the trip blog a name and a start date.'); return; }
+        const btn = $('tbl-submit');
+        btn.disabled = true;
+        try {
+            const d = await api('/api/tripblog/', { method: 'POST', json: {
+                name: f.name.value, start_date: f.start_date.value, end_date: f.end_date.value || null,
+                share_location: f.share_location.checked, featured: true } });
+            if (d && d.url) { location.href = d.url; return; }
+            loadBlogs(); blogToggle(false);
+        } catch (err) {
+            await say((err && err.message) || 'Could not create the trip blog.');
+        } finally { btn.disabled = false; }
+    });
+
+    // ── Create adventure ────────────────────────────────────────────
+    function openCreateModal() {
+        openModal('create-modal-overlay', '#trip-name');
+        if (!$('trip-start').value) $('trip-start').value = toDateInput(new Date());
+    }
+    function setDatePreset(preset) {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const start = $('trip-start'), end = $('trip-end');
+        const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
+        switch (preset) {
+            case 'today': start.value = toDateInput(today); end.value = toDateInput(today); break;
+            case 'yesterday': { const yd = addDays(today, -1); start.value = toDateInput(yd); end.value = toDateInput(yd); break; }
+            case 'week': { const mon = new Date(today); mon.setDate(today.getDate() - today.getDay() + (today.getDay() === 0 ? -6 : 1)); start.value = toDateInput(mon); end.value = toDateInput(today); break; }
+            case 'month': start.value = toDateInput(new Date(today.getFullYear(), today.getMonth(), 1)); end.value = toDateInput(today); break;
+            case 'since7': start.value = toDateInput(addDays(today, -7)); end.value = toDateInput(today); break;
+            case 'since30': start.value = toDateInput(addDays(today, -30)); end.value = toDateInput(today); break;
+            case 'open': start.value = toDateInput(today); end.value = ''; break;
+        }
+    }
+    async function createAdventure(btn) {
+        const startVal = $('trip-start').value;
+        if (!startVal) { await say('Choose a start date.'); return; }
+        if (!$('trip-device').value) { await say('Choose a device first.'); return; }
+        const endVal = $('trip-end').value;
+        if (endVal && endVal < startVal) { await say('The end date is before the start date.'); return; }
+        btn.disabled = true; const label = btn.textContent; btn.textContent = 'Creating';
+        try {
+            await api('/api/trips/create/', { method: 'POST', toast: true, errorMessage: "Couldn't create the adventure", json: {
+                name: $('trip-name').value || 'Untitled Adventure',
+                device_id: $('trip-device').value,
+                start_time: localDateToUTC(startVal, false),
+                end_time: endVal ? localDateToUTC(endVal, true) : '',
+                description: $('trip-description').value } });
+            closeModal('create-modal-overlay');
+            $('trip-name').value = ''; $('trip-end').value = ''; $('trip-description').value = '';
+            toast('Adventure created');
+            loadAdventures();
+        } catch (e) { /* roamlyFetch toasted the reason */ }
+        finally { btn.disabled = false; btn.textContent = label; }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  MAP VIEW (full-screen detail)
+    // ════════════════════════════════════════════════════════════════
+    let tripMap = null, currentTripId = null, currentTripData = null, currentIsCreator = false;
+    let placingMode = false, blurbPlacingMode = false, composeLocation = null, visitsLoaded = false;
+    let timelinePage = 1, currentPostId = null, detailSeq = 0, tlSeq = 0, openerEl = null, notesTimer = null;
+    let currentPanelSide = storeGet('roamly_panel_side', 'left') === 'right' ? 'right' : 'left';
+    const timelineEventsMap = {};
+    let allPhotos = [];
+    let composeDraft = '', composeReturn = false;
+
+    const speedGradient = storeGet('roamly_speed_gradient', 'on');
+    const showHeatmap = storeGet('roamly_show_heatmap', 'on');
+    const heatIntensity = storeGet('roamly_heatmap_intensity', 'medium');
+    const dotSizePref = storeGet('roamly_dot_size', 'medium');
+    const lineGapMs = (parseInt(storeGet('roamly_line_gap_minutes', '20'), 10) || 20) * 60 * 1000;
+    const detailZoom = parseInt(storeGet('roamly_detail_zoom', '8'), 10) || 8;
+    const DOT_SIZES = { small: [8, 2, 12, 4, 16, 8], medium: [8, 3, 12, 6, 16, 12], large: [8, 5, 12, 9, 16, 18] };
+    const HEAT_INTENSITY = { low: [0, 0.2, 13, 0.7], medium: [0, 0.4, 13, 1.4], high: [0, 0.8, 13, 2.5] };
+    const dotArgs = DOT_SIZES[dotSizePref] || DOT_SIZES.medium;
+    const heatArgs = HEAT_INTENSITY[heatIntensity] || HEAT_INTENSITY.medium;
+    const ADV_MAP_LIMIT = 20000;
+    // Functional encodings, same as the classic page: speed ramp and heatmap ramp.
+    const SPEED_COLOR = ['case', ['<=', ['coalesce', ['get', 'speed'], 0], 1.0], '#3b82f6', ['interpolate', ['linear'], ['get', 'speed'], 1.0, '#3b82f6', 5.0, '#22c55e', 15.0, '#f59e0b', 30.0, '#ef4444']];
+    const HEAT_COLOR = ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(33,102,172,0)', 0.2, 'rgb(103,169,207)', 0.4, 'rgb(209,229,240)', 0.6, 'rgb(253,219,199)', 0.8, 'rgb(239,138,98)', 1, 'rgb(178,24,43)'];
+
+    function mapStyles() {
+        const qs = ($('lx-ch-adv') && $('lx-ch-adv').dataset.tileQs) || '';
+        const glyphs = 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf';
+        return {
+            Streets: { version: 8, glyphs: glyphs, sources: { osm: { type: 'raster', tiles: ['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png' + qs], tileSize: 256 } }, layers: [{ id: 'osm', type: 'raster', source: 'osm' }] },
+            Dark: { version: 8, glyphs: glyphs, sources: { carto: { type: 'raster', tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png' + qs], tileSize: 256 } }, layers: [{ id: 'carto', type: 'raster', source: 'carto' }] },
+            Satellite: { version: 8, glyphs: glyphs, sources: { esri: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 19 } }, layers: [{ id: 'esri', type: 'raster', source: 'esri' }] }
+        };
+    }
+    let currentMapStyle = storeGet('roamly_map_tile_style', '');
+    if (!/^(Streets|Dark|Satellite)$/.test(currentMapStyle)) {
+        currentMapStyle = document.documentElement.getAttribute('data-theme') === 'light' ? 'Streets' : 'Dark';
+    }
+    function syncStyleButtons() {
+        document.querySelectorAll('.lx-ch-adv-style button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.style === currentMapStyle ? 'true' : 'false'));
+    }
+    function colors() {
+        return {
+            primary: tokenColor('--primary', '#e8763d'),
+            sky: tokenColor('--clay-sky', '#7ba3b8'),
+            amber: tokenColor('--clay-amber', '#cf9a44'),
+            members: [tokenColor('--clay-mint', '#7f9b6d'), tokenColor('--clay-sky', '#7ba3b8'), tokenColor('--clay-lavender', '#a888a0'), tokenColor('--clay-amber', '#cf9a44'), tokenColor('--clay-coral', '#c0674a')]
+        };
+    }
+
+    // — open / close —
+    function openTrip(id, opener) {
+        currentTripId = id; openerEl = opener || document.activeElement;
+        const full = $('trip-fullscreen');
+        full.hidden = false;
+        document.body.style.overflow = 'hidden';
+        updatePanelSide(); syncStyleButtons();
+        switchTab('journal', true);
+        visitsLoaded = false; timelinePage = 1; allPhotos = [];
+        $('sidebar-trip-name').textContent = 'Loading';
+        $('sidebar-trip-dates').textContent = '';
+        $('timeline-list').innerHTML = ''; $('timeline-load-more').hidden = true;
+        $('trip-notes').value = ''; $('notes-status').textContent = '';
+        $('places-list').innerHTML = ''; $('members-list').innerHTML = '';
+        $('adv-photos-grid').innerHTML = '<span class="lx-ch-adv-note">Loading</span>';
+        $('visits-countries-body').innerHTML = '<tr><td colspan="3" class="lx-ch-adv-note">Loading</td></tr>';
+        $('visits-cities-body').innerHTML = '';
+        if (tripMap) { try { tripMap.remove(); } catch (e) { /* already gone */ } tripMap = null; }
+        if (typeof window.maplibregl === 'undefined') {
+            hideMapLoading('');
+            loadTripDetail(id);
+        } else {
+            try {
+                tripMap = new window.maplibregl.Map({ container: 'trip-map', style: mapStyles()[currentMapStyle], center: [0, 20], zoom: 2 });
+                tripMap.addControl(new window.maplibregl.NavigationControl(), 'bottom-right');
+                tripMap.on('load', () => loadTripDetail(id));
+                bindMapEvents();
+            } catch (e) {
+                tripMap = null;
+                loadTripDetail(id);
+            }
+        }
+        setTimeout(() => { const b = $('trip-back-float').style.display === 'none' ? $('back-embedded') : $('trip-back-float'); if (b) b.focus({ preventScroll: true }); }, 30);
+    }
+    function closeTrip() {
+        $('trip-fullscreen').hidden = true;
+        document.body.style.overflow = '';
+        if (tripMap) { try { tripMap.remove(); } catch (e) { /* already gone */ } tripMap = null; }
+        clearTimeout(notesTimer);
+        detailSeq++; tlSeq++;
+        currentTripId = null; currentTripData = null; placingMode = false; blurbPlacingMode = false; composeLocation = null; visitsLoaded = false; timelinePage = 1;
+        $('place-hint').classList.remove('active'); $('blurb-pin-hint').classList.remove('active');
+        loadAdventures();
+        if (openerEl && document.contains(openerEl)) { try { openerEl.focus({ preventScroll: true }); } catch (e) { /* gone */ } }
+    }
+    function showMapLoading() { $('trip-map-loading-bar').classList.add('active'); }
+    function hideMapLoading(info) {
+        $('trip-map-loading-bar').classList.remove('active');
+        const bar = $('adv-map-info');
+        if (info) { bar.textContent = info; bar.style.display = 'block'; } else bar.style.display = 'none';
+    }
+    function updatePanelSide() {
+        const full = $('trip-fullscreen');
+        full.classList.toggle('side-right', currentPanelSide === 'right');
+        $('trip-back-float').style.display = currentPanelSide === 'right' ? '' : 'none';
+        $('back-embedded').style.display = currentPanelSide === 'right' ? 'none' : '';
+    }
+    function toggleSide() {
+        currentPanelSide = currentPanelSide === 'left' ? 'right' : 'left';
+        storeSet('roamly_panel_side', currentPanelSide);
+        updatePanelSide();
+        if (tripMap) setTimeout(() => { try { tripMap.resize(); } catch (e) { /* map gone */ } }, 0);
+    }
+
+    // — detail —
+    async function loadTripDetail(id, opts) {
+        const my = ++detailSeq;
+        const keepView = !!(opts && opts.keepView);
+        showMapLoading();
+        try {
+            const data = await api('/api/trips/' + id + '/');
+            if (my !== detailSeq || currentTripId !== id) return;
+            if (!data || !data.id) throw new Error('Invalid response');
+            currentTripData = data; currentIsCreator = !!data.is_creator;
+            $('sidebar-trip-name').textContent = data.name || 'Untitled adventure';
+            const s = new Date(data.start_time), e = new Date(data.end_time), open = e.getFullYear() >= 2099;
+            const o = { month: 'short', day: 'numeric', year: 'numeric' };
+            const total = num(data.total_location_count || (data.locations || []).length);
+            $('sidebar-trip-dates').textContent = s.toLocaleDateString([], o) + ' to ' + (open ? 'ongoing' : e.toLocaleDateString([], o)) + ', ' + total + ' points' + (data.device_name ? ', ' + data.device_name : '');
+            const notes = $('trip-notes');
+            if (document.activeElement !== notes) notes.value = data.description || '';
+            $('delete-trip-share').hidden = false;
+            renderTripOnMap(data, keepView); renderPlaces(data.places || []); renderMembers(data.members || []); renderSharingOptions(data);
+            if (!keepView) { timelinePage = 1; $('timeline-list').innerHTML = ''; $('adv-photos-grid').innerHTML = '<span class="lx-ch-adv-note">Loading</span>'; loadTimeline(id, 1); }
+        } catch (err) {
+            if (my !== detailSeq) return;
+            hideMapLoading('');
+            $('sidebar-trip-name').textContent = 'Could not load this adventure';
+            $('sidebar-trip-dates').textContent = (err && err.message) || '';
+        }
+    }
+
+    function removeTripLayers() {
+        if (!tripMap) return;
+        const st = tripMap.getStyle();
+        if (!st) return;
+        st.layers.filter((l) => l.id.indexOf('member-') === 0 || ['adv-heat', 'adv-dots', 'adv-line', 'place-circles', 'place-markers'].indexOf(l.id) >= 0).forEach((l) => { if (tripMap.getLayer(l.id)) tripMap.removeLayer(l.id); });
+        Object.keys(st.sources || {}).filter((id) => id.indexOf('member-') === 0 || ['adv-pts', 'adv-line', 'place-circles', 'place-markers'].indexOf(id) >= 0).forEach((id) => { if (tripMap.getSource(id)) tripMap.removeSource(id); });
+    }
+    function lineSegments(locs) {
+        const feats = []; let seg = [[locs[0].lng, locs[0].lat]];
+        for (let i = 1; i < locs.length; i++) {
+            const gap = new Date(locs[i].timestamp) - new Date(locs[i - 1].timestamp);
+            if (gap > lineGapMs) { if (seg.length > 1) feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: seg } }); seg = [[locs[i].lng, locs[i].lat]]; }
+            else seg.push([locs[i].lng, locs[i].lat]);
+        }
+        if (seg.length > 1) feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: seg } });
+        return feats;
+    }
+    function renderTripOnMap(data, keepView) {
+        if (!tripMap) { hideMapLoading(''); return; }
+        const c = colors();
+        const locs = data.locations || [];
+        removeTripLayers();
+        if (!locs.length) { renderPlaceMarkers(data.places || []); hideMapLoading(''); return; }
+        const features = locs.map((l) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [l.lng, l.lat] }, properties: { timestamp: l.timestamp, city: l.city, country: l.country, speed: l.speed } }));
+        tripMap.addSource('adv-pts', { type: 'geojson', data: { type: 'FeatureCollection', features: features } });
+        if (showHeatmap === 'on') {
+            tripMap.addLayer({ id: 'adv-heat', type: 'heatmap', source: 'adv-pts', maxzoom: locs.length < ADV_MAP_LIMIT ? 16 : 13,
+                paint: { 'heatmap-intensity': ['interpolate', ['linear'], ['zoom']].concat(heatArgs), 'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 13, 26], 'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.75, 11, 0.6, 13, 0.1], 'heatmap-color': HEAT_COLOR } });
+        }
+        tripMap.addLayer({ id: 'adv-dots', type: 'circle', source: 'adv-pts', minzoom: detailZoom,
+            paint: { 'circle-color': speedGradient === 'on' ? SPEED_COLOR : c.primary, 'circle-radius': ['interpolate', ['linear'], ['zoom']].concat(dotArgs), 'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,0.6)', 'circle-opacity': ['interpolate', ['linear'], ['zoom'], detailZoom, 0, detailZoom + 2, 1] } });
+        if (locs.length > 1 && storeGet('roamly_connect_lines', 'off') === 'on') {
+            const lf = lineSegments(locs);
+            if (lf.length) {
+                tripMap.addSource('adv-line', { type: 'geojson', data: { type: 'FeatureCollection', features: lf } });
+                tripMap.addLayer({ id: 'adv-line', type: 'line', source: 'adv-line', minzoom: detailZoom, paint: { 'line-color': c.primary, 'line-width': 2, 'line-opacity': 0.55 } });
+            }
+        }
+        renderPlaceMarkers(data.places || []);
+        let all = locs.map((l) => [l.lng, l.lat]);
+        Object.keys(data.member_locations || {}).forEach((username, i) => {
+            const ml = data.member_locations[username] || [];
+            if (!ml.length) return;
+            const color = c.members[i % c.members.length];
+            all = all.concat(ml.map((l) => [l.lng, l.lat]));
+            tripMap.addSource('member-pts-' + i, { type: 'geojson', data: { type: 'FeatureCollection', features: ml.map((l) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [l.lng, l.lat] }, properties: { timestamp: l.timestamp, speed: l.speed, member: username } })) } });
+            tripMap.addLayer({ id: 'member-dots-' + i, type: 'circle', source: 'member-pts-' + i, minzoom: detailZoom,
+                paint: { 'circle-color': color, 'circle-radius': ['interpolate', ['linear'], ['zoom']].concat(dotArgs), 'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,0.6)', 'circle-opacity': ['interpolate', ['linear'], ['zoom'], detailZoom, 0, detailZoom + 2, 1] } });
+            if (ml.length > 1) {
+                const lf = lineSegments(ml);
+                if (lf.length) {
+                    tripMap.addSource('member-line-' + i, { type: 'geojson', data: { type: 'FeatureCollection', features: lf } });
+                    tripMap.addLayer({ id: 'member-line-' + i, type: 'line', source: 'member-line-' + i, paint: { 'line-color': color, 'line-width': 2, 'line-opacity': 0.55 } });
+                }
+            }
+        });
+        if (!keepView) {
+            const lngs = all.map((p) => p[0]), lats = all.map((p) => p[1]);
+            try { tripMap.fitBounds([[Math.min.apply(null, lngs), Math.min.apply(null, lats)], [Math.max.apply(null, lngs), Math.max.apply(null, lats)]], { padding: 60, duration: reduced() ? 0 : 600 }); } catch (e) { /* bad bounds */ }
+        }
+        tripMap.once('idle', () => hideMapLoading(num(data.total_location_count || locs.length) + ' points' + (data.device_name ? ', ' + data.device_name : '')));
+        // Safety net: idle never fires on a stalled style, and the bar must not run forever.
+        setTimeout(() => { if ($('trip-map-loading-bar').classList.contains('active')) hideMapLoading(''); }, 8000);
+    }
+
+    function makeCircle(lng, lat, radiusM, steps) {
+        steps = steps || 64;
+        const coords = [], km = radiusM / 1000;
+        for (let i = 0; i <= steps; i++) {
+            const a = (i / steps) * 2 * Math.PI;
+            coords.push([lng + (km * Math.cos(a)) / (111.32 * Math.cos(lat * Math.PI / 180)), lat + (km * Math.sin(a)) / 111.32]);
+        }
+        return coords;
+    }
+    function dropLayer(id) { if (!tripMap) return; if (tripMap.getLayer(id)) tripMap.removeLayer(id); if (tripMap.getSource(id)) tripMap.removeSource(id); }
+    function renderPlaceMarkers(places) {
+        if (!tripMap) return;
+        ['place-circles', 'place-markers'].forEach(dropLayer);
+        if (!places.length) return;
+        const c = colors();
+        tripMap.addSource('place-circles', { type: 'geojson', data: { type: 'FeatureCollection', features: places.map((p) => ({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [makeCircle(p.longitude, p.latitude, p.radius || 100)] }, properties: { id: p.id, name: p.name } })) } });
+        tripMap.addLayer({ id: 'place-circles', type: 'fill', source: 'place-circles', paint: { 'fill-color': c.sky, 'fill-opacity': 0.12 } });
+        tripMap.addSource('place-markers', { type: 'geojson', data: { type: 'FeatureCollection', features: places.map((p) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.longitude, p.latitude] }, properties: { id: p.id, name: p.name, time_spent_display: p.time_spent_display || '', lng: p.longitude, lat: p.latitude } })) } });
+        tripMap.addLayer({ id: 'place-markers', type: 'circle', source: 'place-markers', paint: { 'circle-color': c.sky, 'circle-radius': 7, 'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff' } });
+    }
+
+    // One click and one hover handler per map instance (the classic page stacked a new set on every redraw).
+    function bindMapEvents() {
+        let tip = null;
+        const hitLayers = () => {
+            const st = tripMap && tripMap.getStyle();
+            if (!st) return [];
+            return st.layers.map((l) => l.id).filter((id) => id === 'adv-dots' || id === 'place-markers' || id.indexOf('member-dots-') === 0);
+        };
+        const popup = (lngLat, html) => new window.maplibregl.Popup({ offset: 10, closeButton: false }).setLngLat(lngLat).setHTML(html).addTo(tripMap);
+        tripMap.on('click', (e) => {
+            if (placingMode) { placingMode = false; $('add-pin-btn').textContent = 'Add a pin'; $('place-hint').classList.remove('active'); tripMap.getCanvas().style.cursor = ''; showPlaceForm(e.lngLat.lat, e.lngLat.lng); return; }
+            if (blurbPlacingMode) { blurbPlacingMode = false; $('blurb-pin-hint').classList.remove('active'); tripMap.getCanvas().style.cursor = ''; setBlurbLocation(e.lngLat.lat, e.lngLat.lng); return; }
+            const ls = hitLayers();
+            const f = ls.length ? tripMap.queryRenderedFeatures(e.point, { layers: ls }) : [];
+            if (!f.length) return;
+            const ft = f[0], p = ft.properties || {}, id = ft.layer.id;
+            const when = (ts) => new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            if (id === 'place-markers') {
+                tripMap.flyTo({ center: [Number(p.lng), Number(p.lat)], zoom: Math.max(tripMap.getZoom(), 14), duration: reduced() ? 0 : 600 });
+                document.querySelectorAll('.lx-ch-adv-pinwrap').forEach((el) => el.classList.toggle('is-focus', el.dataset.id === String(p.id)));
+            } else if (id === 'adv-dots') {
+                const place = [p.city, p.country].filter(Boolean).join(', ');
+                const unit = storeGet('roamly_speed_unit', 'kmh');
+                const spd = p.speed != null && Number(p.speed) > 0 ? (unit === 'mph' ? (p.speed * 2.23694).toFixed(1) + ' mph' : (p.speed * 3.6).toFixed(1) + ' km/h') : '';
+                popup(ft.geometry.coordinates.slice(), '<div class="lx-ch-adv-pop-t">' + esc(when(p.timestamp)) + '</div>' + (place ? '<div class="lx-ch-adv-pop-s">' + esc(place) + '</div>' : '') + (spd ? '<div class="lx-ch-adv-pop-s">' + esc(spd) + '</div>' : ''));
+            } else {
+                popup(ft.geometry.coordinates.slice(), '<div class="lx-ch-adv-pop-t">' + esc(p.member) + '</div><div class="lx-ch-adv-pop-s">' + esc(when(p.timestamp)) + '</div>');
+            }
+        });
+        tripMap.on('mousemove', (e) => {
+            if (placingMode || blurbPlacingMode) return;
+            const ls = hitLayers();
+            const f = ls.length ? tripMap.queryRenderedFeatures(e.point, { layers: ls }) : [];
+            tripMap.getCanvas().style.cursor = f.length ? 'pointer' : '';
+            const pm = f.find((x) => x.layer.id === 'place-markers');
+            if (pm) {
+                if (!tip) {
+                    const p = pm.properties || {};
+                    tip = new window.maplibregl.Popup({ offset: 12, closeButton: false, closeOnClick: false }).setLngLat(pm.geometry.coordinates.slice())
+                        .setHTML('<div class="lx-ch-adv-pop-t">' + esc(p.name) + '</div>' + (p.time_spent_display ? '<div class="lx-ch-adv-pop-s">' + esc(p.time_spent_display) + ' here</div>' : '')).addTo(tripMap);
+                }
+            } else if (tip) { tip.remove(); tip = null; }
+        });
+    }
+
+    function setMapStyle(btn) {
+        currentMapStyle = btn.dataset.style;
+        storeSet('roamly_map_tile_style', currentMapStyle);
+        syncStyleButtons();
+        if (!tripMap) return;
+        tripMap.setStyle(mapStyles()[currentMapStyle]);
+        tripMap.once('styledata', () => {
+            if (currentTripData) renderTripOnMap(currentTripData, true);
+            if (composeLocation) drawBlurbPin(composeLocation.lat, composeLocation.lng);
+        });
+    }
+
+    // — notes —
+    function saveNotes() {
+        const id = currentTripId; if (!id) return;
+        $('notes-status').textContent = 'Saving';
+        post('/api/trips/' + id + '/update/', { description: $('trip-notes').value }).then(() => {
+            $('notes-status').textContent = 'Saved';
+            if (currentTripData) currentTripData.description = $('trip-notes').value;
+            setTimeout(() => { if ($('notes-status').textContent === 'Saved') $('notes-status').textContent = ''; }, 2000);
+        }).catch(() => { $('notes-status').textContent = 'Could not save. Check your connection.'; });
+    }
+    $('trip-notes').addEventListener('input', () => { clearTimeout(notesTimer); $('notes-status').textContent = 'Typing'; notesTimer = setTimeout(saveNotes, 800); });
+
+    // — settings —
+    function openSettings() {
+        const data = currentTripData; if (!data) return;
+        $('settings-name').value = data.name || '';
+        $('settings-start').value = toDateInput(new Date(data.start_time));
+        const endD = new Date(data.end_time);
+        $('settings-end').value = endD.getFullYear() >= 2099 ? '' : toDateInput(endD);
+        $('settings-notes').value = data.description || '';
+        const devSel = $('settings-device');
+        if (devSel && data.device_name) { for (let i = 0; i < devSel.options.length; i++) { const opt = devSel.options[i]; if (opt.text === data.device_name || opt.value === data.device_name) { devSel.value = opt.value; break; } } }
+        applySettingsShare();
+        openModal('settings-modal-overlay', '#settings-name');
+    }
+    function applySettingsShare() {
+        const data = currentTripData || {};
+        const ss = $('settings-share-section'), la = $('settings-link-area'), btn = $('settings-public-btn');
+        $('settings-share-note').hidden = currentIsCreator;
+        if (currentIsCreator) {
+            ss.hidden = false;
+            if (data.is_public) { btn.textContent = 'Make private'; btn.classList.add('lx-ch-btn--primary'); la.hidden = false; $('settings-slug-input').value = data.public_slug || ''; $('settings-pin-input').value = data.access_pin || ''; }
+            else { btn.textContent = 'Make public'; btn.classList.remove('lx-ch-btn--primary'); la.hidden = true; }
+        } else { ss.hidden = true; la.hidden = true; }
+    }
+    function closeSettings() { closeModal('settings-modal-overlay'); }
+    async function settingsTogglePublic() {
+        try {
+            const data = await post('/api/trips/' + currentTripId + '/toggle-public/');
+            if (currentTripData) Object.assign(currentTripData, { is_public: data.is_public, public_slug: data.public_slug });
+            renderSharingOptions(currentTripData); applySettingsShare();
+        } catch (e) { await say((e && e.message) || 'Could not change visibility.'); }
+    }
+    async function saveAllSettings(btn) {
+        const name = $('settings-name').value.trim(), startVal = $('settings-start').value;
+        if (!name || !startVal) { await say('Name and start date are required.'); return; }
+        const endVal = $('settings-end').value;
+        if (endVal && endVal < startVal) { await say('The end date is before the start date.'); return; }
+        const body = { name: name, device_id: $('settings-device').value, start_time: localDateToUTC(startVal, false), end_time: endVal ? localDateToUTC(endVal, true) : '', description: $('settings-notes').value };
+        if (currentIsCreator && !$('settings-share-section').hidden && !$('settings-link-area').hidden) {
+            const slug = $('settings-slug-input').value.trim();
+            if (slug) body.public_slug = slug;
+            body.access_pin = $('settings-pin-input').value.trim();
+        }
+        btn.disabled = true;
+        try {
+            const data = await post('/api/trips/' + currentTripId + '/update/', body);
+            if (data && data.error) { await say(data.error); return; }
+            closeSettings();
+            toast('Settings saved');
+            loadTripDetail(currentTripId);
+        } catch (e) { await say((e && e.message) || 'Could not save the settings.'); }
+        finally { btn.disabled = false; }
+    }
+    function copyText(text, done) {
+        if (!text) return;
+        const ok = () => { toast('Link copied'); if (done) done(); };
+        try { navigator.clipboard.writeText(text).then(ok).catch(() => toast('Copy failed. Select the address and copy it.', 'error')); }
+        catch (e) { toast('Copy failed. Select the address and copy it.', 'error'); }
+    }
+    function copyShareLinkSettings() {
+        const slug = $('settings-slug-input').value.trim() || (currentTripData && currentTripData.public_slug);
+        if (slug) copyText(location.origin + '/adventure/' + slug + '/');
+    }
+
+    // — pins —
+    function renderPlaces(places) {
+        const list = $('places-list');
+        if (!places.length) { list.innerHTML = '<div class="lx-ch-adv-note">No pins yet. Choose Add a pin, then click the map.</div>'; return; }
+        list.innerHTML = places.map((p) => '<div class="lx-ch-adv-pinwrap" data-id="' + esc(p.id) + '"><button type="button" class="lx-ch-adv-pin" data-act="pin-fly" data-lng="' + esc(p.longitude) + '" data-lat="' + esc(p.latitude) + '">' + svg('pin', 16) + '<span class="lx-ch-adv-pin-name">' + esc(p.name) + '</span><span class="lx-ch-adv-pin-meta">' + esc(p.time_spent_display || '') + '</span></button><button type="button" class="lx-ch-adv-del" data-act="pin-delete" data-id="' + esc(p.id) + '" aria-label="Delete pin ' + esc(p.name) + '">&times;</button></div>').join('');
+    }
+    function startAddPlace() {
+        if (!tripMap) { toast('The map did not load, so pins cannot be placed.', 'error'); return; }
+        if (placingMode) { placingMode = false; $('add-pin-btn').textContent = 'Add a pin'; $('place-hint').classList.remove('active'); tripMap.getCanvas().style.cursor = ''; return; }
+        placingMode = true; $('add-pin-btn').textContent = 'Cancel'; $('place-hint').classList.add('active'); tripMap.getCanvas().style.cursor = 'crosshair';
+    }
+    function showPlaceForm(lat, lng) {
+        ['temp-place', 'temp-place-circle'].forEach(dropLayer);
+        const c = colors();
+        tripMap.addSource('temp-place', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] } } });
+        tripMap.addLayer({ id: 'temp-place', type: 'circle', source: 'temp-place', paint: { 'circle-color': c.amber, 'circle-radius': 8, 'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff' } });
+        tripMap.addSource('temp-place-circle', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [makeCircle(lng, lat, 100)] } } });
+        tripMap.addLayer({ id: 'temp-place-circle', type: 'fill', source: 'temp-place-circle', paint: { 'fill-color': c.amber, 'fill-opacity': 0.2 } });
+        const box = $('place-form-container');
+        box.innerHTML = '<div class="lx-ch-adv-placeform"><label class="lx-ch-adv-field">Pin name<input type="text" id="pf-name" class="lx-ch-adv-input lx-ch-adv-input--sm" placeholder="Summit, cafe, hotel" maxlength="200"></label>'
+            + '<div class="lx-ch-adv-ev-m" style="margin:8px 0">' + lat.toFixed(5) + ', ' + lng.toFixed(5) + '</div>'
+            + '<div style="display:flex;gap:8px"><button type="button" class="lx-ch-btn lx-ch-btn--primary lx-ch-adv-btn-sm" data-act="place-save" data-lat="' + lat + '" data-lng="' + lng + '">Drop pin</button><button type="button" class="lx-ch-btn lx-ch-adv-btn-sm" data-act="place-cancel">Cancel</button></div></div>';
+        const nm = $('pf-name'); if (nm) { nm.focus(); nm.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { const b = box.querySelector('[data-act="place-save"]'); if (b) b.click(); } }); }
+    }
+    function cancelPlaceForm() {
+        $('place-form-container').innerHTML = '';
+        $('add-pin-btn').textContent = 'Add a pin'; placingMode = false; $('place-hint').classList.remove('active');
+        if (tripMap) { ['temp-place', 'temp-place-circle'].forEach(dropLayer); tripMap.getCanvas().style.cursor = ''; }
+    }
+    async function savePlace(lat, lng, btn) {
+        const name = ($('pf-name').value || '').trim() || 'Pin';
+        btn.disabled = true;
+        try {
+            const data = await post('/api/trips/' + currentTripId + '/places/create/', { name: name, latitude: lat, longitude: lng, radius: 100, notes: '' });
+            if (data && data.status === 'ok') { cancelPlaceForm(); loadTripDetail(currentTripId, { keepView: true }); }
+            else await say((data && data.error) || 'Could not create the pin.');
+        } catch (e) { await say((e && e.message) || 'Could not create the pin.'); }
+        finally { btn.disabled = false; }
+    }
+    async function deletePlace(placeId) {
+        if (!await ask('Delete this pin?')) return;
+        try { await post('/api/trips/' + currentTripId + '/places/' + placeId + '/delete/'); loadTripDetail(currentTripId, { keepView: true }); }
+        catch (e) { await say((e && e.message) || 'Could not delete the pin.'); }
+    }
+
+    // — journal —
+    async function loadTimeline(id, page) {
+        const my = ++tlSeq;
+        try {
+            const data = await api('/api/trips/' + id + '/timeline/?page=' + page);
+            if (my !== tlSeq || currentTripId !== id) return;
+            $('timeline-load-more').hidden = !data.has_more;
+            const events = data.events || [];
+            if (page === 1) allPhotos = [];
+            events.forEach((ev) => { if (ev.type === 'blurb') { timelineEventsMap[ev.id] = ev; (ev.photos || []).forEach((p) => allPhotos.push(p)); } });
+            const grid = $('adv-photos-grid');
+            grid.innerHTML = allPhotos.length ? allPhotos.map((p) => '<a href="' + esc(p.url) + '" target="_blank" rel="noopener"><img src="' + esc(p.thumb) + '" alt="Adventure photo" loading="lazy"></a>').join('') : '<span class="lx-ch-adv-note">No photos yet</span>';
+            if (!events.length && page === 1) { $('timeline-list').innerHTML = '<div class="lx-ch-adv-note">No entries yet. Write the first post.</div>'; return; }
+            const html = events.map((ev) => (ev.type === 'milestone' ? milestoneHtml(ev) : postCardHtml(ev))).join('');
+            if (page === 1) $('timeline-list').innerHTML = html; else $('timeline-list').insertAdjacentHTML('beforeend', html);
+        } catch (e) {
+            if (my !== tlSeq) return;
+            if (page === 1) $('timeline-list').innerHTML = '<div class="lx-ch-adv-note" role="alert">Could not load the journal. <button type="button" class="lx-ch-adv-link" data-act="reload-journal">Try again</button></div>';
+        }
+    }
+    function milestoneHtml(ev) {
+        const date = new Date(ev.date).toLocaleDateString();
+        return '<div class="lx-ch-adv-ms"><span class="lx-ch-adv-ms-mark" aria-hidden="true">' + esc(ev.emoji) + '</span><div class="lx-ch-adv-ms-body"><div class="lx-ch-adv-ms-t">' + esc(ev.title) + '</div>' + (ev.description ? '<div class="lx-ch-adv-ms-d">' + esc(ev.description) + '</div>' : '') + '<div class="lx-ch-adv-ms-date">' + esc(date) + '</div></div>'
+            + (ev.can_delete ? '<button type="button" class="lx-ch-adv-del" data-act="milestone-delete" data-id="' + esc(ev.id) + '" aria-label="Delete milestone ' + esc(ev.title) + '">&times;</button>' : '') + '</div>';
+    }
+    function postCardHtml(ev) {
+        const lines = (ev.text || '').split('\n').filter((l) => l.trim());
+        const rawTitle = lines[0] ? lines[0].replace(/^#+\s*/, '') : '';
+        const np = ev.photos ? ev.photos.length : 0;
+        const title = rawTitle.slice(0, 60) || (np ? np + ' photo' + (np > 1 ? 's' : '') : '(no text)');
+        const preview = lines.length > 1 ? lines[1].replace(/^#+\s*/, '').replace(/\*+/g, '').slice(0, 80) : '';
+        const date = new Date(ev.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' });
+        const meta = [esc(ev.author), esc(date)];
+        if (ev.comment_count > 0) meta.push(ev.comment_count + ' comment' + (ev.comment_count !== 1 ? 's' : ''));
+        if (np) meta.push(np + ' photo' + (np > 1 ? 's' : ''));
+        return '<button type="button" class="lx-ch-adv-ev" id="post-card-' + esc(ev.id) + '" data-act="post-open" data-id="' + esc(ev.id) + '"><span class="lx-ch-adv-ev-t">' + esc(title) + '</span>' + (preview ? '<span class="lx-ch-adv-ev-p">' + esc(preview) + '</span>' : '') + '<span class="lx-ch-adv-ev-m">' + meta.join(', ') + '</span></button>';
+    }
+    async function deleteBlurb(blurbId) {
+        if (!await ask('Delete this post?')) return;
+        closePost();
+        try { await post('/api/trips/' + currentTripId + '/blurbs/' + blurbId + '/delete/'); timelinePage = 1; loadTimeline(currentTripId, 1); }
+        catch (e) { await say((e && e.message) || 'Could not delete the post.'); }
+    }
+    async function deleteMilestone(msId) {
+        if (!await ask('Delete this milestone?')) return;
+        try { await post('/api/trips/' + currentTripId + '/milestones/' + msId + '/delete/'); timelinePage = 1; loadTimeline(currentTripId, 1); }
+        catch (e) { await say((e && e.message) || 'Could not delete the milestone.'); }
+    }
+    function toggleMilestoneForm() {
+        const f = $('milestone-form'); f.hidden = !f.hidden;
+        const t = document.querySelector('[data-act="milestone-toggle"][aria-controls]'); if (t) t.setAttribute('aria-expanded', f.hidden ? 'false' : 'true');
+        if (!f.hidden) { const now = new Date(); $('ms-date').value = new Date(now - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16); $('ms-title').focus(); }
+    }
+    async function saveMilestone(btn) {
+        const title = $('ms-title').value.trim();
+        if (!title) { await say('Give the milestone a title.'); return; }
+        btn.disabled = true;
+        try {
+            const data = await post('/api/trips/' + currentTripId + '/milestones/create/', { title: title, emoji: $('ms-emoji').value || '🏁', description: $('ms-desc').value, date: $('ms-date').value });
+            if (data && data.status === 'ok') { toggleMilestoneForm(); $('ms-title').value = ''; $('ms-desc').value = ''; timelinePage = 1; loadTimeline(currentTripId, 1); }
+            else await say((data && data.error) || 'Could not save the milestone.');
+        } catch (e) { await say((e && e.message) || 'Could not save the milestone.'); }
+        finally { btn.disabled = false; }
+    }
+
+    // — post view, comments, compose —
+    function renderMarkdown(text) {
+        if (!text) return '';
+        let h = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        h = h.replace(/^# (.+)$/gm, '<h3>$1</h3>').replace(/^## (.+)$/gm, '<h4>$1</h4>').replace(/^### (.+)$/gm, '<h4>$1</h4>');
+        h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>').replace(/^---$/gm, '<hr>').replace(/\n/g, '<br>');
+        h = h.replace(/<\/h[34]><br>/g, (m) => m.replace('<br>', '')).replace(/<hr><br>/g, '<hr>');
+        return h;
+    }
+    function openPost(blurbId) {
+        const ev = timelineEventsMap[blurbId]; if (!ev) return;
+        currentPostId = blurbId;
+        $('post-modal-label').textContent = 'Post';
+        const time = new Date(ev.created_at).toLocaleString([], { month: 'long', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const photos = ev.photos && ev.photos.length ? '<div class="lx-ch-adv-postphotos">' + ev.photos.map((p) => '<a href="' + esc(p.url) + '" target="_blank" rel="noopener"><img src="' + esc(p.thumb) + '" alt="Post photo" loading="lazy"></a>').join('') + '</div>' : '';
+        const loc = ev.location_name ? '<div class="lx-ch-adv-postloc">' + svg('pin', 14) + esc(ev.location_name) + '</div>' : '';
+        const body = renderMarkdown(ev.text || '');
+        $('post-modal-body').innerHTML = '<div class="lx-ch-adv-postmeta"><strong>' + esc(ev.author) + '</strong><span>' + esc(time) + '</span>' + (ev.can_delete ? '<button type="button" class="lx-ch-btn lx-ch-btn--danger lx-ch-adv-btn-sm" style="margin-left:auto" data-act="post-delete" data-id="' + esc(ev.id) + '">Delete post</button>' : '') + '</div>'
+            + (body ? '<div class="lx-ch-adv-postbody">' + body + '</div>' : '') + photos + loc
+            + '<div class="lx-ch-adv-comments"><div class="lx-ch-adv-sect" style="margin-top:0">Comments</div><div id="post-comments-list" style="margin-bottom:12px"></div>'
+            + '<div style="display:flex;gap:8px"><input type="text" id="post-comment-input" class="lx-ch-adv-input lx-ch-adv-input--sm" placeholder="Add a comment" aria-label="Add a comment" maxlength="1000"><button type="button" class="lx-ch-btn lx-ch-adv-btn-sm" data-act="comment-submit" data-id="' + esc(ev.id) + '">Post comment</button></div></div>';
+        const input = $('post-comment-input');
+        if (input) input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitPostComment(blurbId); } });
+        openModal('post-modal-overlay', '.lx-ch-adv-x');
+        loadPostComments(blurbId);
+    }
+    function closePost() { closeModal('post-modal-overlay'); currentPostId = null; }
+    async function loadPostComments(blurbId) {
+        const list = $('post-comments-list'); if (!list) return;
+        try {
+            const data = await api('/api/trips/' + currentTripId + '/blurbs/' + blurbId + '/comments/');
+            const l2 = $('post-comments-list'); if (!l2) return;
+            l2.innerHTML = (data.comments || []).map((c) => '<div class="lx-ch-adv-comment"><b>' + esc(c.author) + '</b><span>' + esc(c.text) + '</span>' + (c.can_delete ? '<button type="button" class="lx-ch-adv-del" data-act="comment-delete" data-id="' + esc(c.id) + '" aria-label="Delete comment">&times;</button>' : '') + '</div>').join('') || '<div class="lx-ch-adv-note">No comments yet</div>';
+        } catch (e) { list.innerHTML = '<div class="lx-ch-adv-note">Could not load comments.</div>'; }
+    }
+    async function submitPostComment(blurbId) {
+        const input = $('post-comment-input'); if (!input) return;
+        const text = input.value.trim(); if (!text) return;
+        try {
+            await post('/api/trips/' + currentTripId + '/blurbs/' + blurbId + '/comments/create/', { text: text });
+            input.value = ''; loadPostComments(blurbId);
+            const ev = timelineEventsMap[blurbId];
+            if (ev) { ev.comment_count = (ev.comment_count || 0) + 1; const card = $('post-card-' + blurbId); if (card) card.outerHTML = postCardHtml(ev); }
+        } catch (e) { await say((e && e.message) || 'Could not post the comment.'); }
+    }
+    async function deletePostComment(commentId) {
+        if (!await ask('Delete this comment?')) return;
+        try { await post('/api/trips/' + currentTripId + '/comments/' + commentId + '/delete/'); if (currentPostId) loadPostComments(currentPostId); }
+        catch (e) { await say((e && e.message) || 'Could not delete the comment.'); }
+    }
+    function openCompose() {
+        currentPostId = null;
+        const draft = composeDraft; composeDraft = '';
+        const loc = composeLocation ? composeLocation.lat.toFixed(4) + ', ' + composeLocation.lng.toFixed(4) : '';
+        $('post-modal-body').innerHTML = '<div class="lx-ch-adv-fmt" role="toolbar" aria-label="Formatting"><button type="button" data-act="fmt" data-fmt="bold" aria-label="Bold"><strong>B</strong></button><button type="button" data-act="fmt" data-fmt="italic" aria-label="Italic"><em>I</em></button><button type="button" data-act="fmt" data-fmt="h1" aria-label="Heading">H1</button><button type="button" data-act="fmt" data-fmt="rule" aria-label="Divider">&mdash;&mdash;</button></div>'
+            + '<textarea class="lx-ch-adv-compose-ta" id="compose-text" placeholder="Write something" aria-label="Post text"></textarea>'
+            + '<div class="lx-ch-adv-compose-foot">'
+            + '<label class="lx-ch-adv-toolbtn" title="Add photos" style="cursor:pointer"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' + ICON.photo + '</svg><span class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Add photos</span><input type="file" id="compose-photos" accept="image/*" multiple></label>'
+            + '<button type="button" class="lx-ch-adv-toolbtn" id="compose-pin-btn" data-act="blurb-pin" title="Pin on the map" aria-label="Pin on the map"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' + ICON.pin + '</svg></button>'
+            + '<span class="lx-ch-adv-compose-loc" id="compose-location-display">' + esc(loc) + '</span>'
+            + '<button type="button" class="lx-ch-adv-toolbtn" id="compose-clear-loc" data-act="blurb-clear" aria-label="Remove the pin"' + (composeLocation ? '' : ' style="display:none"') + '><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>'
+            + '<button type="button" class="lx-ch-btn lx-ch-btn--primary" style="margin-left:auto" data-act="publish" id="publish-btn">Publish</button></div>'
+            + '<div class="lx-ch-adv-photopreview" id="compose-photo-preview"></div>';
+        $('post-modal-label').textContent = 'New post';
+        const ph = $('compose-photos'); if (ph) ph.addEventListener('change', () => previewPhotos(ph));
+        if ($('post-modal-overlay').hidden) openModal('post-modal-overlay', '#compose-text');
+        const ta = $('compose-text'); if (draft) ta.value = draft; ta.focus();
+    }
+    function wrapSelection(prefix, suffix) {
+        const ta = $('compose-text'); if (!ta) return;
+        const s = ta.selectionStart, e = ta.selectionEnd, sel = ta.value.slice(s, e) || 'text';
+        ta.value = ta.value.slice(0, s) + prefix + sel + suffix + ta.value.slice(e);
+        ta.setSelectionRange(s + prefix.length, s + prefix.length + sel.length); ta.focus();
+    }
+    function insertHeading() {
+        const ta = $('compose-text'); if (!ta) return;
+        const s = ta.selectionStart, e = ta.selectionEnd, clean = (ta.value.slice(s, e) || 'Title').replace(/^#+\s*/, '');
+        ta.value = ta.value.slice(0, s) + '# ' + clean + ta.value.slice(e);
+        ta.setSelectionRange(s + 2, s + 2 + clean.length); ta.focus();
+    }
+    function previewPhotos(input) {
+        const p = $('compose-photo-preview'); if (!p) return;
+        p.innerHTML = '';
+        Array.prototype.slice.call(input.files).slice(0, 5).forEach((f) => { const img = document.createElement('img'); img.alt = ''; img.src = URL.createObjectURL(f); img.onload = () => URL.revokeObjectURL(img.src); p.appendChild(img); });
+    }
+    function startBlurbPinMode() {
+        if (!tripMap) { toast('The map did not load, so a post cannot be pinned.', 'error'); return; }
+        composeDraft = ($('compose-text') || {}).value || ''; composeReturn = true;
+        closeModal('post-modal-overlay', false);
+        if (placingMode) { placingMode = false; $('add-pin-btn').textContent = 'Add a pin'; $('place-hint').classList.remove('active'); }
+        blurbPlacingMode = true; $('blurb-pin-hint').classList.add('active'); tripMap.getCanvas().style.cursor = 'crosshair';
+    }
+    function drawBlurbPin(lat, lng) {
+        if (!tripMap) return;
+        dropLayer('blurb-pin');
+        tripMap.addSource('blurb-pin', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] } } });
+        tripMap.addLayer({ id: 'blurb-pin', type: 'circle', source: 'blurb-pin', paint: { 'circle-color': colors().sky, 'circle-radius': 8, 'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff' } });
+    }
+    function setBlurbLocation(lat, lng) {
+        composeLocation = { lat: lat, lng: lng };
+        drawBlurbPin(lat, lng);
+        if (composeReturn) { composeReturn = false; openCompose(); }
+    }
+    function clearComposeLocation() {
+        composeLocation = null;
+        const d = $('compose-location-display'), b = $('compose-clear-loc');
+        if (d) d.textContent = ''; if (b) b.style.display = 'none';
+        dropLayer('blurb-pin');
+    }
+    async function submitBlurb(btn) {
+        const ta = $('compose-text'); const text = ta ? ta.value.trim() : '';
+        if (!text) { await say('Write something first.'); return; }
+        const fd = new FormData(); fd.append('text', text);
+        if (composeLocation) { fd.append('latitude', composeLocation.lat); fd.append('longitude', composeLocation.lng); fd.append('location_name', $('compose-location-display').textContent); }
+        const pi = $('compose-photos');
+        if (pi) Array.prototype.slice.call(pi.files).slice(0, 5).forEach((f) => fd.append('photos', f));
+        btn.disabled = true; btn.textContent = 'Publishing';
+        try {
+            const data = await api('/api/trips/' + currentTripId + '/blurbs/create/', { method: 'POST', body: fd });
+            if (data && data.status === 'ok') { closePost(); clearComposeLocation(); toast('Published'); timelinePage = 1; loadTimeline(currentTripId, 1); }
+            else await say((data && data.error) || 'Could not publish the post.');
+        } catch (e) { await say((e && e.message) || 'Could not publish the post.'); }
+        finally { btn.disabled = false; btn.textContent = 'Publish'; }
+    }
+    async function uploadAdventurePhotos(input) {
+        const files = Array.prototype.slice.call(input.files).slice(0, 10); if (!files.length) return;
+        $('adv-photos-grid').innerHTML = '<span class="lx-ch-adv-note">Uploading</span>';
+        const fd = new FormData(); fd.append('text', '📷'); files.forEach((f) => fd.append('photos', f));
+        try { await api('/api/trips/' + currentTripId + '/blurbs/create/', { method: 'POST', body: fd }); }
+        catch (e) { await say((e && e.message) || 'Could not upload the photos.'); }
+        input.value = ''; timelinePage = 1; loadTimeline(currentTripId, 1);
+    }
+
+    // — members —
+    function renderMembers(members) {
+        $('add-member-area').hidden = !currentIsCreator;
+        const list = $('members-list');
+        if (!members.length) { list.innerHTML = '<div class="lx-ch-adv-note">No members yet</div>'; return; }
+        list.innerHTML = members.map((m) => {
+            let av;
+            if (m.avatar && m.avatar.type === 'image' && m.avatar.url) av = '<img src="' + esc(m.avatar.url) + '" alt="">';
+            else if (m.avatar && m.avatar.type === 'initials') { const col = safeColor(m.avatar.color); av = '<span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;' + (col ? 'background:' + col + ';color:#fff' : '') + '">' + esc(m.avatar.initials) + '</span>'; }
+            else av = esc(String(m.username || '?').charAt(0).toUpperCase());
+            return '<div class="lx-ch-adv-member"><span class="lx-ch-adv-avatar" aria-hidden="true">' + av + '</span><span class="lx-ch-adv-member-name">' + esc(m.username) + '</span><span class="lx-ch-adv-member-role">' + esc(m.pending ? 'Invited' : m.role) + '</span>'
+                + (currentIsCreator && m.role !== 'creator' ? '<button type="button" class="lx-ch-adv-del" data-act="member-remove" data-id="' + esc(m.user_id) + '" aria-label="Remove ' + esc(m.username) + '">&times;</button>' : '') + '</div>';
+        }).join('');
+    }
+    async function addMember() {
+        const input = $('add-member-input'), username = input.value.trim(); if (!username) return;
+        const err = $('add-member-error'); err.textContent = '';
+        try {
+            const data = await post('/api/trips/' + currentTripId + '/members/add/', { username: username });
+            if (data && data.status === 'ok') { input.value = ''; loadTripDetail(currentTripId, { keepView: true }); toast('Invitation sent. They join from their own account.'); }
+            else err.textContent = (data && data.error) || 'Could not invite that user.';
+        } catch (e) { err.textContent = (e && e.message) || 'Could not send the invitation.'; }
+    }
+    async function removeMember(userId) {
+        if (!await ask('Remove this member?')) return;
+        try { await post('/api/trips/' + currentTripId + '/members/' + userId + '/remove/'); loadTripDetail(currentTripId, { keepView: true }); }
+        catch (e) { await say((e && e.message) || 'Could not remove the member.'); }
+    }
+
+    // — sharing —
+    function renderSharingOptions(data) {
+        const cr = $('creator-share-section'), ml = $('member-share-link'), la = $('share-link-area'), btn = $('toggle-public-btn');
+        if (currentIsCreator) {
+            cr.hidden = false; ml.hidden = true;
+            if (data.is_public) { btn.textContent = 'Make private'; btn.classList.add('lx-ch-btn--primary'); la.hidden = false; if (document.activeElement !== $('share-slug-input')) $('share-slug-input').value = data.public_slug || ''; if (document.activeElement !== $('share-pin-input')) $('share-pin-input').value = data.access_pin || ''; }
+            else { btn.textContent = 'Make public'; btn.classList.remove('lx-ch-btn--primary'); la.hidden = true; }
+        } else {
+            cr.hidden = true; la.hidden = true;
+            if (data.is_public) { ml.hidden = false; $('share-link-input').value = location.origin + '/adventure/' + data.public_slug + '/'; } else ml.hidden = true;
+        }
+    }
+    async function togglePublic() {
+        try {
+            const data = await post('/api/trips/' + currentTripId + '/toggle-public/');
+            currentTripData = Object.assign(currentTripData || {}, { is_public: data.is_public, public_slug: data.public_slug });
+            renderSharingOptions(currentTripData);
+        } catch (e) { await say((e && e.message) || 'Could not change visibility.'); }
+    }
+    let slugTimer = null, pinTimer = null;
+    function flashSaved() { const m = $('share-saved-msg'); if (!m) return; m.hidden = false; setTimeout(() => { m.hidden = true; }, 1500); }
+    function saveSlug(value) {
+        clearTimeout(slugTimer);
+        const slug = value.trim();
+        if (!slug || slug === (currentTripData && currentTripData.public_slug)) return;
+        slugTimer = setTimeout(async () => {
+            try {
+                const data = await post('/api/trips/' + currentTripId + '/update/', { public_slug: slug });
+                if (data.error) { await say(data.error); $('share-slug-input').value = (currentTripData && currentTripData.public_slug) || ''; }
+                else { currentTripData.public_slug = data.public_slug; flashSaved(); }
+            } catch (e) { await say((e && e.message) || 'Could not save the address.'); $('share-slug-input').value = (currentTripData && currentTripData.public_slug) || ''; }
+        }, 600);
+    }
+    function savePin(value) {
+        clearTimeout(pinTimer);
+        const pin = value.trim();
+        if (pin === ((currentTripData && currentTripData.access_pin) || '')) return;
+        pinTimer = setTimeout(async () => {
+            try { await post('/api/trips/' + currentTripId + '/update/', { access_pin: pin }); if (currentTripData) currentTripData.access_pin = pin; flashSaved(); }
+            catch (e) { await say((e && e.message) || 'Could not save the pin.'); }
+        }, 600);
+    }
+    function copyShareLink() { const slug = currentTripData && currentTripData.public_slug; if (slug) copyText(location.origin + '/adventure/' + slug + '/', flashSaved); }
+
+    // — visits —
+    async function loadVisits() {
+        if (visitsLoaded) return; visitsLoaded = true;
+        const id = currentTripId;
+        try {
+            const data = await api('/api/trips/' + id + '/visits/');
+            if (currentTripId !== id) return;
+            const none = '<tr><td colspan="3" class="lx-ch-adv-note">No data</td></tr>';
+            $('visits-countries-body').innerHTML = (data.countries || []).map((c) => '<tr><td>' + esc(c.country) + '</td><td>' + esc(c.city_count) + '</td><td>' + esc(formatDuration(c.time_spent)) + '</td></tr>').join('') || none;
+            $('visits-cities-body').innerHTML = (data.cities || []).map((c) => '<tr><td>' + esc(c.city) + '</td><td>' + esc(c.country) + '</td><td>' + esc(formatDuration(c.time_spent)) + '</td></tr>').join('') || none;
+        } catch (e) { visitsLoaded = false; $('visits-countries-body').innerHTML = '<tr><td colspan="3" class="lx-ch-adv-note">Could not load visits.</td></tr>'; }
+    }
+    function switchVisitsTab(tab) {
+        document.querySelectorAll('[data-act="visits-tab"]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.tab === tab ? 'true' : 'false'));
+        $('visits-countries-pane').hidden = tab !== 'countries'; $('visits-cities-pane').hidden = tab !== 'cities';
+    }
+
+    // — tabs, delete —
+    function switchTab(tab, silent) {
+        document.querySelectorAll('.lx-ch-adv-tab').forEach((b) => { const on = b.dataset.tab === tab; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; });
+        document.querySelectorAll('.lx-ch-adv-tabpanel').forEach((p) => { p.hidden = p.id !== 'tab-' + tab; });
+        if (tab === 'details' && !silent && !visitsLoaded) loadVisits();
+    }
+    async function deleteTrip() {
+        if (!currentTripId) return;
+        if (!await ask('Delete this adventure? This cannot be undone.')) return;
+        const id = currentTripId;
+        try { await post('/api/trips/' + id + '/delete/'); closeSettings(); toast('Adventure deleted'); closeTrip(); }
+        catch (e) { await say((e && e.message) || 'Could not delete the adventure.'); }
+    }
+
+    // ── Event wiring ────────────────────────────────────────────────
+    const ACTIONS = {
+        'new': () => openCreateModal(),
+        'close-create': () => closeModal('create-modal-overlay'),
+        'create-submit': (el) => createAdventure(el),
+        'preset': (el) => setDatePreset(el.dataset.preset),
+        'set-filter': (el) => setFilter(el.dataset.filter),
+        'clear-filters': () => { $('adv-search').value = ''; $('adv-device-filter').value = ''; setFilter('all'); },
+        'retry': () => loadAdventures(),
+        'blog-new': () => blogToggle(),
+        'blog-cancel': () => blogToggle(false),
+        'open-trip': (el) => openTrip(Number(el.dataset.id), el),
+        'close-trip': () => closeTrip(),
+        'toggle-side': () => toggleSide(),
+        'open-settings': () => openSettings(),
+        'close-settings': () => closeSettings(),
+        'settings-toggle-public': () => settingsTogglePublic(),
+        'settings-save': (el) => saveAllSettings(el),
+        'settings-copy': () => copyShareLinkSettings(),
+        'delete-trip': () => deleteTrip(),
+        'tab': (el) => switchTab(el.dataset.tab),
+        'compose': () => openCompose(),
+        'post-open': (el) => openPost(Number(el.dataset.id)),
+        'post-close': () => closePost(),
+        'post-delete': (el) => deleteBlurb(Number(el.dataset.id)),
+        'comment-submit': (el) => submitPostComment(Number(el.dataset.id)),
+        'comment-delete': (el) => deletePostComment(Number(el.dataset.id)),
+        'milestone-toggle': () => toggleMilestoneForm(),
+        'milestone-save': (el) => saveMilestone(el),
+        'milestone-delete': (el) => deleteMilestone(Number(el.dataset.id)),
+        'load-more': () => { timelinePage++; loadTimeline(currentTripId, timelinePage); },
+        'reload-journal': () => loadTimeline(currentTripId, 1),
+        'add-pin-toggle': () => startAddPlace(),
+        'pin-fly': (el) => { if (tripMap) tripMap.flyTo({ center: [Number(el.dataset.lng), Number(el.dataset.lat)], zoom: 15, duration: reduced() ? 0 : 1000 }); },
+        'pin-delete': (el) => deletePlace(Number(el.dataset.id)),
+        'place-save': (el) => savePlace(Number(el.dataset.lat), Number(el.dataset.lng), el),
+        'place-cancel': () => cancelPlaceForm(),
+        'member-add': () => addMember(),
+        'member-remove': (el) => removeMember(Number(el.dataset.id)),
+        'toggle-public': () => togglePublic(),
+        'copy-link': () => copyShareLink(),
+        'visits-tab': (el) => switchVisitsTab(el.dataset.tab),
+        'map-style': (el) => setMapStyle(el),
+        'fmt': (el) => { const f = el.dataset.fmt; if (f === 'bold') wrapSelection('**', '**'); else if (f === 'italic') wrapSelection('*', '*'); else if (f === 'h1') insertHeading(); else wrapSelection('\n\n---\n\n', ''); },
+        'blurb-pin': () => startBlurbPinMode(),
+        'blurb-clear': () => clearComposeLocation(),
+        'publish': (el) => submitBlurb(el)
+    };
+    document.addEventListener('click', (e) => {
+        const el = e.target && e.target.closest ? e.target.closest('[data-act]') : null;
+        if (!el) return;
+        const fn = ACTIONS[el.dataset.act];
+        if (!fn) return;
+        try { fn(el, e); } catch (err) { if (window.console) console.error(err); }
+    });
+
+    // Tab strip: arrow keys move between tabs (roving tabindex).
+    const tablist = document.querySelector('.lx-ch-adv-tabs');
+    if (tablist) tablist.addEventListener('keydown', (e) => {
+        if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(e.key) < 0) return;
+        const tabs = Array.prototype.slice.call(tablist.querySelectorAll('.lx-ch-adv-tab'));
+        let i = tabs.indexOf(document.activeElement); if (i < 0) return;
+        e.preventDefault();
+        if (e.key === 'ArrowRight') i = (i + 1) % tabs.length; else if (e.key === 'ArrowLeft') i = (i - 1 + tabs.length) % tabs.length; else if (e.key === 'Home') i = 0; else i = tabs.length - 1;
+        tabs[i].focus(); switchTab(tabs[i].dataset.tab);
+    });
+
+    // Toolbar controls
+    $('adv-search').addEventListener('input', () => renderAdventures());
+    $('adv-device-filter').addEventListener('change', () => renderAdventures());
+    $('adv-sort').addEventListener('change', () => renderAdventures());
+
+    // Share inputs: save on change/blur (the dedupe in saveSlug/savePin stops the double save), Enter commits.
+    const slugIn = $('share-slug-input'), pinIn = $('share-pin-input');
+    slugIn.addEventListener('change', () => saveSlug(slugIn.value)); slugIn.addEventListener('blur', () => saveSlug(slugIn.value));
+    slugIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') slugIn.blur(); });
+    pinIn.addEventListener('change', () => savePin(pinIn.value)); pinIn.addEventListener('blur', () => savePin(pinIn.value));
+    pinIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') pinIn.blur(); });
+    $('share-link-input').addEventListener('click', function () { this.select(); });
+    $('add-member-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addMember(); } });
+    $('adv-photo-input').addEventListener('change', function () { uploadAdventurePhotos(this); });
+
+    // Keyboard: Escape unwinds the topmost thing; Tab stays inside an open modal.
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab') {
+            const m = topModal(); if (!m) return;
+            const box = m.querySelector('.lx-ch-adv-modal');
+            const f = Array.prototype.slice.call(box.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled])')).filter((x) => x.offsetParent !== null);
+            if (!f.length) return;
+            const first = f[0], last = f[f.length - 1];
+            if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+            else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+            return;
+        }
+        if (e.key !== 'Escape' || e.defaultPrevented) return;
+        // A RoamlyDialog confirm/alert on top owns Escape (its listener registers after ours, so defaultPrevented is not set yet).
+        if (document.querySelector('.rly-dialog-overlay.open')) return;
+        const m = topModal();
+        if (m) {
+            e.preventDefault();
+            if (m.id === 'create-modal-overlay') closeModal('create-modal-overlay');
+            else if (m.id === 'settings-modal-overlay') closeSettings();
+            else closePost();
+            return;
+        }
+        if (placingMode) { e.preventDefault(); startAddPlace(); return; }
+        if (blurbPlacingMode) {
+            e.preventDefault(); blurbPlacingMode = false; $('blurb-pin-hint').classList.remove('active');
+            if (tripMap) tripMap.getCanvas().style.cursor = '';
+            if (composeReturn) { composeReturn = false; openCompose(); }
+            return;
+        }
+        if (!$('trip-fullscreen').hidden) { e.preventDefault(); closeTrip(); }
+    });
+
+    // Create modal: Enter in a text field submits.
+    ['trip-name', 'trip-description'].forEach((id) => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const b = $('create-submit'); if (b && !b.disabled) b.click(); } }));
+
+    syncStyleButtons();
+    loadAdventures();
+    loadBlogs();
+})();
+</script>
+{% endblock %}
