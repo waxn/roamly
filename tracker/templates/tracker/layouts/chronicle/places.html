@@ -1,17 +1,34 @@
 {% extends "tracker/base.html" %}
 {% block title %}Places - Roamly{% endblock %}
-{% comment %} Chronicle's Places: each place is a chapter. A row per place (grouped by
-   how recently you were there) opens in place to its map, notes, notification
-   settings and a visit history that links into /timeline/?d=YYYY-MM-DD.
-   Same endpoints as the classic page: /api/places/ (+ suggestions, dismiss,
-   detail, points stream, update, delete). MapLibre stays on (default blocks):
-   three lazily created maps share the page: suggestion preview, place detail, and
-   the create/edit picker. {% endcomment %}
+{% comment %} Chronicle's Places (v2): a grid of place tiles (small basemap thumbnail,
+   name, points, last seen) grouped by how recently you were there. Opening a tile
+   fills the page right of the sidebar with a large map and a collapsible side
+   panel (stats, visit history, cities, notes, notifications). The open place is
+   part of history (?place=ID, pushState), so the browser Back button closes it.
+
+   Speed: the list's point_count / last_seen come from the nightly snapshot, but
+   /api/places/<id>/ is a LIVE scan of every point inside the geofence (not
+   precomputed), which is what made big places (home, work, anywhere you were
+   today) slow to open. The panel therefore paints from list data at once, shows
+   a cached detail instantly (sessionStorage, revalidated in the background),
+   joins any in-flight prefetch, and prefetches on hover/focus/touch and for the
+   first few tiles at idle. The point stream waits for the stats so the two scans
+   do not compete.
+
+   Basemap: the user's chosen basemap (localStorage roamly_map_tile_style, list
+   from #roamly-basemaps when the view supplies it, else the three built-ins).
+   Thumbnails are rendered one or two at a time off-screen, exported as JPEG and
+   cached, so there is never a grid of live GL contexts. MapLibre stays on
+   (default blocks). {% endcomment %}
 
 {% block extra_css %}
-html[data-layout="chronicle"] .lx-ch-pl-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin: 20px 0 0; }
+html[data-layout="chronicle"] .lx-ch-page.lx-ch-pl-page { max-width: 1240px; }
+html[data-layout="chronicle"] .lx-ch-pl-page[inert] { pointer-events: none; }
+
+/* ── Toolbar ──────────────────────────────────────────────────────── */
+html[data-layout="chronicle"] .lx-ch-pl-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin: 24px 0 0; }
 html[data-layout="chronicle"] .lx-ch-pl-search { position: relative; flex: 1 1 14rem; max-width: 22rem; }
-html[data-layout="chronicle"] .lx-ch-pl-search svg {
+html[data-layout="chronicle"] .lx-ch-pl-search > svg {
     position: absolute; left: 12px; top: 50%; transform: translateY(-50%); pointer-events: none;
     fill: none; stroke: var(--text-muted); stroke-width: 1.75; stroke-linecap: round;
 }
@@ -26,10 +43,21 @@ html[data-layout="chronicle"][data-theme="light"] .lx-ch-pl-input { color-scheme
 html[data-layout="chronicle"] .lx-ch-pl-input::placeholder { color: var(--text-dim); }
 html[data-layout="chronicle"] .lx-ch-pl-input:hover { border-color: var(--border-strong); }
 html[data-layout="chronicle"] .lx-ch-pl-input:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
-html[data-layout="chronicle"] .lx-ch-pl-search .lx-ch-pl-input { padding-left: 36px; }
+html[data-layout="chronicle"] .lx-ch-pl-search .lx-ch-pl-input { padding-left: 36px; padding-right: 40px; }
+html[data-layout="chronicle"] .lx-ch-pl-search .lx-ch-pl-input::-webkit-search-cancel-button { display: none; }
 html[data-layout="chronicle"] textarea.lx-ch-pl-input { resize: vertical; min-height: 88px; }
+html[data-layout="chronicle"] .lx-ch-pl-clear {
+    position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
+    width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
+    background: none; border: 0; cursor: pointer; color: var(--text-muted); border-radius: var(--r-2, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-pl-clear[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-pl-clear:hover { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-pl-clear:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
+html[data-layout="chronicle"] .lx-ch-pl-clear svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; }
 html[data-layout="chronicle"] .lx-ch-pl-snap { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; }
 html[data-layout="chronicle"] .lx-ch-pl-snap .lx-ch-kicker { white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-pl-count { margin-top: 12px; min-height: 18px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── Suggestions ──────────────────────────────────────────────────── */
 html[data-layout="chronicle"] .lx-ch-pl-suggest[hidden] { display: none; }
@@ -54,84 +82,179 @@ html[data-layout="chronicle"] .lx-ch-pl-mini[hidden] { display: none; }
 html[data-layout="chronicle"] .lx-ch-pl-minihost { width: 100%; height: 100%; }
 html[data-layout="chronicle"] .lx-ch-pl-sg-more { margin-top: 12px; }
 
-/* ── The chapters ─────────────────────────────────────────────────── */
-html[data-layout="chronicle"] .lx-ch-pl-group { margin-top: 32px; }
+/* ── Groups and tiles ─────────────────────────────────────────────── */
+html[data-layout="chronicle"] .lx-ch-pl-group { margin-top: 40px; }
 html[data-layout="chronicle"] .lx-ch-pl-group[hidden] { display: none; }
-html[data-layout="chronicle"] .lx-ch-pl-group-title { font-family: var(--font-display); font-size: 17px; font-weight: 500; line-height: 1.2; color: var(--text-muted); padding-bottom: 4px; border-bottom: 1px solid var(--border-strong); }
-html[data-layout="chronicle"] .lx-ch-pl-entry { border-bottom: 1px solid var(--border); }
-html[data-layout="chronicle"] .lx-ch-pl-entry[hidden] { display: none; }
-html[data-layout="chronicle"] .lx-ch-pl-h { margin: 0; font: inherit; }
-html[data-layout="chronicle"] .lx-ch-pl-toggle {
-    display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 0 14px;
-    width: 100%; padding: 16px 4px; background: none; border: 0; cursor: pointer; text-align: left; color: inherit; font: inherit;
-    border-radius: var(--r-2, 0px);
-    transition: background-color 120ms ease-out;
+html[data-layout="chronicle"] .lx-ch-pl-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding-bottom: 8px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-pl-group-title { margin: 0; font-family: var(--font-display); font-size: 20px; font-weight: 500; line-height: 1.2; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-pl-group-count { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-pl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 20px 16px; list-style: none; margin: 0; padding: 0; }
+html[data-layout="chronicle"] .lx-ch-pl-cell { min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-pl-cell[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-pl-tile {
+    display: flex; flex-direction: column; height: 100%;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-3, 0px);
+    overflow: hidden; color: inherit; text-decoration: none;
+    transition: border-color 140ms ease-out;
 }
-html[data-layout="chronicle"] .lx-ch-pl-toggle:hover { background: color-mix(in srgb, var(--text) 3%, transparent); }
-html[data-layout="chronicle"] .lx-ch-pl-toggle:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
-html[data-layout="chronicle"] .lx-ch-pl-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--primary); }
-html[data-layout="chronicle"] .lx-ch-pl-name {
-    font-family: var(--font-display); font-size: 24px; line-height: 1.2; font-weight: 500; letter-spacing: -0.01em; color: var(--text);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+html[data-layout="chronicle"] .lx-ch-pl-tile:hover { border-color: var(--border-strong); }
+html[data-layout="chronicle"] .lx-ch-pl-tile:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+html[data-layout="chronicle"] .lx-ch-pl-thumb { position: relative; display: block; aspect-ratio: 16 / 10; overflow: hidden; background: var(--surface-0, var(--bg-elevated)); border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-pl-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 200ms ease-out; }
+html[data-layout="chronicle"] .lx-ch-pl-thumb.is-ready img { opacity: 1; }
+html[data-layout="chronicle"] .lx-ch-pl-thumb.is-fallback { background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 24px 24px; background-position: center; }
+html[data-layout="chronicle"] .lx-ch-pl-thumb.is-fallback svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+html[data-layout="chronicle"] .lx-ch-pl-tbody { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 14px; min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-pl-tname { display: flex; align-items: center; gap: 8px; min-width: 0; font-family: var(--font-display); font-size: 18px; line-height: 1.25; font-weight: 500; letter-spacing: -0.005em; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-pl-tname > span:not(.lx-ch-pl-dot) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-pl-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-pl-bell { flex: none; margin-left: auto; fill: none; stroke: var(--text-muted); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+html[data-layout="chronicle"] .lx-ch-pl-tmeta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; font-family: var(--font-mono); font-size: 12px; line-height: 1.4; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-pl-skelgrid { margin-top: 40px; }
+html[data-layout="chronicle"] .lx-ch-pl-skeltile { border: 1px solid var(--border); border-radius: var(--r-3, 0px); overflow: hidden; }
+html[data-layout="chronicle"] .lx-ch-pl-skeltile .lx-ch-pl-thumb { border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-pl-msg { font-size: 14px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-pl-msg .lx-ch-btn { margin-left: 8px; }
+html[data-layout="chronicle"] .lx-ch-pl-nomatch { padding: 32px 0; font-size: 14px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-pl-nomatch[hidden], html[data-layout="chronicle"] .lx-ch-empty[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-pl-thumbhost { position: fixed; left: 0; top: 0; z-index: -1; opacity: 0; pointer-events: none; }
+
+/* ── The open place: a large map with a collapsible panel ─────────── */
+html[data-layout="chronicle"].lx-ch-pl-open { overflow: hidden; }
+html[data-layout="chronicle"] .lx-ch-pl-view {
+    --lx-pl-panel-w: 400px;
+    --lx-pl-peek: 116px;
+    --lx-pl-sheet: 58%;
+    position: fixed; z-index: 900;
+    top: var(--nav-h, 0px); left: var(--lx-ch-side, 0px); right: 0; bottom: 0;
+    background: var(--bg); overflow: hidden;
 }
-html[data-layout="chronicle"] .lx-ch-pl-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-html[data-layout="chronicle"] .lx-ch-pl-panel { padding: 4px 4px 28px 26px; }
-html[data-layout="chronicle"] .lx-ch-pl-panel[hidden] { display: none; }
-html[data-layout="chronicle"] .lx-ch-pl-sub { font-size: 14px; color: var(--text-muted); margin-bottom: 16px; }
-html[data-layout="chronicle"] .lx-ch-pl-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 28px; align-items: start; }
-html[data-layout="chronicle"] .lx-ch-pl-mapslot { position: relative; height: 340px; border: 1px solid var(--border); border-radius: var(--r-3, 0px); overflow: hidden; background: var(--surface-0, var(--bg-elevated)); }
-html[data-layout="chronicle"] .lx-ch-pl-maphost { position: absolute; inset: 0; }
-html[data-layout="chronicle"] .lx-ch-pl-maphost .maplibregl-ctrl-group,
-html[data-layout="chronicle"] .lx-ch-pl-minihost .maplibregl-ctrl-group,
-html[data-layout="chronicle"] .lx-ch-pl-dlg-map .maplibregl-ctrl-group { background: var(--bg); border: 1px solid var(--border); box-shadow: none; border-radius: var(--r-2, 0px); }
-html[data-layout="chronicle"] .lx-ch-pl-maphost .maplibregl-ctrl-attrib,
-html[data-layout="chronicle"] .lx-ch-pl-dlg-map .maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-pl-maphost .maplibregl-ctrl-attrib a,
-html[data-layout="chronicle"] .lx-ch-pl-dlg-map .maplibregl-ctrl-attrib a { color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-pl-side { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-pl-view[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-pl-vmap { position: absolute; inset: 0; background: var(--surface-0, var(--bg-elevated)); }
+html[data-layout="chronicle"] .lx-ch-pl-vmap .maplibregl-ctrl-group { background: var(--bg); border: 1px solid var(--border); box-shadow: none; border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-pl-vmap .maplibregl-ctrl-group button { background-color: transparent; }
+html[data-layout="chronicle"] .lx-ch-pl-vmap .maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-pl-vmap .maplibregl-ctrl-attrib a { color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-pl-bar { position: absolute; z-index: 3; top: 12px; left: 12px; right: calc(var(--lx-pl-panel-w) + 12px); display: flex; align-items: center; gap: 8px; pointer-events: none; }
+html[data-layout="chronicle"] .lx-ch-pl-view[data-panel="closed"] .lx-ch-pl-bar { right: 76px; }
+html[data-layout="chronicle"] .lx-ch-pl-bar > * { pointer-events: auto; }
+html[data-layout="chronicle"] .lx-ch-pl-mbtn {
+    flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px;
+    background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--r-2, 0px);
+    font-family: var(--font-body); font-size: 14px; font-weight: 500; cursor: pointer;
+    transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-pl-mbtn:hover { background: var(--bg-elevated); }
+html[data-layout="chronicle"] .lx-ch-pl-mbtn:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+html[data-layout="chronicle"] .lx-ch-pl-mbtn[aria-expanded="true"] { background: var(--bg-elevated); border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-pl-mbtn svg { flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+html[data-layout="chronicle"] .lx-ch-pl-mbtn.is-icon { width: 40px; padding: 0; justify-content: center; }
+html[data-layout="chronicle"] .lx-ch-pl-vtitle {
+    display: none; min-width: 0; min-height: 40px; align-items: center; padding: 0 12px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-2, 0px);
+    font-family: var(--font-display); font-size: 16px; font-weight: 500; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+html[data-layout="chronicle"] .lx-ch-pl-view[data-panel="closed"] .lx-ch-pl-vtitle { display: inline-flex; }
+html[data-layout="chronicle"] .lx-ch-pl-reopen { position: absolute; z-index: 3; top: 12px; right: 12px; display: none; }
+html[data-layout="chronicle"] .lx-ch-pl-view[data-panel="closed"] .lx-ch-pl-reopen { display: inline-flex; }
+html[data-layout="chronicle"] .lx-ch-pl-menu {
+    position: absolute; z-index: 5; top: 60px; left: 12px; width: min(280px, calc(100% - 24px));
+    padding: 8px; background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: var(--r-3, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-pl-menu[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-pl-menu-label { padding: 6px 8px 4px; font-size: 12px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-pl-menu-sep { height: 1px; margin: 8px 0; background: var(--border); }
+html[data-layout="chronicle"] .lx-ch-pl-opt {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 36px; padding: 6px 8px;
+    background: none; border: 0; border-radius: var(--r-2, 0px); cursor: pointer; text-align: left;
+    font-family: var(--font-body); font-size: 14px; color: var(--text);
+}
+html[data-layout="chronicle"] .lx-ch-pl-opt:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-pl-opt:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
+html[data-layout="chronicle"] .lx-ch-pl-opt svg { flex: none; opacity: 0; fill: none; stroke: var(--primary); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+html[data-layout="chronicle"] .lx-ch-pl-opt[aria-checked="true"] svg { opacity: 1; }
+html[data-layout="chronicle"] .lx-ch-pl-mapnote {
+    position: absolute; z-index: 4; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: calc(100% - 32px);
+    display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+    background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--r-2, 0px);
+    font-size: 14px; color: var(--text);
+}
+html[data-layout="chronicle"] .lx-ch-pl-mapnote[hidden] { display: none; }
+
+html[data-layout="chronicle"] .lx-ch-pl-panel {
+    position: absolute; z-index: 4; top: 0; right: 0; bottom: 0; width: var(--lx-pl-panel-w);
+    display: flex; flex-direction: column;
+    background: var(--bg); border-left: 1px solid var(--border-strong);
+    transition: transform 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+html[data-layout="chronicle"] .lx-ch-pl-view[data-panel="closed"] .lx-ch-pl-panel { transform: translateX(100%); visibility: hidden; transition: transform 220ms cubic-bezier(0.2, 0.7, 0.2, 1), visibility 0s linear 220ms; }
+html[data-layout="chronicle"] .lx-ch-pl-phead { flex: none; display: flex; align-items: flex-start; gap: 12px; padding: 20px 8px 16px 24px; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-pl-phead-main { flex: 1 1 auto; min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-pl-pname { display: flex; align-items: center; gap: 10px; margin: 0; font-family: var(--font-display); font-size: 26px; line-height: 1.15; font-weight: 500; letter-spacing: -0.01em; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-pl-pname:focus { outline: none; }
+html[data-layout="chronicle"] .lx-ch-pl-pname > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+html[data-layout="chronicle"] .lx-ch-pl-pname .lx-ch-pl-dot { width: 10px; height: 10px; }
+html[data-layout="chronicle"] .lx-ch-pl-psub { margin-top: 6px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-pl-collapse { flex: none; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; cursor: pointer; color: var(--text-muted); border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-pl-collapse:hover { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-pl-collapse:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
+html[data-layout="chronicle"] .lx-ch-pl-collapse svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+html[data-layout="chronicle"] .lx-ch-pl-collapse .lx-ch-pl-i-sheet { display: none; }
+html[data-layout="chronicle"] .lx-ch-pl-pbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 24px 32px; }
+html[data-layout="chronicle"] .lx-ch-pl-sec { padding: 20px 0; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-pl-sec:last-of-type { border-bottom: 0; }
+html[data-layout="chronicle"] .lx-ch-pl-sec[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-pl-sec-title { margin: 0 0 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-family: var(--font-display); font-size: 18px; font-weight: 500; line-height: 1.2; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-pl-sec-title small { font-family: var(--font-mono); font-size: 12px; font-weight: 400; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-pl-statgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 16px; }
+html[data-layout="chronicle"] .lx-ch-pl-statgrid .lx-ch-stat-value { font-size: 20px; }
+html[data-layout="chronicle"] .lx-ch-pl-statgrid .is-text .lx-ch-stat-value { font-family: var(--font-body); font-size: 16px; line-height: 24px; }
 html[data-layout="chronicle"] .lx-ch-pl-statbtn { background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-align: left; font: inherit; color: inherit; border-radius: var(--r-1, 0px); }
 html[data-layout="chronicle"] .lx-ch-pl-statbtn:hover .lx-ch-stat-value { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 4px; }
 html[data-layout="chronicle"] .lx-ch-pl-statbtn:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 3px; }
 html[data-layout="chronicle"] .lx-ch-pl-label { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 6px; font-size: 13px; color: var(--text-muted); }
 html[data-layout="chronicle"] .lx-ch-pl-status { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); }
 html[data-layout="chronicle"] .lx-ch-pl-status.is-error { color: var(--danger); }
-html[data-layout="chronicle"] .lx-ch-pl-notify { border: 0; margin: 0; padding: 0; min-width: 0; }
-html[data-layout="chronicle"] .lx-ch-pl-notify legend { padding: 0; margin-bottom: 6px; font-size: 13px; color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-pl-check { display: flex; align-items: center; gap: 10px; min-height: 32px; font-size: 14px; color: var(--text); cursor: pointer; }
-html[data-layout="chronicle"] .lx-ch-pl-check input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); cursor: pointer; }
-html[data-layout="chronicle"] .lx-ch-pl-check input:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
 html[data-layout="chronicle"] .lx-ch-pl-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-html[data-layout="chronicle"] .lx-ch-pl-chips[hidden], html[data-layout="chronicle"] .lx-ch-pl-cities[hidden] { display: none; }
 html[data-layout="chronicle"] .lx-ch-pl-chip { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--r-pill, 999px); font-size: 13px; color: var(--text); white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-pl-switch { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 40px; font-size: 14px; color: var(--text); cursor: pointer; }
+html[data-layout="chronicle"] .lx-ch-pl-switch input {
+    -webkit-appearance: none; appearance: none; flex: none; position: relative; width: 36px; height: 20px; margin: 0;
+    background: var(--bg-input); border: 1px solid var(--border-strong); border-radius: var(--r-pill, 999px); cursor: pointer;
+    transition: background-color 150ms ease-out, border-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-pl-switch input::after {
+    content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--text-muted); transition: transform 150ms ease-out, background-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-pl-switch input:checked { background: var(--primary); border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-pl-switch input:checked::after { transform: translateX(16px); background: var(--on-primary); }
+html[data-layout="chronicle"] .lx-ch-pl-switch input:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+html[data-layout="chronicle"] .lx-ch-pl-switch-status { margin-top: 4px; min-height: 16px; }
 
 /* Visit history: a strip of marks, then a rail of days */
-html[data-layout="chronicle"] .lx-ch-pl-history { margin-top: 28px; }
-html[data-layout="chronicle"] .lx-ch-pl-history[hidden] { display: none; }
-html[data-layout="chronicle"] .lx-ch-pl-history .lx-ch-section-title { font-size: 18px; }
-html[data-layout="chronicle"] .lx-ch-pl-strip { position: relative; height: 40px; margin-top: 16px; border-bottom: 1px solid var(--border-strong); }
+html[data-layout="chronicle"] .lx-ch-pl-strip { position: relative; height: 40px; margin-top: 4px; border-bottom: 1px solid var(--border-strong); }
 html[data-layout="chronicle"] .lx-ch-pl-strip i { position: absolute; bottom: 0; width: 2px; margin-left: -1px; background: var(--lx-pl, var(--primary)); opacity: 0.85; border-radius: var(--r-1, 0px) var(--r-1, 0px) 0 0; }
 html[data-layout="chronicle"] .lx-ch-pl-strip-axis { display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-pl-visits { list-style: none; position: relative; margin: 16px 0 0; padding: 0 0 0 24px; }
+html[data-layout="chronicle"] .lx-ch-pl-visits { list-style: none; position: relative; margin: 16px 0 0; padding: 0 0 0 20px; }
 html[data-layout="chronicle"] .lx-ch-pl-visits::before { content: ''; position: absolute; left: 3px; top: 8px; bottom: 8px; width: 1px; background: var(--border); }
 html[data-layout="chronicle"] .lx-ch-pl-visit { position: relative; display: flex; align-items: baseline; gap: 12px; min-height: 36px; padding: 6px 0; }
 html[data-layout="chronicle"] .lx-ch-pl-visit::before {
-    content: ''; position: absolute; left: -24px; top: 15px; width: 7px; height: 7px; border-radius: 50%;
+    content: ''; position: absolute; left: -20px; top: 15px; width: 7px; height: 7px; border-radius: 50%;
     background: var(--bg); border: 1.5px solid var(--lx-pl, var(--text-muted));
 }
-html[data-layout="chronicle"] .lx-ch-pl-visit-day { flex: 1 1 auto; min-width: 0; font-size: 15px; color: var(--text); text-decoration: none; }
+html[data-layout="chronicle"] .lx-ch-pl-visit-day { flex: 1 1 auto; min-width: 0; font-size: 14px; color: var(--text); text-decoration: none; }
 html[data-layout="chronicle"] .lx-ch-pl-visit-day:hover { text-decoration: underline; text-underline-offset: 3px; }
 html[data-layout="chronicle"] .lx-ch-pl-visit-meta { flex: none; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 html[data-layout="chronicle"] .lx-ch-pl-visit-map { flex: none; font-size: 13px; color: var(--link); text-decoration: none; }
 html[data-layout="chronicle"] .lx-ch-pl-visit-map:hover { text-decoration: underline; }
 html[data-layout="chronicle"] .lx-ch-pl-visit a:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; border-radius: var(--r-1, 0px); }
-html[data-layout="chronicle"] .lx-ch-pl-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
+html[data-layout="chronicle"] .lx-ch-pl-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 20px; }
+html[data-layout="chronicle"] .lx-ch-pl-actions .lx-ch-btn { display: inline-flex; align-items: center; gap: 8px; }
+html[data-layout="chronicle"] .lx-ch-pl-actions svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 html[data-layout="chronicle"] .lx-ch-btn--danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
 html[data-layout="chronicle"] .lx-ch-btn--danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
-html[data-layout="chronicle"] .lx-ch-pl-msg { font-size: 14px; color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-pl-msg .lx-ch-btn { margin-left: 8px; }
-html[data-layout="chronicle"] .lx-ch-pl-nomatch { padding: 32px 0; font-size: 14px; color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-pl-nomatch[hidden], html[data-layout="chronicle"] .lx-ch-empty[hidden] { display: none; }
-html[data-layout="chronicle"] .lx-ch-pl-skel { padding: 20px 4px; border-bottom: 1px solid var(--border); }
 
 /* ── Create / edit dialog ─────────────────────────────────────────── */
 html[data-layout="chronicle"] .lx-ch-pl-overlay { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, 0.55); }
@@ -144,6 +267,10 @@ html[data-layout="chronicle"] .lx-ch-pl-dlg {
 }
 html[data-layout="chronicle"] .lx-ch-pl-dlg-map { position: relative; min-height: 420px; background: var(--surface-0, var(--bg)); }
 html[data-layout="chronicle"] .lx-ch-pl-dlg-map > div { position: absolute; inset: 0; }
+html[data-layout="chronicle"] .lx-ch-pl-minihost .maplibregl-ctrl-group,
+html[data-layout="chronicle"] .lx-ch-pl-dlg-map .maplibregl-ctrl-group { background: var(--bg); border: 1px solid var(--border); box-shadow: none; border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-pl-dlg-map .maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-pl-dlg-map .maplibregl-ctrl-attrib a { color: var(--text-muted); }
 html[data-layout="chronicle"] .lx-ch-pl-dlg-body { display: flex; flex-direction: column; gap: 20px; padding: 28px 28px 24px; overflow-y: auto; min-width: 0; }
 html[data-layout="chronicle"] .lx-ch-pl-dlg-title { font-family: var(--font-display); font-size: 26px; line-height: 1.15; font-weight: 500; letter-spacing: -0.01em; color: var(--text); }
 html[data-layout="chronicle"] .lx-ch-pl-dlg-close {
@@ -162,55 +289,90 @@ html[data-layout="chronicle"] .lx-ch-pl-hint { margin-top: 6px; font-size: 13px;
 html[data-layout="chronicle"] .lx-ch-pl-dlg-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 4px; }
 html[data-layout="chronicle"] .lx-ch-pl-dlg-actions .lx-ch-btn--primary { flex: 1; }
 
+@media (max-width: 1100px) {
+    html[data-layout="chronicle"] .lx-ch-pl-view { --lx-pl-panel-w: 340px; }
+    html[data-layout="chronicle"] .lx-ch-pl-grid { grid-template-columns: repeat(auto-fill, minmax(216px, 1fr)); }
+}
 @media (max-width: 860px) {
-    html[data-layout="chronicle"] .lx-ch-pl-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-    html[data-layout="chronicle"] .lx-ch-pl-mapslot { height: 260px; }
+    html[data-layout="chronicle"] .lx-ch-pl-dlg { grid-template-columns: minmax(0, 1fr); grid-template-rows: 240px auto; }
 }
 @media (max-width: 768px) {
-    html[data-layout="chronicle"] .lx-ch-pl-snap { margin-left: 0; width: 100%; justify-content: space-between; }
+    html[data-layout="chronicle"] .lx-ch-pl-snap { margin-left: 0; flex: 1 1 auto; justify-content: space-between; }
     html[data-layout="chronicle"] .lx-ch-pl-search { max-width: none; flex-basis: 100%; }
     html[data-layout="chronicle"] .lx-ch-pl-input { min-height: 44px; font-size: 16px; }
-    html[data-layout="chronicle"] .lx-ch-pl-toggle {
-        grid-template-columns: auto minmax(0, 1fr) auto;
-        grid-template-areas: "dot name chev" ". meta meta";
-        gap: 4px 12px; padding: 14px 0;
+    html[data-layout="chronicle"] .lx-ch-pl-seg { width: 100%; }
+    html[data-layout="chronicle"] .lx-ch-pl-seg > button { flex: 1 1 0; }
+    html[data-layout="chronicle"] .lx-ch-pl-clear { width: 44px; height: 44px; right: 0; }
+    html[data-layout="chronicle"] .lx-ch-pl-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    html[data-layout="chronicle"] .lx-ch-pl-tbody { padding: 10px 12px 12px; }
+    html[data-layout="chronicle"] .lx-ch-pl-tname { font-size: 16px; }
+    html[data-layout="chronicle"] .lx-ch-pl-group { margin-top: 32px; }
+    html[data-layout="chronicle"] .lx-ch-pl-view { bottom: var(--bottom-nav-height, 0px); }
+    html[data-layout="chronicle"] .lx-ch-pl-bar { right: 12px; }
+    html[data-layout="chronicle"] .lx-ch-pl-view[data-panel="closed"] .lx-ch-pl-bar { right: 12px; }
+    html[data-layout="chronicle"] .lx-ch-pl-vtitle { display: none !important; }
+    html[data-layout="chronicle"] .lx-ch-pl-reopen { display: none !important; }
+    html[data-layout="chronicle"] .lx-ch-pl-mbtn { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-pl-mbtn.is-icon { width: 44px; }
+    html[data-layout="chronicle"] .lx-ch-pl-menu { top: 64px; }
+    html[data-layout="chronicle"] .lx-ch-pl-panel {
+        top: auto; left: 0; right: 0; bottom: 0; width: auto; height: var(--lx-pl-sheet);
+        border-left: 0; border-top: 1px solid var(--border-strong);
+        border-radius: var(--r-4, 0px) var(--r-4, 0px) 0 0;
     }
-    html[data-layout="chronicle"] .lx-ch-pl-dot { grid-area: dot; }
-    html[data-layout="chronicle"] .lx-ch-pl-name { grid-area: name; font-size: 22px; }
-    html[data-layout="chronicle"] .lx-ch-pl-meta { grid-area: meta; flex-direction: row; gap: 14px; align-items: baseline; flex-wrap: wrap; justify-content: flex-start; white-space: normal; }
-    html[data-layout="chronicle"] .lx-ch-pl-toggle > .lx-ch-pl-chev { grid-area: chev; }
-    html[data-layout="chronicle"] .lx-ch-pl-panel { padding-left: 0; padding-right: 0; }
+    html[data-layout="chronicle"] .lx-ch-pl-view[data-panel="closed"] .lx-ch-pl-panel { transform: translateY(calc(100% - var(--lx-pl-peek))); visibility: visible; transition: transform 220ms cubic-bezier(0.2, 0.7, 0.2, 1); }
+    html[data-layout="chronicle"] .lx-ch-pl-phead { padding: 14px 4px 12px 16px; cursor: pointer; }
+    html[data-layout="chronicle"] .lx-ch-pl-pname { font-size: 22px; }
+    html[data-layout="chronicle"] .lx-ch-pl-collapse .lx-ch-pl-i-side { display: none; }
+    html[data-layout="chronicle"] .lx-ch-pl-collapse .lx-ch-pl-i-sheet { display: block; }
+    html[data-layout="chronicle"] .lx-ch-pl-view[data-panel="closed"] .lx-ch-pl-collapse .lx-ch-pl-i-sheet { transform: rotate(180deg); }
+    html[data-layout="chronicle"] .lx-ch-pl-pbody { padding: 0 16px calc(24px + env(safe-area-inset-bottom, 0px)); }
+    html[data-layout="chronicle"] .lx-ch-pl-view .maplibregl-ctrl-bottom-left { bottom: var(--lx-pl-sheet); transition: bottom 220ms cubic-bezier(0.2, 0.7, 0.2, 1); }
+    html[data-layout="chronicle"] .lx-ch-pl-view[data-panel="closed"] .maplibregl-ctrl-bottom-left { bottom: var(--lx-pl-peek); }
+    html[data-layout="chronicle"] .lx-ch-pl-switch { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-pl-visit { min-height: 44px; flex-wrap: wrap; }
+    html[data-layout="chronicle"] .lx-ch-pl-visit-map { padding: 8px 0 8px 8px; }
+    html[data-layout="chronicle"] .lx-ch-pl-actions .lx-ch-btn { flex: 1 1 0; justify-content: center; }
     html[data-layout="chronicle"] .lx-ch-pl-sg-row { flex-wrap: wrap; gap: 0; }
     html[data-layout="chronicle"] .lx-ch-pl-sg-main { flex-basis: 100%; min-height: 44px; }
     html[data-layout="chronicle"] .lx-ch-pl-sg-actions { width: 100%; padding: 0 0 12px; }
     html[data-layout="chronicle"] .lx-ch-pl-sg-actions .lx-ch-btn { flex: 1; }
-    html[data-layout="chronicle"] .lx-ch-pl-check { min-height: 44px; }
-    html[data-layout="chronicle"] .lx-ch-pl-visit { min-height: 44px; flex-wrap: wrap; }
-    html[data-layout="chronicle"] .lx-ch-pl-visit-map { padding: 8px 0 8px 8px; }
     html[data-layout="chronicle"] .lx-ch-pl-overlay { padding: 0; align-items: flex-end; }
-    html[data-layout="chronicle"] .lx-ch-pl-dlg { grid-template-columns: minmax(0, 1fr); grid-template-rows: 240px auto; max-height: 94vh; max-height: 94dvh; max-width: none; overflow-y: auto; border-radius: var(--r-4, 0px) var(--r-4, 0px) 0 0; }
+    html[data-layout="chronicle"] .lx-ch-pl-dlg { grid-template-rows: 240px auto; max-height: 94vh; max-height: 94dvh; max-width: none; overflow-y: auto; border-radius: var(--r-4, 0px) var(--r-4, 0px) 0 0; }
     html[data-layout="chronicle"] .lx-ch-pl-dlg-map { min-height: 240px; }
     html[data-layout="chronicle"] .lx-ch-pl-dlg-body { padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px)); overflow: visible; }
 }
 @media (prefers-reduced-motion: reduce) {
-    html[data-layout="chronicle"] .lx-ch-pl-chev { transition: none; }
+    html[data-layout="chronicle"] .lx-ch-pl-chev,
+    html[data-layout="chronicle"] .lx-ch-pl-panel,
+    html[data-layout="chronicle"] .lx-ch-pl-thumb img,
+    html[data-layout="chronicle"] .lx-ch-pl-view .maplibregl-ctrl-bottom-left { transition: none !important; }
 }
-html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: none; }
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev,
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-panel,
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-thumb img,
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-view .maplibregl-ctrl-bottom-left { transition: none !important; }
 {% endblock %}
 
 {% block content %}
-<div class="lx-ch-page">
+<div class="lx-ch-page lx-ch-pl-page" id="lx-pl-page">
     {% csrf_token %}
     <header>
         <span class="lx-ch-kicker">Places</span>
         <h1 class="lx-ch-title">Places</h1>
-        <p class="lx-ch-lede">The spots you name, and the days you spent in them. Open a place to see its visit history.</p>
+        <p class="lx-ch-lede">The spots you have named, and the days you spent in them. Open one to see its map and history.</p>
     </header>
 
     <div class="lx-ch-pl-toolbar">
         <div class="lx-ch-pl-search" role="search">
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="search" id="places-search" class="lx-ch-pl-input" placeholder="Search places" aria-label="Search places" autocomplete="off" spellcheck="false">
+            <button type="button" class="lx-ch-pl-clear" id="lx-pl-clear" aria-label="Clear search" hidden><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
+        <div class="lx-ch-seg lx-ch-pl-seg" role="group" aria-label="Sort places" id="lx-pl-sort">
+            <button type="button" data-sort="last" aria-pressed="true">Last visited</button>
+            <button type="button" data-sort="visits" aria-pressed="false">Most visited</button>
+            <button type="button" data-sort="az" aria-pressed="false">A to Z</button>
         </div>
         <div class="lx-ch-pl-snap" id="snapshot-bar">
             <span class="lx-ch-kicker" id="snapshot-updated">updated …</span>
@@ -218,6 +380,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         </div>
         <button type="button" class="lx-ch-btn lx-ch-btn--primary" id="lx-pl-new">New place</button>
     </div>
+    <div class="lx-ch-pl-count" id="lx-pl-count" role="status" aria-live="polite"></div>
 
     <section class="lx-ch-section lx-ch-pl-suggest" id="suggest-wrap" aria-labelledby="lx-pl-sg-title" hidden>
         <div class="lx-ch-section-head">
@@ -229,9 +392,12 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
     </section>
 
     <div id="lx-pl-list" aria-busy="true">
-        <div class="lx-ch-pl-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-title" style="width:40%;"></div><div class="skeleton lx-ch-skel-line is-short"></div></div>
-        <div class="lx-ch-pl-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-title" style="width:52%;"></div><div class="skeleton lx-ch-skel-line is-short"></div></div>
-        <div class="lx-ch-pl-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-title" style="width:34%;"></div><div class="skeleton lx-ch-skel-line is-short"></div></div>
+        <div class="lx-ch-pl-skelgrid lx-ch-pl-grid" aria-hidden="true">
+            <div class="lx-ch-pl-skeltile"><div class="lx-ch-pl-thumb skeleton"></div><div class="lx-ch-pl-tbody"><div class="skeleton lx-ch-skel-title" style="width:60%;height:20px;margin:0;"></div><div class="skeleton lx-ch-skel-line is-mid" style="margin:0;"></div></div></div>
+            <div class="lx-ch-pl-skeltile"><div class="lx-ch-pl-thumb skeleton"></div><div class="lx-ch-pl-tbody"><div class="skeleton lx-ch-skel-title" style="width:48%;height:20px;margin:0;"></div><div class="skeleton lx-ch-skel-line is-mid" style="margin:0;"></div></div></div>
+            <div class="lx-ch-pl-skeltile"><div class="lx-ch-pl-thumb skeleton"></div><div class="lx-ch-pl-tbody"><div class="skeleton lx-ch-skel-title" style="width:66%;height:20px;margin:0;"></div><div class="skeleton lx-ch-skel-line is-mid" style="margin:0;"></div></div></div>
+            <div class="lx-ch-pl-skeltile"><div class="lx-ch-pl-thumb skeleton"></div><div class="lx-ch-pl-tbody"><div class="skeleton lx-ch-skel-title" style="width:54%;height:20px;margin:0;"></div><div class="skeleton lx-ch-skel-line is-mid" style="margin:0;"></div></div></div>
+        </div>
     </div>
     <p class="lx-ch-pl-nomatch" id="lx-pl-nomatch" role="status" hidden></p>
     <div class="lx-ch-empty" id="places-empty" hidden>
@@ -240,6 +406,47 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         <button type="button" class="lx-ch-btn lx-ch-btn--primary" id="lx-pl-new-empty">Create your first place</button>
     </div>
 </div>
+
+<section class="lx-ch-pl-view" id="lx-pl-view" data-panel="open" aria-label="Place" hidden>
+    <div class="lx-ch-pl-vmap" id="lx-pl-vmap"></div>
+    <div class="lx-ch-pl-bar">
+        <button type="button" class="lx-ch-pl-mbtn" id="lx-pl-back" aria-label="Back to all places">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Places</span>
+        </button>
+        <button type="button" class="lx-ch-pl-mbtn" id="lx-pl-menubtn" aria-haspopup="true" aria-expanded="false" aria-controls="lx-pl-menu">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5"/></svg><span>Map</span>
+        </button>
+        <button type="button" class="lx-ch-pl-mbtn is-icon" id="lx-pl-fit" aria-label="Fit map to this place" title="Fit to place">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+        </button>
+        <span class="lx-ch-pl-vtitle" id="lx-pl-vtitle"></span>
+    </div>
+    <button type="button" class="lx-ch-pl-mbtn lx-ch-pl-reopen" id="lx-pl-reopen" aria-label="Show details" aria-controls="lx-pl-panel">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15"/><path d="M15 4.5v15"/></svg><span>Details</span>
+    </button>
+    <div class="lx-ch-pl-menu" id="lx-pl-menu" role="group" aria-label="Map view settings" hidden>
+        <div class="lx-ch-pl-menu-label" id="lx-pl-menu-bm">Basemap</div>
+        <div id="lx-pl-bmlist" role="radiogroup" aria-labelledby="lx-pl-menu-bm"></div>
+        <div class="lx-ch-pl-menu-sep"></div>
+        <button type="button" class="lx-ch-pl-opt" id="lx-pl-opt-radius" role="switch" aria-checked="true"><span>Show radius</span><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+        <button type="button" class="lx-ch-pl-opt" id="lx-pl-opt-points" role="switch" aria-checked="true"><span>Show points</span><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+    </div>
+    <div class="lx-ch-pl-mapnote" id="lx-pl-mapnote" role="alert" hidden><span>The map tiles did not load.</span><button type="button" class="lx-ch-btn" id="lx-pl-maptry">Retry</button></div>
+
+    <aside class="lx-ch-pl-panel" id="lx-pl-panel" aria-label="About this place">
+        <div class="lx-ch-pl-phead" id="lx-pl-phead">
+            <div class="lx-ch-pl-phead-main">
+                <h2 class="lx-ch-pl-pname" id="lx-pl-pname" tabindex="-1"><span class="lx-ch-pl-dot" id="lx-pl-pdot" aria-hidden="true"></span><span id="lx-pl-pname-text"></span></h2>
+                <div class="lx-ch-pl-psub" id="lx-pl-psub"></div>
+            </div>
+            <button type="button" class="lx-ch-pl-collapse" id="lx-pl-collapse" aria-expanded="true" aria-controls="lx-pl-pbody" aria-label="Hide details">
+                <svg class="lx-ch-pl-i-side" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15"/><path d="M15 4.5v15"/></svg>
+                <svg class="lx-ch-pl-i-sheet" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+        </div>
+        <div class="lx-ch-pl-pbody" id="lx-pl-pbody"></div>
+    </aside>
+</section>
 
 <div class="lx-ch-pl-overlay" id="edit-overlay" hidden>
     <div class="lx-ch-pl-dlg" role="dialog" aria-modal="true" aria-labelledby="edit-title">
@@ -266,6 +473,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         </div>
     </div>
 </div>
+{% if basemaps %}{{ basemaps|json_script:"roamly-basemaps" }}{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -274,7 +482,18 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
     'use strict';
 
     const $ = id => document.getElementById(id);
+    const USER = '{{ user.id|default:0 }}';
     const TILE_QS = '{{ CARTO_TILE_QS|escapejs }}';
+    const KEY_LIST = 'roamly_ch_pl_list_' + USER;
+    const KEY_DETAIL = 'roamly_ch_pl_d_' + USER + '_';
+    const KEY_THUMB = 'roamly_ch_pl_th_' + USER + '_';
+    const PREF_SORT = 'roamly_ch_pl_sort';
+    const PREF_PANEL = 'roamly_ch_pl_panel';
+    const PREF_POINTS = 'roamly_ch_pl_points';
+    const PREF_RADIUS = 'roamly_ch_pl_radius';
+    const PREF_BASEMAP = 'roamly_map_tile_style';
+    const DETAIL_FRESH_MS = 10 * 60 * 1000;      // a cached detail this young is not even revalidated
+    const POINTS_FRESH_MS = 10 * 60 * 1000;
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
@@ -300,10 +519,36 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
     }
     function toast(msg, type) { if (window.roamlyToast) window.roamlyToast(msg, type ? { type: type } : undefined); }
     function plural(n, one, many) { return n.toLocaleString() + ' ' + (n === 1 ? one : many); }
+    function cap(s) { s = String(s || ''); return s.charAt(0).toUpperCase() + s.slice(1); }
     function reduced() {
         try { if (window.RoamlyStyle && window.RoamlyStyle.reducedMotion) return !!window.RoamlyStyle.reducedMotion(); } catch (e) {}
         return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     }
+    function isPhone() { return !!(window.matchMedia && window.matchMedia('(max-width: 768px)').matches); }
+
+    // ── Storage (every access can throw: private mode, quota, blocked) ──
+    const store = {
+        get(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
+        set(k, v) { try { sessionStorage.setItem(k, v); return true; } catch (e) { return false; } },
+        del(k) { try { sessionStorage.removeItem(k); } catch (e) {} },
+        json(k) { try { const s = sessionStorage.getItem(k); return s ? JSON.parse(s) : null; } catch (e) { return null; } },
+        purge(prefix) {
+            try {
+                const dead = [];
+                for (let i = 0; i < sessionStorage.length; i++) { const k = sessionStorage.key(i); if (k && k.indexOf(prefix) === 0) dead.push(k); }
+                dead.forEach(k => sessionStorage.removeItem(k));
+            } catch (e) {}
+        },
+    };
+    function storeBig(k, v, purgePrefix) {
+        if (store.set(k, v)) return;
+        store.purge(purgePrefix);
+        store.set(k, v);
+    }
+    const pref = {
+        get(k, fb) { try { const v = localStorage.getItem(k); return v == null ? fb : v; } catch (e) { return fb; } },
+        set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+    };
 
     // ── Formatting ────────────────────────────────────────────────────
     function fmtDur(seconds) {
@@ -333,6 +578,12 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         const d = new Date(iso);
         return isNaN(d) ? '—' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
     }
+    function compact(n) {
+        n = Number(n) || 0;
+        if (n < 10000) return n.toLocaleString();
+        if (n < 1000000) return (n / 1000).toFixed(n < 100000 ? 1 : 0).replace(/\.0$/, '') + 'k';
+        return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    }
     const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
     function dayDate(iso) { const p = iso.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2], 12, 0, 0); }
     function fmtDay(iso, opts) {
@@ -345,10 +596,18 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         const d = new Date();
         return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     }
+    // Calendar days between a timestamp and today (local), so "today" means today.
+    function dayDiff(iso) {
+        const d = new Date(iso);
+        if (isNaN(d)) return null;
+        const a = new Date(); a.setHours(0, 0, 0, 0);
+        const b = new Date(d); b.setHours(0, 0, 0, 0);
+        return Math.round((a - b) / 86400000);
+    }
     function agoWords(iso) {
         if (!iso) return '';
-        const days = Math.floor((Date.now() - new Date(iso)) / 86400000);
-        if (isNaN(days)) return '';
+        const days = dayDiff(iso);
+        if (days === null) return '';
         if (days <= 0) return 'today';
         if (days === 1) return 'yesterday';
         if (days < 30) return days + ' days ago';
@@ -357,6 +616,57 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         return y + (y === 1 ? ' year ago' : ' years ago');
     }
     function safeColor(c) { return /^#[0-9a-f]{3,8}$/i.test(c || '') ? c : null; }
+
+    // ── Icons ─────────────────────────────────────────────────────────
+    const ICON = {
+        chev: '<svg class="lx-ch-pl-chev" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
+        bell: '<svg class="lx-ch-pl-bell" viewBox="0 0 24 24" width="14" height="14" aria-label="Notifications on" role="img"><path d="M6 16v-5a6 6 0 0112 0v5l1.5 2h-15zM10 20a2 2 0 004 0"/></svg>',
+        edit: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></svg>',
+        trash: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/></svg>',
+        check: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    };
+
+    // ── Basemaps ──────────────────────────────────────────────────────
+    // The picker list the map pages use (#roamly-basemaps, when the view renders
+    // it), else the three built-ins. The saved choice is the one from /map/.
+    let basemapList = null;
+    function basemaps() {
+        if (basemapList) return basemapList;
+        let list = null;
+        try {
+            const el = $('roamly-basemaps');
+            if (el) {
+                const l = JSON.parse(el.textContent);
+                if (Array.isArray(l)) list = l.filter(b => b && b.id && b.style);
+            }
+        } catch (e) { list = null; }
+        if (!list || !list.length) {
+            const raster = (id, tiles, attribution, maxzoom) => ({
+                version: 8,
+                sources: { [id]: { type: 'raster', tileSize: 256, tiles: tiles, maxzoom: maxzoom || 19, attribution: attribution } },
+                layers: [{ id: id, type: 'raster', source: id }],
+            });
+            list = [
+                { id: 'Streets', name: 'Streets', style: raster('osm', ['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png' + TILE_QS], '&copy; OpenStreetMap contributors &copy; CARTO') },
+                { id: 'Dark', name: 'Dark', style: raster('carto', ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png' + TILE_QS], '&copy; OpenStreetMap contributors &copy; CARTO') },
+                { id: 'Satellite', name: 'Satellite', style: raster('esri', ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], '&copy; Esri', 19) },
+            ];
+        }
+        basemapList = list;
+        return list;
+    }
+    function currentBasemapId() {
+        const list = basemaps();
+        const saved = pref.get(PREF_BASEMAP, '');
+        if (saved && list.some(b => b.id === saved)) return saved;
+        const dark = document.documentElement.getAttribute('data-theme') !== 'light';
+        const pick = list.find(b => b.id === (dark ? 'Dark' : 'Streets'));
+        return (pick || list[0]).id;
+    }
+    function styleFor(id) {
+        const list = basemaps();
+        return (list.find(b => b.id === id) || list[0]).style;
+    }
 
     // ── Maps ──────────────────────────────────────────────────────────
     const probe = (function () {
@@ -373,37 +683,39 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
             return 'rgb(' + p[0] + ',' + p[1] + ',' + p[2] + ')';
         } catch (e) { return fb; }
     }
-    function basemapStyle() {
-        const light = document.documentElement.getAttribute('data-theme') === 'light';
-        return {
-            version: 8,
-            sources: { base: {
-                type: 'raster', tileSize: 256, maxzoom: 19,
-                tiles: ['https://basemaps.cartocdn.com/' + (light ? 'light_all' : 'dark_all') + '/{z}/{x}/{y}.png' + TILE_QS],
-                attribution: '&copy; OpenStreetMap &copy; CARTO',
-            } },
-            layers: [{ id: 'base', type: 'raster', source: 'base' }],
-        };
-    }
-    function makeMap(container, extra) {
+    function placeColor(p) { return safeColor(p && p.color) || token('--primary', '#e8763d'); }
+    function makeMap(container, extra, ctrlPos) {
         if (typeof maplibregl === 'undefined') return null;
         try {
             const m = new maplibregl.Map(Object.assign({
-                container: container, style: basemapStyle(), center: [0, 20], zoom: 1,
+                container: container, style: styleFor(currentBasemapId()), center: [0, 20], zoom: 1,
                 attributionControl: false, dragRotate: false, pitchWithRotate: false,
             }, extra || {}));
             try {
-                m.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-                m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+                m.addControl(new maplibregl.AttributionControl({ compact: true }), ctrlPos ? 'bottom-left' : 'bottom-right');
+                m.addControl(new maplibregl.NavigationControl({ showCompass: false }), ctrlPos || 'top-left');
                 if (m.touchZoomRotate && m.touchZoomRotate.disableRotation) m.touchZoomRotate.disableRotation();
             } catch (e) {}
             return m;
         } catch (e) { return null; }
     }
-    // Run once the map's style is usable (now, or on load).
-    function whenStyle(map, fn) {
+    // Run `fn` once it stops reporting "not yet". addSource throws while a style is
+    // still loading, so fn returns false in that case. This replaces the
+    // isStyleLoaded()-then-once('load') pattern, which waits forever on a map that
+    // has already fired its 'load' (isStyleLoaded is also false while tiles load).
+    function whenReady(map, fn) {
         if (!map) return;
-        if (map.isStyleLoaded()) fn(); else map.once('load', fn);
+        let ok = false;
+        try { ok = fn(); } catch (e) { ok = false; }
+        if (ok) return;
+        let tries = 0;
+        const h = () => {
+            tries++;
+            let done = false;
+            try { done = fn(); } catch (e) { done = false; }
+            if (done || tries > 60) { map.off('styledata', h); map.off('load', h); map.off('idle', h); }
+        };
+        map.on('styledata', h); map.on('load', h); map.on('idle', h);
     }
     function circleGeoJSON(lat, lng, radiusM, steps) {
         steps = steps || 72;
@@ -416,19 +728,224 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         }
         return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: {} };
     }
-    function addCircleLayers(map, id, lat, lng, radiusM, color) {
+    function circleBounds(g, scale) {
+        scale = scale || 1;
+        const r = Math.max(10, Number(g.radius_m) || 150) * scale;
+        const latR = r / 111320.0;
+        const lngR = r / (111320.0 * Math.max(0.05, Math.cos(g.lat * Math.PI / 180)));
+        return [[g.lng - lngR, g.lat - latR], [g.lng + lngR, g.lat + latR]];
+    }
+    function addCircleLayers(map, id, lat, lng, radiusM, color, visible) {
+        const layout = { visibility: visible === false ? 'none' : 'visible' };
         map.addSource(id, { type: 'geojson', data: circleGeoJSON(lat, lng, radiusM) });
-        map.addLayer({ id: id + '-fill', type: 'fill', source: id, paint: { 'fill-color': color, 'fill-opacity': 0.16 } });
-        map.addLayer({ id: id + '-line', type: 'line', source: id, paint: { 'line-color': color, 'line-width': 2 } });
+        map.addLayer({ id: id + '-fill', type: 'fill', source: id, layout: layout, paint: { 'fill-color': color, 'fill-opacity': 0.16 } });
+        map.addLayer({ id: id + '-line', type: 'line', source: id, layout: layout, paint: { 'line-color': color, 'line-width': 2 } });
     }
 
     // ── State ─────────────────────────────────────────────────────────
     let placesCache = [];
+    let lastListStr = '';
+    let listRendered = false;
     const placesById = new Map();
-    let openId = null;          // the expanded place
-    let openToken = 0;          // bumps on every open/close so stale async work drops itself
+    let sortMode = pref.get(PREF_SORT, 'last');
+    if (['last', 'visits', 'az'].indexOf(sortMode) < 0) sortMode = 'last';
 
-    // ── Places list ───────────────────────────────────────────────────
+    // ═════ Details: cache, in-flight dedupe, prefetch ═════
+    // /api/places/<id>/ is a live scan of every point inside the geofence. Keep what
+    // it returns (memory + sessionStorage), never run two at once for one place, and
+    // start it before the user asks.
+    const detailMem = new Map();             // id -> {d, at, sig}
+    const detailFlight = new Map();          // id -> Promise<d>
+    const pointsMem = new Map();             // id -> {feats, at, sig}
+    function sigOf(p) { return [Number(p.lat).toFixed(6), Number(p.lng).toFixed(6), Math.round(Number(p.radius_m) || 0)].join(','); }
+    function cachedDetail(p) {
+        let e = detailMem.get(p.id);
+        if (!e) {
+            const s = store.json(KEY_DETAIL + p.id);
+            if (s && s.d && typeof s.at === 'number') { e = s; detailMem.set(p.id, e); }
+        }
+        return e && e.sig === sigOf(p) ? e : null;
+    }
+    function fetchDetail(p) {
+        const id = p.id;
+        if (detailFlight.has(id)) return detailFlight.get(id);
+        const sig = sigOf(p);
+        const pr = rfetch('/api/places/' + id + '/', { toast: false }).then(d => {
+            if (!d || typeof d !== 'object') throw new Error('bad detail');
+            const e = { d: d, at: Date.now(), sig: sig };
+            detailMem.set(id, e);
+            store.set(KEY_DETAIL + id, JSON.stringify(e));
+            return d;
+        });
+        detailFlight.set(id, pr);
+        const clear = () => { if (detailFlight.get(id) === pr) detailFlight.delete(id); };
+        pr.then(clear, clear);
+        return pr;
+    }
+    function prefetchDetail(id) {
+        const p = placesById.get(id);
+        if (!p) return Promise.resolve();
+        const c = cachedDetail(p);
+        if (c && Date.now() - c.at < DETAIL_FRESH_MS) return Promise.resolve();
+        return fetchDetail(p).then(() => {}, () => {});
+    }
+    let hoverTimer = 0;
+    function hoverPrefetch(el) {
+        const tile = el && el.closest ? el.closest('.lx-ch-pl-tile') : null;
+        if (!tile) return;
+        const id = parseInt(tile.dataset.id, 10);
+        if (isNaN(id)) return;
+        clearTimeout(hoverTimer);
+        hoverTimer = setTimeout(() => prefetchDetail(id), 100);
+    }
+    let idleToken = 0;
+    function schedulePrefetch() {
+        const my = ++idleToken;
+        const conn = navigator.connection;
+        if (conn && (conn.saveData || /(^|-)2g$/.test(conn.effectiveType || ''))) return;
+        const run = async () => {
+            if (my !== idleToken) return;
+            const ids = Array.prototype.slice.call(document.querySelectorAll('#lx-pl-list .lx-ch-pl-tile'), 0, 4)
+                .map(t => parseInt(t.dataset.id, 10)).filter(n => !isNaN(n));
+            for (const id of ids) {
+                if (my !== idleToken || document.hidden) return;
+                await prefetchDetail(id);              // one at a time: they are real scans
+            }
+        };
+        const start = () => { try { run(); } catch (e) {} };
+        if (window.requestIdleCallback) window.requestIdleCallback(() => setTimeout(start, 600), { timeout: 4000 });
+        else setTimeout(start, 1500);
+    }
+
+    // ═════ Thumbnails ═════
+    // One or two throw-away maps at a time, drawn off-screen, exported as JPEG. A
+    // grid of live GL maps would blow past the browser's context limit, and the old
+    // lazily-created ones sat on a 0px container.
+    const THUMB_W = 360, THUMB_H = 225;
+    const thumbMem = new Map();
+    const thumbQueue = [];
+    let thumbActive = 0, thumbEpoch = 0;
+    const THUMB_MAX = 2;
+    let thumbObserver = null;
+    function dpr() { return Math.max(1, Math.min(2, window.devicePixelRatio || 1)); }
+    function thumbKey(p) {
+        return [p.id, Number(p.lat).toFixed(5), Number(p.lng).toFixed(5), Math.round(Number(p.radius_m) || 0),
+            currentBasemapId(), document.documentElement.getAttribute('data-theme') || '', dpr()].join('|');
+    }
+    function thumbGet(key) {
+        if (thumbMem.has(key)) return thumbMem.get(key);
+        const s = store.get(KEY_THUMB + key);
+        if (s && s.indexOf('data:image/') === 0) { thumbMem.set(key, s); return s; }
+        return null;
+    }
+    function thumbSet(key, url) {
+        thumbMem.set(key, url);
+        storeBig(KEY_THUMB + key, url, KEY_THUMB);
+    }
+    function showThumb(el, url) {
+        el.dataset.done = '1';
+        el.classList.remove('skeleton', 'is-fallback');
+        el.innerHTML = '<img alt="" decoding="async" src="' + esc(url) + '">';
+        const img = el.firstChild;
+        if (img.complete) el.classList.add('is-ready');
+        else { img.addEventListener('load', () => el.classList.add('is-ready')); img.addEventListener('error', () => failThumb(el)); }
+    }
+    function failThumb(el) {
+        const p = placesById.get(parseInt(el.dataset.id, 10));
+        el.dataset.done = 'fail';
+        el.classList.remove('skeleton', 'is-ready');
+        el.classList.add('is-fallback');
+        const col = (p && safeColor(p.color)) || 'var(--primary)';
+        el.innerHTML = '<svg viewBox="0 0 160 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true">'
+            + '<circle cx="80" cy="50" r="26" fill="' + col + '" fill-opacity="0.16" stroke="' + col + '" stroke-width="1.5"/>'
+            + '<circle cx="80" cy="50" r="2.5" fill="' + col + '"/></svg>';
+    }
+    function requestThumb(el) {
+        if (!el || el.dataset.done || el.dataset.queued === '1') return;
+        const id = parseInt(el.dataset.id, 10);
+        const p = placesById.get(id);
+        if (!p) return;
+        const key = thumbKey(p);
+        const hit = thumbGet(key);
+        if (hit) { showThumb(el, hit); return; }
+        el.dataset.queued = '1';
+        thumbQueue.push({ el: el, id: id, key: key, epoch: thumbEpoch });
+        pumpThumbs();
+    }
+    function pumpThumbs() {
+        while (thumbActive < THUMB_MAX && thumbQueue.length) {
+            const job = thumbQueue.shift();
+            if (!job.el.isConnected || job.epoch !== thumbEpoch) continue;
+            if (job.el.dataset.vis !== '1') { job.el.dataset.queued = ''; continue; }     // scrolled past; it re-queues if it returns
+            thumbActive++;
+            renderThumb(job).then(() => { thumbActive--; pumpThumbs(); });
+        }
+    }
+    function renderThumb(job) {
+        return new Promise(resolve => {
+            const p = placesById.get(job.id);
+            if (!p || typeof maplibregl === 'undefined') { failThumb(job.el); return resolve(); }
+            const host = document.createElement('div');
+            host.className = 'lx-ch-pl-thumbhost';
+            host.style.width = THUMB_W + 'px';
+            host.style.height = THUMB_H + 'px';
+            document.body.appendChild(host);
+            let map = null, settled = false, gotTile = false, timer = 0;
+            const finish = url => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                try { if (map) map.remove(); } catch (e) {}
+                if (host.parentNode) host.parentNode.removeChild(host);
+                job.el.dataset.queued = '';
+                if (url) thumbSet(job.key, url);      // cached even when the tile was re-rendered meanwhile
+                if (job.el.isConnected) {
+                    const cp = placesById.get(job.id);
+                    if (!url) failThumb(job.el);
+                    else if (cp && thumbKey(cp) === job.key) showThumb(job.el, url);
+                }
+                resolve();
+            };
+            const snap = () => { try { return map.getCanvas().toDataURL('image/jpeg', 0.82); } catch (e) { return null; } };
+            const color = placeColor(p);
+            try {
+                map = new maplibregl.Map({
+                    container: host, style: styleFor(currentBasemapId()),
+                    bounds: circleBounds(p, 1), fitBoundsOptions: { padding: Math.round(THUMB_H * 0.24), maxZoom: 17, duration: 0 },
+                    interactive: false, attributionControl: false, fadeDuration: 0, renderWorldCopies: false,
+                    pixelRatio: dpr(), preserveDrawingBuffer: true,
+                    canvasContextAttributes: { preserveDrawingBuffer: true, antialias: true },
+                });
+            } catch (e) { return finish(null); }
+            map.on('data', e => { if (e && e.dataType === 'source' && e.tile) gotTile = true; });
+            map.on('error', () => { /* tile errors are handled by the idle / timeout checks */ });
+            map.once('load', () => {
+                try { addCircleLayers(map, 'th', p.lat, p.lng, p.radius_m, color); } catch (e) {}
+                map.once('idle', () => { if (!gotTile) finish(null); else finish(snap()); });
+            });
+            timer = setTimeout(() => { if (gotTile) finish(snap()); else finish(null); }, 10000);
+        });
+    }
+    function observeThumbs() {
+        if (thumbObserver) { thumbObserver.disconnect(); thumbObserver = null; }
+        const thumbs = document.querySelectorAll('#lx-pl-list .lx-ch-pl-thumb[data-id]');
+        if (!('IntersectionObserver' in window)) { thumbs.forEach(t => { t.dataset.vis = '1'; requestThumb(t); }); return; }
+        thumbObserver = new IntersectionObserver(entries => {
+            entries.forEach(en => {
+                en.target.dataset.vis = en.isIntersecting ? '1' : '0';
+                if (en.isIntersecting) requestThumb(en.target);
+            });
+        }, { rootMargin: '240px 0px' });
+        thumbs.forEach(t => thumbObserver.observe(t));
+    }
+    // The basemap changed: everything cached for the old one is stale.
+    function refreshThumbs() {
+        thumbEpoch++;
+        thumbQueue.length = 0;
+        if (placesCache.length) renderPlaces();
+    }
+
+    // ═════ Places list ═════
     const GROUP_TITLES = ['Seen in the last 30 days', 'Seen in the last year', 'Seen longer ago', 'Not seen yet'];
     function groupOf(p) {
         if (!p.last_seen) return 3;
@@ -436,242 +953,411 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         if (isNaN(days)) return 3;
         return days <= 30 ? 0 : days <= 365 ? 1 : 2;
     }
-    const CHEV = '<svg class="lx-ch-pl-chev" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+    function lastTs(p) { const t = p.last_seen ? Date.parse(p.last_seen) : 0; return isNaN(t) ? 0 : t; }
+    function byName(a, b) { return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }); }
+    const SORTERS = {
+        last: (a, b) => (lastTs(b) - lastTs(a)) || byName(a, b),
+        visits: (a, b) => ((Number(b.point_count) || 0) - (Number(a.point_count) || 0)) || byName(a, b),
+        az: byName,
+    };
 
+    function applyPlaces(data) {
+        placesCache = (data && data.places) || [];
+        placesById.clear();
+        placesCache.forEach(p => placesById.set(p.id, p));
+        if (window.setSnapshotUpdated) window.setSnapshotUpdated(data && data.computed_at);
+        renderPlaces();
+    }
     async function loadPlaces() {
         const list = $('lx-pl-list');
-        const empty = $('places-empty');
+        // Paint the last list we saw straight away; the fetch below only re-renders
+        // when something actually changed.
+        const cached = listRendered ? null : store.json(KEY_LIST);
+        if (cached && Array.isArray(cached.places)) { lastListStr = JSON.stringify(cached); applyPlaces(cached); openFromUrl(true); }
         let data;
         try {
             data = await rfetch('/api/places/', { toast: false });
         } catch (e) {
+            if (listRendered) return;      // the cached list is still on screen
             list.removeAttribute('aria-busy');
-            empty.hidden = true;
+            $('places-empty').hidden = true;
             list.innerHTML = '<p class="lx-ch-pl-msg" role="alert" style="padding:24px 0;">Couldn\'t load your places.<button type="button" class="lx-ch-btn" id="lx-pl-retry">Retry</button></p>';
             const r = $('lx-pl-retry');
             if (r) r.addEventListener('click', loadPlaces);
             return;
         }
-        placesCache = (data && data.places) || [];
-        placesById.clear();
-        placesCache.forEach(p => placesById.set(p.id, p));
-        if (window.setSnapshotUpdated) window.setSnapshotUpdated(data && data.computed_at);
-        list.removeAttribute('aria-busy');
-        renderPlaces();
+        const str = JSON.stringify(data || {});
+        if (window.setSnapshotUpdated && data) window.setSnapshotUpdated(data.computed_at);
+        if (str !== lastListStr || !listRendered) {
+            lastListStr = str;
+            store.set(KEY_LIST, str);
+            applyPlaces(data);
+        }
+        openFromUrl(true);
     }
 
+    function tileHtml(p) {
+        const col = safeColor(p.color);
+        const n = Number(p.point_count) || 0;
+        const seen = p.last_seen ? cap(agoWords(p.last_seen)) : 'Not seen yet';
+        const bell = (p.notify_arrive || p.notify_leave) ? ICON.bell : '';
+        return '<li class="lx-ch-pl-cell" data-name="' + esc((String(p.name || '') + ' ' + String(p.notes || '')).toLowerCase()) + '">'
+            + '<a class="lx-ch-pl-tile" href="' + esc(placeUrl(p.id)) + '" data-id="' + p.id + '">'
+            + '<span class="lx-ch-pl-thumb skeleton" data-id="' + p.id + '"></span>'
+            + '<span class="lx-ch-pl-tbody">'
+            + '<span class="lx-ch-pl-tname"><span class="lx-ch-pl-dot"' + (col ? ' style="background:' + col + ';"' : '') + ' aria-hidden="true"></span><span>' + esc(p.name || 'Untitled place') + '</span>' + bell + '</span>'
+            + '<span class="lx-ch-pl-tmeta"><span>' + esc(compact(n) + (n === 1 ? ' point' : ' points')) + '</span><span>' + esc(seen) + '</span></span>'
+            + '</span></a></li>';
+    }
     function renderPlaces() {
         const list = $('lx-pl-list');
         const empty = $('places-empty');
-        const reopen = openId;
-        flushNotes();
-        detachDetailHost();
-        openId = null;
-        openToken++;
+        listRendered = true;
+        thumbEpoch++;
+        thumbQueue.length = 0;
+        list.removeAttribute('aria-busy');
         if (!placesCache.length) {
             list.innerHTML = '';
             empty.hidden = false;
             $('lx-pl-nomatch').hidden = true;
+            $('lx-pl-count').textContent = '';
             return;
         }
         empty.hidden = true;
-        const groups = [[], [], [], []];
-        placesCache.forEach(p => groups[groupOf(p)].push(p));
-        groups.forEach(g => g.sort((a, b) => {
-            const ta = a.last_seen ? Date.parse(a.last_seen) : 0, tb = b.last_seen ? Date.parse(b.last_seen) : 0;
-            return (tb - ta) || String(a.name || '').localeCompare(String(b.name || ''));
-        }));
+        const sorter = SORTERS[sortMode] || SORTERS.last;
         let html = '';
-        groups.forEach((g, gi) => {
-            if (!g.length) return;
-            html += '<section class="lx-ch-pl-group" data-g="' + gi + '"><h2 class="lx-ch-pl-group-title">' + esc(GROUP_TITLES[gi]) + '</h2>';
-            g.forEach(p => {
-                const col = safeColor(p.color);
-                const seen = p.last_seen ? 'last seen ' + agoWords(p.last_seen) : 'never seen';
-                html += '<article class="lx-ch-pl-entry" data-id="' + p.id + '" data-name="' + esc(String(p.name || '').toLowerCase()) + '">'
-                    + '<h3 class="lx-ch-pl-h"><button type="button" class="lx-ch-pl-toggle" id="lx-pl-btn-' + p.id + '" aria-expanded="false" aria-controls="lx-pl-panel-' + p.id + '">'
-                    + '<span class="lx-ch-pl-dot"' + (col ? ' style="background:' + col + ';"' : '') + ' aria-hidden="true"></span>'
-                    + '<span class="lx-ch-pl-name">' + esc(p.name) + '</span>'
-                    + '<span class="lx-ch-pl-meta"><span>' + esc(plural(Number(p.point_count) || 0, 'point', 'points')) + '</span><span>' + esc(seen) + '</span></span>'
-                    + CHEV + '</button></h3>'
-                    + '<div class="lx-ch-pl-panel" id="lx-pl-panel-' + p.id + '" role="region" aria-labelledby="lx-pl-btn-' + p.id + '" hidden></div>'
-                    + '</article>';
+        if (sortMode === 'last') {
+            const groups = [[], [], [], []];
+            placesCache.forEach(p => groups[groupOf(p)].push(p));
+            groups.forEach((g, gi) => {
+                if (!g.length) return;
+                g.sort(sorter);
+                html += '<section class="lx-ch-pl-group" data-g="' + gi + '"><div class="lx-ch-pl-group-head"><h2 class="lx-ch-pl-group-title">' + esc(GROUP_TITLES[gi]) + '</h2>'
+                    + '<span class="lx-ch-pl-group-count">' + g.length + '</span></div><ul class="lx-ch-pl-grid">' + g.map(tileHtml).join('') + '</ul></section>';
             });
-            html += '</section>';
-        });
+        } else {
+            const all = placesCache.slice().sort(sorter);
+            html = '<section class="lx-ch-pl-group" data-g="all"><div class="lx-ch-pl-group-head"><h2 class="lx-ch-pl-group-title">'
+                + (sortMode === 'visits' ? 'Most visited first' : 'A to Z') + '</h2><span class="lx-ch-pl-group-count">' + all.length + '</span></div>'
+                + '<ul class="lx-ch-pl-grid">' + all.map(tileHtml).join('') + '</ul></section>';
+        }
         list.innerHTML = html;
+        // Thumbnails we already have go in synchronously: no flash on a re-sort or filter.
+        list.querySelectorAll('.lx-ch-pl-thumb[data-id]').forEach(t => {
+            const p = placesById.get(parseInt(t.dataset.id, 10));
+            const hit = p ? thumbGet(thumbKey(p)) : null;
+            if (hit) showThumb(t, hit);
+        });
         applyFilter();
-        if (reopen !== null && placesById.has(reopen)) openPlace(reopen, { scroll: false });
+        observeThumbs();
+        schedulePrefetch();
     }
 
     function applyFilter() {
-        const q = ($('places-search').value || '').trim().toLowerCase();
+        const input = $('places-search');
+        const q = (input.value || '').trim().toLowerCase();
+        $('lx-pl-clear').hidden = !input.value;
         let shown = 0;
-        document.querySelectorAll('#lx-pl-list .lx-ch-pl-entry').forEach(e => {
-            const ok = !q || (e.dataset.name || '').indexOf(q) !== -1;
-            e.hidden = !ok;
+        document.querySelectorAll('#lx-pl-list .lx-ch-pl-cell').forEach(c => {
+            const ok = !q || (c.dataset.name || '').indexOf(q) !== -1;
+            c.hidden = !ok;
             if (ok) shown++;
         });
         document.querySelectorAll('#lx-pl-list .lx-ch-pl-group').forEach(g => {
-            g.hidden = !g.querySelector('.lx-ch-pl-entry:not([hidden])');
+            const n = g.querySelectorAll('.lx-ch-pl-cell:not([hidden])').length;
+            g.hidden = !n;
+            const c = g.querySelector('.lx-ch-pl-group-count');
+            if (c) c.textContent = String(n);
         });
         const nm = $('lx-pl-nomatch');
         if (placesCache.length && !shown) {
-            nm.textContent = 'No places match "' + ($('places-search').value || '').trim() + '".';
+            nm.textContent = 'No places match "' + (input.value || '').trim() + '". Try part of a name, or clear the search.';
             nm.hidden = false;
         } else {
             nm.hidden = true;
         }
+        $('lx-pl-count').textContent = !placesCache.length ? '' : (q ? plural(shown, 'place', 'places') + ' match' + (shown === 1 ? 'es' : '') : plural(placesCache.length, 'place', 'places'));
     }
     $('places-search').addEventListener('input', applyFilter);
-
-    $('lx-pl-list').addEventListener('click', e => {
-        const btn = e.target.closest ? e.target.closest('.lx-ch-pl-toggle') : null;
-        if (!btn) return;
-        const entry = btn.closest('.lx-ch-pl-entry');
-        const id = entry ? parseInt(entry.dataset.id, 10) : NaN;
-        if (isNaN(id)) return;
-        if (openId === id) closePlace(); else openPlace(id, { scroll: true });
+    $('places-search').addEventListener('keydown', e => {
+        if (e.key === 'Escape' && $('places-search').value) { e.preventDefault(); $('places-search').value = ''; applyFilter(); }
     });
+    $('lx-pl-clear').addEventListener('click', () => { $('places-search').value = ''; applyFilter(); $('places-search').focus(); });
 
-    // ── Place detail (inline) ─────────────────────────────────────────
-    let detailMap = null;
-    let detailPtsFeatures = [];
-    const detailHost = document.createElement('div');
-    detailHost.className = 'lx-ch-pl-maphost';
+    function syncSortButtons() {
+        document.querySelectorAll('#lx-pl-sort button').forEach(b => b.setAttribute('aria-pressed', b.dataset.sort === sortMode ? 'true' : 'false'));
+    }
+    $('lx-pl-sort').addEventListener('click', e => {
+        const b = e.target.closest ? e.target.closest('button[data-sort]') : null;
+        if (!b || b.dataset.sort === sortMode) return;
+        sortMode = b.dataset.sort;
+        pref.set(PREF_SORT, sortMode);
+        syncSortButtons();
+        if (placesCache.length) renderPlaces();
+    });
+    syncSortButtons();
+
+    const listEl = $('lx-pl-list');
+    listEl.addEventListener('click', e => {
+        const tile = e.target.closest ? e.target.closest('.lx-ch-pl-tile') : null;
+        if (!tile) return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return;    // let the browser open a new tab
+        e.preventDefault();
+        const id = parseInt(tile.dataset.id, 10);
+        if (!isNaN(id)) showPlace(id, { push: true, opener: tile });
+    });
+    listEl.addEventListener('mouseover', e => hoverPrefetch(e.target));
+    listEl.addEventListener('mouseout', () => clearTimeout(hoverTimer));
+    listEl.addEventListener('focusin', e => hoverPrefetch(e.target));
+    listEl.addEventListener('touchstart', e => {
+        const tile = e.target.closest ? e.target.closest('.lx-ch-pl-tile') : null;
+        if (tile) prefetchDetail(parseInt(tile.dataset.id, 10));
+    }, { passive: true });
+
+    // ═════ The open place ═════
+    const view = $('lx-pl-view');
+    const pagePane = $('lx-pl-page');
+    const pbody = $('lx-pl-pbody');
+    let cur = null;               // {id, place, token, feats, detail, opener}
+    let openToken = 0;
+    let dmap = null;
+    let dTilesOk = false;
     let timeRaw = false;
+    let histAll = false;
     let notesTimer = 0;
-    let pendingNotes = null;    // {id, val} waiting on the debounce
+    let pendingNotes = null;      // {id, val} waiting on the debounce
+    let basemapChanged = false;
+    let panelOpen = pref.get(PREF_PANEL, '1') !== '0';
+    let showPoints = pref.get(PREF_POINTS, '1') !== '0';
+    let showRadius = pref.get(PREF_RADIUS, '1') !== '0';
+
+    function placeUrl(id) {
+        try { const u = new URL(location.href); u.searchParams.set('place', String(id)); return u.pathname + u.search + u.hash; }
+        catch (e) { return '/places/?place=' + id; }
+    }
+    function baseUrl() {
+        try { const u = new URL(location.href); u.searchParams.delete('place'); return u.pathname + u.search + u.hash; }
+        catch (e) { return '/places/'; }
+    }
+    function idFromUrl() {
+        try { const n = parseInt(new URLSearchParams(location.search).get('place'), 10); return isNaN(n) ? null : n; }
+        catch (e) { return null; }
+    }
+
     function flushNotes() {
         clearTimeout(notesTimer);
         if (pendingNotes) { const p = pendingNotes; pendingNotes = null; saveNotes(p.id, p.val); }
     }
 
-    function detachDetailHost() { if (detailHost.parentNode) detailHost.parentNode.removeChild(detailHost); }
-
-    function closePlace() {
-        if (openId === null) return;
-        flushNotes();
-        const entry = document.querySelector('#lx-pl-list .lx-ch-pl-entry[data-id="' + openId + '"]');
-        detachDetailHost();
-        if (entry) {
-            entry.querySelector('.lx-ch-pl-toggle').setAttribute('aria-expanded', 'false');
-            const panel = entry.querySelector('.lx-ch-pl-panel');
-            panel.hidden = true;
-            panel.innerHTML = '';
-        }
-        openId = null;
-        openToken++;
+    function setPanel(open, silent) {
+        panelOpen = !!open;
+        view.setAttribute('data-panel', panelOpen ? 'open' : 'closed');
+        const btn = $('lx-pl-collapse');
+        btn.setAttribute('aria-expanded', panelOpen ? 'true' : 'false');
+        btn.setAttribute('aria-label', panelOpen ? 'Hide details' : 'Show details');
+        $('lx-pl-reopen').setAttribute('aria-expanded', panelOpen ? 'true' : 'false');
+        if (!silent) pref.set(PREF_PANEL, panelOpen ? '1' : '0');
+        if (dmap && cur && !silent) setTimeout(() => fitPlace(true), 240);
     }
 
-    function panelHtml(p) {
-        const col = safeColor(p.color);
-        const skelStat = l => '<div class="lx-ch-stat"><span class="lx-ch-stat-value"><span class="skeleton" style="display:inline-block;width:3.5ch;height:20px;"></span></span><span class="lx-ch-stat-label">' + l + '</span></div>';
-        return '<div class="lx-ch-pl-sub">' + esc(Math.round(Number(p.radius_m) || 0).toLocaleString()) + ' m radius</div>'
-            + '<div class="lx-ch-pl-grid"' + (col ? ' style="--lx-pl:' + col + ';"' : '') + '>'
-            + '<div class="lx-ch-pl-mapslot" id="lx-pl-mapslot"></div>'
-            + '<div class="lx-ch-pl-side">'
-            + '<div class="lx-ch-stats" id="lx-pl-stats">' + skelStat('points') + skelStat('days') + skelStat('time spent') + skelStat('first seen') + '</div>'
-            + '<div class="lx-ch-pl-cities" id="lx-pl-cities-wrap" hidden><div class="lx-ch-pl-label"><span>Cities</span></div><div class="lx-ch-pl-chips" id="lx-pl-cities"></div></div>'
-            + '<div class="lx-ch-pl-field"><div class="lx-ch-pl-label"><label for="lx-pl-notes">Notes</label><span class="lx-ch-pl-status" id="lx-pl-notes-status" aria-live="polite"></span></div>'
-            + '<textarea id="lx-pl-notes" class="lx-ch-pl-input" rows="4" placeholder="Anything you want to remember about this place"></textarea></div>'
-            + '<fieldset class="lx-ch-pl-notify"><legend>Notify me</legend>'
-            + '<label class="lx-ch-pl-check"><input type="checkbox" id="notify-arrive"> When a device arrives here</label>'
-            + '<label class="lx-ch-pl-check"><input type="checkbox" id="notify-leave"> When a device leaves</label>'
-            + '<span class="lx-ch-pl-status" id="notify-status" aria-live="polite"></span></fieldset>'
-            + '</div></div>'
-            + '<div class="lx-ch-pl-history"' + (col ? ' style="--lx-pl:' + col + ';"' : '') + ' id="lx-pl-history" hidden></div>'
-            + '<div class="lx-ch-pl-actions"><button type="button" class="lx-ch-btn" id="detail-edit">Edit</button>'
-            + '<button type="button" class="lx-ch-btn lx-ch-btn--danger" id="detail-delete">Delete</button></div>';
-    }
-
-    async function openPlace(id, opts) {
-        const entry = document.querySelector('#lx-pl-list .lx-ch-pl-entry[data-id="' + id + '"]');
-        const known = placesById.get(id);
-        if (!entry || !known) return;
-        if (openId !== null && openId !== id) closePlace();
-        openId = id;
-        const token = ++openToken;
-        timeRaw = false;
-        entry.querySelector('.lx-ch-pl-toggle').setAttribute('aria-expanded', 'true');
-        const panel = entry.querySelector('.lx-ch-pl-panel');
-        panel.innerHTML = panelHtml(known);
-        panel.hidden = false;
-
-        // Everything the cached geometry already knows paints now; only the
-        // aggregate stats and visit history wait on the fetch below.
-        const slot = $('lx-pl-mapslot');
-        if (slot) {
-            slot.appendChild(detailHost);
-            if (!detailMap) detailMap = makeMap(detailHost);
-            if (detailMap) {
-                requestAnimationFrame(() => { try { detailMap.resize(); } catch (e) {} });
-                drawDetailCircle(known);
-                streamDetailPoints(id, token);
-            } else {
-                slot.innerHTML = '<p class="lx-ch-pl-msg" style="padding:16px;">The map needs WebGL, which this browser has turned off.</p>';
-            }
-        }
-        setupNotes(known);
-        setupNotify(known);
-        $('detail-edit').addEventListener('click', () => openEdit(placesById.get(id) || known));
-        $('detail-delete').addEventListener('click', () => deletePlace(id, known.name));
-        if (!opts || opts.scroll !== false) {
-            try { entry.scrollIntoView({ block: 'nearest', behavior: reduced() ? 'auto' : 'smooth' }); } catch (e) {}
-        }
-
-        let d;
-        try {
-            d = await rfetch('/api/places/' + id + '/', { toast: false });
-        } catch (e) {
-            if (token !== openToken) return;
-            const st = $('lx-pl-stats');
-            if (st) {
-                st.innerHTML = '<p class="lx-ch-pl-msg">Couldn\'t load this place\'s history.<button type="button" class="lx-ch-btn" id="lx-pl-detail-retry">Retry</button></p>';
-                const r = $('lx-pl-detail-retry');
-                if (r) r.addEventListener('click', () => { closePlace(); openPlace(id, { scroll: false }); });
-            }
-            return;
-        }
-        if (token !== openToken) return;     // another place was opened meanwhile
-        renderDetail(d, known);
-    }
-
-    function renderDetail(d, known) {
-        const stats = $('lx-pl-stats');
-        if (!stats) return;
-        const days = d.days || [];
-        const capped = days.length >= 100;
-        stats.innerHTML =
-            '<div class="lx-ch-stat"><span class="lx-ch-stat-value">' + esc((Number(d.point_count) || 0).toLocaleString()) + '</span><span class="lx-ch-stat-label">points</span></div>'
-            + '<div class="lx-ch-stat"><span class="lx-ch-stat-value">' + days.length + (capped ? '+' : '') + '</span><span class="lx-ch-stat-label">days</span></div>'
-            + '<button type="button" class="lx-ch-stat lx-ch-pl-statbtn" id="detail-time-stat" data-s="' + (Number(d.time_spent) || 0) + '" aria-label="Time spent. Switch between hours and minutes."><span class="lx-ch-stat-value">' + esc(fmtDurFull(d.time_spent)) + '</span><span class="lx-ch-stat-label">time spent</span></button>'
-            + '<div class="lx-ch-stat"><span class="lx-ch-stat-value" style="font-size:16px;line-height:22px;">' + esc(fmtTimestamp(d.first_seen)) + '</span><span class="lx-ch-stat-label">first seen</span></div>';
-        const tb = $('detail-time-stat');
-        if (tb) tb.addEventListener('click', () => {
-            timeRaw = !timeRaw;
-            const s = parseInt(tb.dataset.s || '0', 10);
-            tb.querySelector('.lx-ch-stat-value').textContent = timeRaw ? fmtDurMins(s) : fmtDurFull(s);
+    function ensureDetailMap() {
+        if (dmap) return dmap;
+        dmap = makeMap($('lx-pl-vmap'), {}, 'bottom-left');
+        if (!dmap) return null;
+        styleIdOnMap = currentBasemapId();
+        dmap.on('style.load', () => { paintDetail(); });
+        dmap.on('data', e => {
+            if (e && e.dataType === 'source' && e.tile && !dTilesOk) { dTilesOk = true; $('lx-pl-mapnote').hidden = true; }
         });
+        dmap.on('idle', () => { if (!dTilesOk && cur) $('lx-pl-mapnote').hidden = false; });
+        return dmap;
+    }
+    // (Re)creates the radius + point layers for the open place. Idempotent; returns
+    // false while the style is not ready so whenReady can try again.
+    function paintDetail() {
+        if (!dmap || !cur) return true;
+        const g = cur.place;
+        const color = placeColor(g);
+        try {
+            ['pl-circle-fill', 'pl-circle-line', 'pl-pts'].forEach(l => { if (dmap.getLayer(l)) dmap.removeLayer(l); });
+            ['pl-circle', 'pl-pts-src'].forEach(s => { if (dmap.getSource(s)) dmap.removeSource(s); });
+            addCircleLayers(dmap, 'pl-circle', g.lat, g.lng, g.radius_m, color, showRadius);
+            dmap.addSource('pl-pts-src', { type: 'geojson', data: { type: 'FeatureCollection', features: cur.feats } });
+            dmap.addLayer({ id: 'pl-pts', type: 'circle', source: 'pl-pts-src',
+                layout: { visibility: showPoints ? 'visible' : 'none' },
+                paint: { 'circle-radius': 2.5, 'circle-color': color, 'circle-opacity': 0.7 } });
+            return true;
+        } catch (e) { return false; }
+    }
+    function setLayerVisibility() {
+        if (!dmap) return;
+        try {
+            ['pl-circle-fill', 'pl-circle-line'].forEach(l => { if (dmap.getLayer(l)) dmap.setLayoutProperty(l, 'visibility', showRadius ? 'visible' : 'none'); });
+            if (dmap.getLayer('pl-pts')) dmap.setLayoutProperty('pl-pts', 'visibility', showPoints ? 'visible' : 'none');
+        } catch (e) {}
+    }
+    function fitPlace(animate) {
+        if (!dmap || !cur) return;
+        const pad = { top: 72, left: 48, bottom: 48, right: 48 };
+        if (isPhone()) {
+            const h = view.clientHeight || 600;
+            pad.bottom = Math.round(panelOpen ? h * 0.58 + 16 : 132);
+            pad.left = pad.right = 24;
+        } else if (panelOpen) {
+            pad.right = (($('lx-pl-panel') && $('lx-pl-panel').offsetWidth) || 400) + 48;
+        }
+        try {
+            dmap.resize();
+            dmap.fitBounds(circleBounds(cur.place, 1), { padding: pad, maxZoom: 17.5, duration: animate && !reduced() ? 400 : 0 });
+        } catch (e) {}
+    }
+    function setPointsData() {
+        const src = dmap && cur && dmap.getSource && dmap.getSource('pl-pts-src');
+        if (src) { try { src.setData({ type: 'FeatureCollection', features: cur.feats }); } catch (e) {} }
+    }
 
+    function skelValue(w) { return '<span class="skeleton" style="display:inline-block;width:' + (w || 5) + 'ch;height:20px;vertical-align:middle;"></span>'; }
+    function statCell(value, label, extra) { return '<div class="lx-ch-stat' + (extra || '') + '"><span class="lx-ch-stat-value">' + value + '</span><span class="lx-ch-stat-label">' + esc(label) + '</span></div>'; }
+    function statsHtml(p, d) {
+        const days = d ? (d.days || []) : null;
+        const capped = days && days.length >= 100;
+        const last = (d && d.last_seen) || p.last_seen;
+        return statCell(esc(((d ? Number(d.point_count) : Number(p.point_count)) || 0).toLocaleString()), 'points')
+            + statCell(days ? esc(days.length + (capped ? '+' : '')) : skelValue(3), 'days')
+            + (d ? '<button type="button" class="lx-ch-stat lx-ch-pl-statbtn" data-act="time" data-s="' + (Number(d.time_spent) || 0) + '" aria-label="Time spent: ' + esc(fmtDurFull(d.time_spent)) + '. Switch between hours and minutes."><span class="lx-ch-stat-value">' + esc(timeRaw ? fmtDurMins(d.time_spent) : fmtDurFull(d.time_spent)) + '</span><span class="lx-ch-stat-label">time spent</span></button>'
+                : statCell(skelValue(6), 'time spent'))
+            + statCell(esc(Math.round(Number(p.radius_m) || 0).toLocaleString() + ' m'), 'radius')
+            + (d ? statCell(esc(fmtTimestamp(d.first_seen)), 'first seen', ' is-text') : statCell(skelValue(9), 'first seen', ' is-text'))
+            + statCell(last ? '<span title="' + esc(fmtTimestamp(last)) + '">' + esc(cap(agoWords(last))) + '</span>' : '—', 'last seen', ' is-text');
+    }
+
+    function bodyHtml(p) {
+        return '<section class="lx-ch-pl-sec" aria-label="Statistics"><div class="lx-ch-pl-statgrid" id="lx-pl-stats">' + statsHtml(p, null) + '</div></section>'
+            + '<section class="lx-ch-pl-sec" id="lx-pl-history" aria-labelledby="lx-pl-hist-title"' + (safeColor(p.color) ? ' style="--lx-pl:' + safeColor(p.color) + ';"' : '') + '>'
+            + '<h3 class="lx-ch-pl-sec-title" id="lx-pl-hist-title">Visit history</h3>'
+            + '<div id="lx-pl-hist-body"><div class="skeleton" style="height:40px;"></div><div class="skeleton lx-ch-skel-line" style="margin-top:16px;"></div><div class="skeleton lx-ch-skel-line is-mid"></div><div class="skeleton lx-ch-skel-line is-short"></div></div></section>'
+            + '<section class="lx-ch-pl-sec" id="lx-pl-cities-wrap" aria-labelledby="lx-pl-cities-title" hidden><h3 class="lx-ch-pl-sec-title" id="lx-pl-cities-title">Cities</h3><div class="lx-ch-pl-chips" id="lx-pl-cities"></div></section>'
+            + '<section class="lx-ch-pl-sec"><div class="lx-ch-pl-label"><label for="lx-pl-notes">Notes</label><span class="lx-ch-pl-status" id="lx-pl-notes-status" aria-live="polite"></span></div>'
+            + '<textarea id="lx-pl-notes" class="lx-ch-pl-input" rows="4" placeholder="Anything you want to remember about this place"></textarea></section>'
+            + '<section class="lx-ch-pl-sec"><h3 class="lx-ch-pl-sec-title">Notify me</h3>'
+            + '<label class="lx-ch-pl-switch"><span>When a device arrives here</span><input type="checkbox" id="notify-arrive" role="switch"></label>'
+            + '<label class="lx-ch-pl-switch"><span>When a device leaves</span><input type="checkbox" id="notify-leave" role="switch"></label>'
+            + '<div class="lx-ch-pl-status lx-ch-pl-switch-status" id="notify-status" aria-live="polite"></div></section>'
+            + '<div class="lx-ch-pl-actions"><button type="button" class="lx-ch-btn" data-act="edit">' + ICON.edit + 'Edit place</button>'
+            + '<button type="button" class="lx-ch-btn lx-ch-btn--danger" data-act="delete">' + ICON.trash + 'Delete</button></div>';
+    }
+
+    function fillHeader(p) {
+        const col = safeColor(p.color);
+        $('lx-pl-pname-text').textContent = p.name || 'Untitled place';
+        $('lx-pl-vtitle').textContent = p.name || 'Untitled place';
+        const dot = $('lx-pl-pdot');
+        dot.style.background = col || '';
+        $('lx-pl-psub').textContent = Math.round(Number(p.radius_m) || 0).toLocaleString() + ' m radius'
+            + (p.last_seen ? ', last seen ' + agoWords(p.last_seen) : '');
+    }
+
+    function showPlace(id, opts) {
+        opts = opts || {};
+        const p = placesById.get(id);
+        if (!p) return;
+        if (cur && cur.id !== id) { flushNotes(); }
+        const wasOpen = !view.hidden;
+        const token = ++openToken;
+        cur = { id: id, place: p, token: token, feats: [], detail: null, opener: opts.opener || (cur && cur.opener) || null };
+        timeRaw = false;
+        histAll = false;
+
+        if (opts.push) { try { history.pushState({ lxPlace: id }, '', placeUrl(id)); } catch (e) {} }
+        else if (opts.replace) { try { history.replaceState({ lxDeep: id }, '', placeUrl(id)); } catch (e) {} }     // no lxPlace: Back must not leave the page
+
+        fillHeader(p);
+        pbody.innerHTML = bodyHtml(p);
+        pbody.scrollTop = 0;
+        const ta = $('lx-pl-notes');
+        ta.value = p.notes || '';
+        $('notify-arrive').checked = !!p.notify_arrive;
+        $('notify-leave').checked = !!p.notify_leave;
+
+        view.hidden = false;
+        document.documentElement.classList.add('lx-ch-pl-open');
+        try { pagePane.inert = true; } catch (e) {}
+        closeMenu();
+        setPanel(panelOpen, true);
+        $('lx-pl-mapnote').hidden = true;
+
+        // The big map: circle and camera come from the list data, so it is useful at once.
+        const m = ensureDetailMap();
+        if (m) {
+            if (styleIdOnMap !== currentBasemapId()) applyBasemapToMap();
+            whenReady(m, paintDetail);
+            fitPlace(false);
+            requestAnimationFrame(() => fitPlace(false));
+            setTimeout(() => { if (cur && cur.token === token) fitPlace(false); }, 120);
+        } else {
+            $('lx-pl-vmap').innerHTML = '<div class="lx-ch-empty" style="padding:96px 24px;max-width:none;"><div class="lx-ch-empty-title">The map is unavailable</div><p>This browser has WebGL turned off, so the map cannot draw. The details still work.</p></div>';
+        }
+
+        loadDetailFor(cur);
+
+        if (!wasOpen) { setTimeout(() => { if (cur && cur.token === token) { try { $('lx-pl-pname').focus({ preventScroll: true }); } catch (e) {} } }, 30); }
+    }
+
+    // Stats and visit history: cached first, then revalidated in the background.
+    function loadDetailFor(c) {
+        const p = c.place;
+        const hit = cachedDetail(p);
+        let shown = '';
+        if (hit) { shown = JSON.stringify(hit.d); renderDetail(c, hit.d); }
+        const stale = !hit || (Date.now() - hit.at) > DETAIL_FRESH_MS;
+        if (!stale) { startPoints(c, Promise.resolve()); return; }
+        const pr = fetchDetail(p);
+        startPoints(c, pr.catch(() => {}));
+        pr.then(d => {
+            if (!cur || cur.token !== c.token) return;
+            if (JSON.stringify(d) !== shown) renderDetail(c, d);
+        }, () => {
+            if (!cur || cur.token !== c.token || hit) return;      // a cached view is still showing: stay quiet
+            renderDetailError(c);
+        });
+    }
+    function renderDetailError(c) {
+        const st = $('lx-pl-stats');
+        if (st) st.innerHTML = statsHtml(c.place, null).replace(/<span class="skeleton"[^>]*><\/span>/g, '—');
+        const hb = $('lx-pl-hist-body');
+        if (hb) hb.innerHTML = '<p class="lx-ch-pl-msg">Couldn\'t load this place\'s history.<button type="button" class="lx-ch-btn" data-act="retry">Retry</button></p>';
+    }
+
+    function renderDetail(c, d) {
+        if (!cur || cur.token !== c.token) return;
+        c.detail = d;
+        const st = $('lx-pl-stats');
+        if (st) st.innerHTML = statsHtml(c.place, d);
         const cw = $('lx-pl-cities-wrap');
         if (cw) {
             if (d.cities && d.cities.length) {
                 cw.hidden = false;
-                $('lx-pl-cities').innerHTML = d.cities.map(c => '<span class="lx-ch-pl-chip">' + esc(c.city) + (c.state ? ', ' + esc(c.state) : '') + '</span>').join('');
+                $('lx-pl-cities').innerHTML = d.cities.map(x => '<span class="lx-ch-pl-chip">' + esc(x.city) + (x.state ? ', ' + esc(x.state) : '') + '</span>').join('');
             } else { cw.hidden = true; }
         }
-        renderHistory(days, d);
+        renderHistory(d);
     }
 
     // The mini timeline: a strip of marks (one per day with a visit, tallest for
     // the longest stays) over the span the list covers, then the days themselves.
-    const DAYS_INITIAL = 10;
-    function renderHistory(allDays, d) {
-        const wrap = $('lx-pl-history');
+    const DAYS_INITIAL = 8;
+    function renderHistory(d) {
+        const wrap = $('lx-pl-hist-body');
         if (!wrap) return;
+        const allDays = d.days || [];
         const days = allDays.filter(x => x && ISO_DAY.test(x.date || ''));
-        if (!days.length) { wrap.hidden = true; wrap.innerHTML = ''; return; }
+        const title = $('lx-pl-hist-title');
+        if (!days.length) {
+            wrap.innerHTML = '<p class="lx-ch-pl-msg">No visits recorded here yet.</p>';
+            if (title) title.innerHTML = 'Visit history';
+            return;
+        }
+        if (title) title.innerHTML = 'Visit history <small>' + esc(plural(days.length, 'day', 'days') + (allDays.length >= 100 ? ', most recent' : '')) + '</small>';
         const oldest = days[days.length - 1].date;
         const span = Math.max(1, epochDay(localToday()) - epochDay(oldest));
         const maxT = Math.max.apply(null, days.map(x => Number(x.time_spent) || 0).concat([0]));
@@ -682,54 +1368,36 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         }).join('');
         const row = x => {
             const mapUrl = '/map/?start=' + x.date + '&end=' + x.date + '&lat=' + encodeURIComponent(d.lat) + '&lng=' + encodeURIComponent(d.lng) + '&zoom=15';
-            const t = fmtDur(x.time_spent);
             return '<li class="lx-ch-pl-visit"><a class="lx-ch-pl-visit-day" href="/timeline/?d=' + x.date + '">' + esc(fmtDay(x.date)) + '</a>'
-                + '<span class="lx-ch-pl-visit-meta">' + esc(plural(Number(x.count) || 0, 'point', 'points')) + ' · ' + esc(t) + '</span>'
+                + '<span class="lx-ch-pl-visit-meta">' + esc(plural(Number(x.count) || 0, 'point', 'points')) + ', ' + esc(fmtDur(x.time_spent)) + '</span>'
                 + '<a class="lx-ch-pl-visit-map" href="' + esc(mapUrl) + '" aria-label="' + esc('Show ' + fmtDay(x.date) + ' on the map') + '">Map</a></li>';
         };
-        wrap.innerHTML = '<div class="lx-ch-section-head"><h3 class="lx-ch-section-title">Visit history</h3>'
-            + '<span class="lx-ch-section-meta">' + esc(plural(days.length, 'day', 'days')) + (allDays.length >= 100 ? ', most recent' : '') + '</span></div>'
-            + '<div class="lx-ch-pl-strip" aria-hidden="true">' + ticks + '</div>'
+        const shownDays = histAll ? days : days.slice(0, DAYS_INITIAL);
+        wrap.innerHTML = '<div class="lx-ch-pl-strip" aria-hidden="true">' + ticks + '</div>'
             + '<div class="lx-ch-pl-strip-axis" aria-hidden="true"><span>' + esc(fmtDay(oldest, { day: 'numeric', month: 'short', year: 'numeric' })) + '</span><span>Today</span></div>'
-            + '<ol class="lx-ch-pl-visits" id="lx-pl-visits">' + days.slice(0, DAYS_INITIAL).map(row).join('') + '</ol>'
-            + (days.length > DAYS_INITIAL ? '<button type="button" class="lx-ch-btn" id="detail-days-more" style="margin-top:8px;">Show ' + (days.length - DAYS_INITIAL) + ' more</button>' : '');
-        wrap.hidden = false;
-        const more = $('detail-days-more');
-        if (more) more.addEventListener('click', () => {
-            $('lx-pl-visits').innerHTML = days.map(row).join('');
-            more.remove();
-        });
+            + '<ol class="lx-ch-pl-visits">' + shownDays.map(row).join('') + '</ol>'
+            + (!histAll && days.length > DAYS_INITIAL ? '<button type="button" class="lx-ch-btn" data-act="more" style="margin-top:8px;">Show ' + (days.length - DAYS_INITIAL) + ' more</button>' : '');
     }
 
-    // Circle + zoom to it + an empty point layer that streamDetailPoints fills.
-    function drawDetailCircle(g) {
-        if (!detailMap) return;
-        const map = detailMap;
-        const color = safeColor(g.color) || token('--primary', '#e8763d');
-        const run = () => {
-            ['d-circle-fill', 'd-circle-line', 'd-points'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
-            ['d-circle', 'd-points-src'].forEach(s => { if (map.getSource(s)) map.removeSource(s); });
-            addCircleLayers(map, 'd-circle', g.lat, g.lng, g.radius_m, color);
-            map.addSource('d-points-src', { type: 'geojson', data: { type: 'FeatureCollection', features: detailPtsFeatures } });
-            map.addLayer({ id: 'd-points', type: 'circle', source: 'd-points-src',
-                paint: { 'circle-radius': 3, 'circle-color': color, 'circle-opacity': 0.6 } });
-            const latR = g.radius_m / 111320.0;
-            const lngR = g.radius_m / (111320.0 * Math.cos(g.lat * Math.PI / 180));
-            map.fitBounds([[g.lng - lngR, g.lat - latR], [g.lng + lngR, g.lat + latR]], { padding: 40, duration: 0 });
-        };
-        detailPtsFeatures = [];
-        whenStyle(map, run);
-        setTimeout(() => { try { map.resize(); } catch (e) {} }, 60);
+    // Newline-delimited [[lng,lat],…] chunks, repainted as each lands. It starts once
+    // the stats have settled (or after 4 s): both are full scans of the same
+    // geofence, and running them together made each slower.
+    function startPoints(c, after) {
+        const p = c.place;
+        const mem = pointsMem.get(p.id);
+        if (mem && mem.sig === sigOf(p) && Date.now() - mem.at < POINTS_FRESH_MS) {
+            c.feats = mem.feats; paintDetail(); return;
+        }
+        let started = false;
+        const go = () => { if (started) return; started = true; if (cur && cur.token === c.token) streamPoints(c); };
+        after.then(go, go);
+        setTimeout(go, 4000);
     }
-
-    // Newline-delimited [[lng,lat],…] chunks, repainted as each lands.
-    async function streamDetailPoints(id, token) {
-        const repaint = () => {
-            const src = detailMap && detailMap.getSource('d-points-src');
-            if (src) src.setData({ type: 'FeatureCollection', features: detailPtsFeatures });
-        };
+    async function streamPoints(c) {
+        const acc = [];
+        let ok = false;
         try {
-            const res = await fetch('/api/places/' + id + '/points/');
+            const res = await fetch('/api/places/' + c.id + '/points/');
             if (!res.ok || !res.body) return;
             const reader = res.body.getReader();
             const dec = new TextDecoder();
@@ -741,74 +1409,216 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
                     if (!line.trim()) continue;
                     let coords;
                     try { coords = JSON.parse(line); } catch (e) { continue; }
-                    for (const c of coords) detailPtsFeatures.push({ type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: {} });
+                    for (const pt of coords) acc.push({ type: 'Feature', geometry: { type: 'Point', coordinates: pt }, properties: {} });
                 }
             };
+            let lastPaint = 0;
             while (true) {
-                const { done, value } = await reader.read();
-                if (token !== openToken) { reader.cancel(); return; }
-                if (done) break;
-                buf += dec.decode(value, { stream: true });
+                const r = await reader.read();
+                if (!cur || cur.token !== c.token) { try { reader.cancel(); } catch (e) {} return; }
+                if (r.done) break;
+                buf += dec.decode(r.value, { stream: true });
                 drain();
-                repaint();
+                const now = Date.now();
+                if (now - lastPaint > 250) { lastPaint = now; c.feats = acc; setPointsData(); }
             }
             buf += dec.decode();
             drain();
-            repaint();
-        } catch (e) { /* the circle and stats are still shown */ }
+            ok = true;
+        } catch (e) { /* the radius and the stats are still shown */ }
+        if (!cur || cur.token !== c.token) return;
+        c.feats = acc;
+        setPointsData();
+        if (ok) pointsMem.set(c.id, { feats: acc, at: Date.now(), sig: sigOf(c.place) });
+    }
+
+    // Basemap switching, shared with /map/ through roamly_map_tile_style.
+    let styleIdOnMap = null;
+    function applyBasemapToMap() {
+        if (!dmap) return;
+        styleIdOnMap = currentBasemapId();
+        dTilesOk = false;
+        try { dmap.setStyle(styleFor(styleIdOnMap), { diff: false }); } catch (e) { try { dmap.setStyle(styleFor(styleIdOnMap)); } catch (e2) {} }
+        whenReady(dmap, paintDetail);
+    }
+    function buildMenu() {
+        const cur_ = currentBasemapId();
+        $('lx-pl-bmlist').innerHTML = basemaps().map(b =>
+            '<button type="button" class="lx-ch-pl-opt" role="radio" aria-checked="' + (b.id === cur_ ? 'true' : 'false') + '" data-bm="' + esc(b.id) + '"><span>' + esc(b.name || b.id) + '</span>' + ICON.check + '</button>').join('');
+        $('lx-pl-opt-radius').setAttribute('aria-checked', showRadius ? 'true' : 'false');
+        $('lx-pl-opt-points').setAttribute('aria-checked', showPoints ? 'true' : 'false');
+    }
+    function openMenu() {
+        buildMenu();
+        $('lx-pl-menu').hidden = false;
+        $('lx-pl-menubtn').setAttribute('aria-expanded', 'true');
+        const sel = $('lx-pl-menu').querySelector('[aria-checked="true"]');
+        if (sel) { try { sel.focus({ preventScroll: true }); } catch (e) {} }
+    }
+    function closeMenu(refocus) {
+        if ($('lx-pl-menu').hidden) return;
+        $('lx-pl-menu').hidden = true;
+        $('lx-pl-menubtn').setAttribute('aria-expanded', 'false');
+        if (refocus) { try { $('lx-pl-menubtn').focus({ preventScroll: true }); } catch (e) {} }
+    }
+    $('lx-pl-menubtn').addEventListener('click', () => { if ($('lx-pl-menu').hidden) openMenu(); else closeMenu(); });
+    $('lx-pl-menu').addEventListener('click', e => {
+        const bm = e.target.closest ? e.target.closest('[data-bm]') : null;
+        if (bm) {
+            const id = bm.dataset.bm;
+            if (id !== currentBasemapId()) {
+                pref.set(PREF_BASEMAP, id);
+                basemapChanged = true;
+                applyBasemapToMap();
+                resetAuxMaps();
+            }
+            buildMenu();
+            return;
+        }
+        const o = e.target.closest ? e.target.closest('#lx-pl-opt-radius, #lx-pl-opt-points') : null;
+        if (!o) return;
+        if (o.id === 'lx-pl-opt-radius') { showRadius = !showRadius; pref.set(PREF_RADIUS, showRadius ? '1' : '0'); }
+        else { showPoints = !showPoints; pref.set(PREF_POINTS, showPoints ? '1' : '0'); }
+        setLayerVisibility();
+        buildMenu();
+    });
+    $('lx-pl-menu').addEventListener('keydown', e => {
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+        const items = Array.prototype.slice.call($('lx-pl-menu').querySelectorAll('button'));
+        const i = items.indexOf(document.activeElement);
+        if (i < 0) return;
+        e.preventDefault();
+        items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus();
+    });
+    document.addEventListener('click', e => {
+        if ($('lx-pl-menu').hidden) return;
+        if (e.target.closest && (e.target.closest('#lx-pl-menu') || e.target.closest('#lx-pl-menubtn'))) return;
+        closeMenu();
+    });
+    $('lx-pl-maptry').addEventListener('click', () => { $('lx-pl-mapnote').hidden = true; applyBasemapToMap(); });
+    $('lx-pl-fit').addEventListener('click', () => fitPlace(true));
+
+    // Panel collapse (desktop: slide away; phone: sheet / peek)
+    $('lx-pl-collapse').addEventListener('click', e => { e.stopPropagation(); setPanel(!panelOpen); });
+    $('lx-pl-reopen').addEventListener('click', () => setPanel(true));
+    $('lx-pl-phead').addEventListener('click', e => {
+        if (!isPhone()) return;
+        if (e.target.closest && e.target.closest('#lx-pl-collapse')) return;
+        setPanel(!panelOpen);
+    });
+
+    // Panel actions (delegated: the body is rebuilt on every open)
+    pbody.addEventListener('click', e => {
+        const t = e.target.closest ? e.target.closest('[data-act]') : null;
+        if (!t || !cur) return;
+        const act = t.dataset.act;
+        if (act === 'time') {
+            timeRaw = !timeRaw;
+            const s = parseInt(t.dataset.s || '0', 10);
+            t.querySelector('.lx-ch-stat-value').textContent = timeRaw ? fmtDurMins(s) : fmtDurFull(s);
+        } else if (act === 'more') {
+            histAll = true;
+            if (cur.detail) renderHistory(cur.detail);
+        } else if (act === 'retry') {
+            const hb = $('lx-pl-hist-body');
+            if (hb) hb.innerHTML = '<div class="skeleton lx-ch-skel-line"></div><div class="skeleton lx-ch-skel-line is-mid"></div>';
+            loadDetailFor(cur);
+        } else if (act === 'edit') {
+            openEdit(placesById.get(cur.id) || cur.place);
+        } else if (act === 'delete') {
+            deletePlace(cur.id, cur.place.name);
+        }
+    });
+    pbody.addEventListener('input', e => {
+        if (!cur || e.target.id !== 'lx-pl-notes') return;
+        const status = $('lx-pl-notes-status');
+        if (status) { status.classList.remove('is-error'); status.textContent = 'Saving…'; }
+        clearTimeout(notesTimer);
+        pendingNotes = { id: cur.id, val: e.target.value };
+        notesTimer = setTimeout(flushNotes, 700);
+    });
+    pbody.addEventListener('change', e => {
+        if (cur && (e.target.id === 'notify-arrive' || e.target.id === 'notify-leave')) saveNotify(cur.id);
+    });
+
+    // Closing: Back button / Esc / the Places button all go through history.
+    function hideView() {
+        flushNotes();
+        openToken++;
+        const opener = cur && cur.opener;
+        const id = cur && cur.id;
+        cur = null;
+        view.hidden = true;
+        document.documentElement.classList.remove('lx-ch-pl-open');
+        try { pagePane.inert = false; } catch (e) {}
+        closeMenu();
+        if (basemapChanged) { basemapChanged = false; refreshThumbs(); }
+        let back = opener && opener.isConnected ? opener : null;
+        if (!back && id != null) back = document.querySelector('#lx-pl-list .lx-ch-pl-tile[data-id="' + id + '"]');
+        if (back) { try { back.focus({ preventScroll: true }); } catch (e) {} }
+    }
+    function closePlace() {
+        if (!cur) return;
+        if (history.state && history.state.lxPlace) { history.back(); return; }     // popstate hides it
+        try { history.replaceState(null, '', baseUrl()); } catch (e) {}
+        hideView();
+    }
+    $('lx-pl-back').addEventListener('click', closePlace);
+    window.addEventListener('popstate', () => {
+        const id = idFromUrl();
+        if (id != null && placesById.has(id)) { if (!cur || cur.id !== id) showPlace(id, {}); }
+        else if (cur) hideView();
+    });
+    // A direct link (?place=ID), or a reload while one is open.
+    function openFromUrl(replace) {
+        if (cur) return;
+        const id = idFromUrl();
+        if (id == null) return;
+        if (placesById.has(id)) showPlace(id, { replace: !!replace });
+        else if (listRendered && placesCache.length) { try { history.replaceState(null, '', baseUrl()); } catch (e) {} }
     }
 
     // Notes and notification toggles autosave: a switch that looks on but was
     // never saved is exactly the trap the classic page documents.
-    function setupNotes(p) {
-        const ta = $('lx-pl-notes'), status = $('lx-pl-notes-status');
-        if (!ta) return;
-        ta.value = p.notes || '';
-        ta.addEventListener('input', () => {
-            if (status) { status.classList.remove('is-error'); status.textContent = 'Saving…'; }
-            clearTimeout(notesTimer);
-            pendingNotes = { id: p.id, val: ta.value };
-            notesTimer = setTimeout(flushNotes, 700);
-        });
-    }
     async function saveNotes(id, notes) {
         const known = placesById.get(id);
         let ok = true;
         try { await rfetch('/api/places/' + id + '/update/', { method: 'POST', json: { notes: notes }, toast: false }); }
         catch (e) { ok = false; }
-        if (ok && known) known.notes = notes;
-        const status = openId === id ? $('lx-pl-notes-status') : null;
-        if (!status) return;
+        if (ok && known) { known.notes = notes; persistList(); }
+        const status = cur && cur.id === id ? $('lx-pl-notes-status') : null;
+        if (!status) { if (!ok) toast("Couldn't save the notes", 'error'); return; }
         status.classList.toggle('is-error', !ok);
         status.textContent = ok ? 'Saved' : 'Not saved';
         if (ok) setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 1800);
     }
-    function setupNotify(p) {
-        const a = $('notify-arrive'), l = $('notify-leave');
-        if (!a || !l) return;
-        a.checked = !!p.notify_arrive;
-        l.checked = !!p.notify_leave;
-        const save = () => saveNotify(p.id);
-        a.addEventListener('change', save);
-        l.addEventListener('change', save);
-    }
     async function saveNotify(id) {
         const status = $('notify-status');
         const a = $('notify-arrive'), l = $('notify-leave');
-        if (!a || !l || openId !== id) return;
+        if (!a || !l || !cur || cur.id !== id) return;
         const body = { notify_arrive: a.checked, notify_leave: l.checked };
         if (status) { status.classList.remove('is-error'); status.textContent = 'Saving…'; }
         try {
             await rfetch('/api/places/' + id + '/update/', { method: 'POST', json: body, toast: false });
             const known = placesById.get(id);
-            if (known) { known.notify_arrive = body.notify_arrive; known.notify_leave = body.notify_leave; }
-            if (status && openId === id) {
+            if (known) { known.notify_arrive = body.notify_arrive; known.notify_leave = body.notify_leave; persistList(); }
+            if (status && cur && cur.id === id) {
                 status.textContent = 'Saved';
                 setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 1800);
             }
         } catch (e) {
-            if (status && openId === id) { status.classList.add('is-error'); status.textContent = (e && e.message) || 'Not saved'; }
+            if (cur && cur.id === id) {
+                const kn = placesById.get(id);      // put the switches back to what is stored
+                a.checked = !!(kn && kn.notify_arrive); l.checked = !!(kn && kn.notify_leave);
+                if (status) { status.classList.add('is-error'); status.textContent = (e && e.message) || 'Not saved'; }
+            }
         }
+    }
+    function persistList() {
+        const o = { places: placesCache };
+        try { const prev = store.json(KEY_LIST); if (prev && prev.computed_at) o.computed_at = prev.computed_at; } catch (e) {}
+        lastListStr = JSON.stringify(o);
+        store.set(KEY_LIST, lastListStr);
     }
 
     async function deletePlace(id, name) {
@@ -820,6 +1630,8 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         try {
             await rfetch('/api/places/' + id + '/delete/', { method: 'POST', errorMessage: "Couldn't delete the place" });
         } catch (e) { return; }
+        pendingNotes = null;
+        detailMem.delete(id); pointsMem.delete(id); store.del(KEY_DETAIL + id);
         closePlace();
         // Deleting a place can re-expose the cluster it was covering as a suggestion.
         await Promise.all([loadPlaces(), loadSuggestions()]);
@@ -856,7 +1668,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
                 + (s.last_seen ? ', last seen ' + agoWords(s.last_seen) : '');
             return '<li class="lx-ch-pl-sg" data-i="' + i + '"><div class="lx-ch-pl-sg-row">'
                 + '<button type="button" class="lx-ch-pl-sg-main" data-act="toggle" data-i="' + i + '" aria-expanded="false" aria-controls="lx-pl-mini-' + i + '">'
-                + CHEV
+                + ICON.chev
                 + '<span class="lx-ch-pl-sg-text"><span class="lx-ch-pl-sg-name">' + esc(title + where) + '</span><span class="lx-ch-pl-sg-meta">' + meta + '</span></span></button>'
                 + '<div class="lx-ch-pl-sg-actions"><button type="button" class="lx-ch-btn lx-ch-btn--primary" data-act="add" data-i="' + i + '">Name it</button>'
                 + '<button type="button" class="lx-ch-btn" data-act="dismiss" data-i="' + i + '">Not a place</button></div></div>'
@@ -872,10 +1684,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         if (!miniMap) return;
         try { miniMarker = new maplibregl.Marker({ color: token('--primary', '#e8763d') }); } catch (e) { miniMarker = null; }
         const color = token('--primary', '#e8763d');
-        miniMap.on('load', () => {
-            addCircleLayers(miniMap, 'mini-circle', 0, 0, 1, color);
-            paintMini();     // the map may finish loading after the row already opened
-        });
+        whenReady(miniMap, () => { addCircleLayers(miniMap, 'mini-circle', 0, 0, 1, color); paintMini(); return true; });
     }
     function paintMini() {
         if (!miniMap || expandedIdx === null) return;
@@ -910,6 +1719,11 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         ensureMiniMap();
         if (!miniMap) { slot.textContent = 'The map needs WebGL, which this browser has turned off.'; return; }
         requestAnimationFrame(paintMini);    // wait for the row to lay out before measuring
+    }
+    // A basemap change leaves the helper maps on the old style: drop them, they are rebuilt on demand.
+    function resetAuxMaps() {
+        if (miniMap) { collapseSuggestion(); try { miniMap.remove(); } catch (e) {} miniMap = null; miniMarker = null; }
+        if (editMap && overlay.hidden) { try { editMap.remove(); } catch (e) {} editMap = null; editMarker = null; }
     }
 
     $('suggest-list').addEventListener('click', e => {
@@ -950,10 +1764,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         editMap = makeMap($('edit-map'));
         if (!editMap) return;
         const color = token('--primary', '#e8763d');
-        editMap.on('load', () => {
-            addCircleLayers(editMap, 'edit-circle', 0, 0, 1, color);
-            redrawEditCircle();
-        });
+        whenReady(editMap, () => { addCircleLayers(editMap, 'edit-circle', 0, 0, 1, color); redrawEditCircle(); return true; });
         editMap.on('click', e => {
             editCenter = [e.lngLat.lng, e.lngLat.lat];
             if (editMarker) editMarker.setLngLat(editCenter).addTo(editMap);
@@ -985,7 +1796,6 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         slider.value = editRadius;
         $('edit-radius-val').textContent = editRadius + ' m';
         overlay.hidden = false;
-        document.documentElement.style.overflow = 'hidden';
         ensureEditMap();
         editCenter = place ? [place.lng, place.lat] : (suggestion ? [suggestion.lng, suggestion.lat] : null);
         if (editMap) {
@@ -1018,7 +1828,6 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
     function closeEdit() {
         if (overlay.hidden) return;
         overlay.hidden = true;
-        document.documentElement.style.overflow = '';
         if (editOpener && editOpener.focus && document.contains(editOpener)) { try { editOpener.focus({ preventScroll: true }); } catch (e) {} }
         editOpener = null;
     }
@@ -1039,8 +1848,17 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     });
+    // Esc closes the innermost thing: dialog, then the map menu, then the place.
     document.addEventListener('keydown', e => {
-        if (e.key === 'Escape' && !overlay.hidden) { e.preventDefault(); closeEdit(); }
+        if (e.key !== 'Escape' || e.defaultPrevented) return;
+        if (document.querySelector('.rly-dialog-overlay.open')) return;      // RoamlyDialog owns this Esc
+        if (!overlay.hidden) { e.preventDefault(); closeEdit(); return; }
+        if (!$('lx-pl-menu').hidden) { e.preventDefault(); closeMenu(true); return; }
+        if (cur) {
+            const t = e.target;
+            if (t && t.closest && t.closest('.maplibregl-ctrl')) return;
+            e.preventDefault(); closePlace();
+        }
     });
     $('edit-name').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); savePlace(); } });
     $('edit-save').addEventListener('click', savePlace);
@@ -1057,14 +1875,32 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
         btn.disabled = true;
         btn.textContent = 'Saving…';
         const payload = { name: name, lat: editCenter[1], lng: editCenter[0], radius_m: editRadius };
+        const editedId = editId;
         const url = editId ? '/api/places/' + editId + '/update/' : '/api/places/';
         try {
             await rfetch(url, { method: 'POST', json: payload, errorMessage: "Couldn't save the place" });
             closeEdit();
             toast('Saved');
+            if (editedId != null) { detailMem.delete(editedId); pointsMem.delete(editedId); store.del(KEY_DETAIL + editedId); }
             // The saved place may cover a suggested cluster, which is what retires
             // the suggestion, so refresh both lists.
             await Promise.all([loadPlaces(), loadSuggestions()]);
+            // An edited place that is open: redraw its header, circle and stats from the new data.
+            if (editedId != null && cur && cur.id === editedId) {
+                const np = placesById.get(editedId);
+                if (np) {
+                    const keepNotes = $('lx-pl-notes') ? $('lx-pl-notes').value : np.notes;
+                    cur.place = np; cur.feats = [];
+                    fillHeader(np);
+                    pbody.innerHTML = bodyHtml(np);
+                    $('lx-pl-notes').value = keepNotes || '';
+                    $('notify-arrive').checked = !!np.notify_arrive;
+                    $('notify-leave').checked = !!np.notify_leave;
+                    whenReady(dmap, paintDetail);
+                    fitPlace(true);
+                    loadDetailFor(cur);
+                } else { closePlace(); }
+            }
         } catch (e) {
             /* roamlyFetch already toasted the server's reason */
         } finally {
@@ -1076,6 +1912,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-pl-chev { transition: n
     $('lx-pl-new').addEventListener('click', () => openEdit(null));
     $('lx-pl-new-empty').addEventListener('click', () => openEdit(null));
 
+    window.addEventListener('pagehide', flushNotes);
     window.onSnapshotReady = loadPlaces;
     loadPlaces();
     loadSuggestions();
