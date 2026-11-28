@@ -7,10 +7,24 @@
    enforces the first token). Colours only from palette tokens; radii only
    role tokens (with 0px fallbacks, since Field's square shape sets none).
 
-   ── Shell contract ──────────────────────────────────────────────────
-   --nav-h: 56px (the top bar). Phone (<=768px): the bottom tab bar is
-   exactly --bottom-nav-height (base's calc(68px + safe area)).
-   Chrome z-index: bar/dock 1000, menus 1100, sheet 8500-8600 (< 9000).
+   ── Shell + layout contract ─────────────────────────────────────────
+   Desktop/tablet: a fixed left sidebar (232px, collapsible to a 64px rail,
+   state in localStorage `roamly_ch_side`, html[data-ch-side="rail"]).
+   Phone (<=768px): no header; a bottom dock (= --bottom-nav-height) + a
+   "More" sheet. Only while the shell is on the page (standalone / ?embed=1
+   pages keep base.html's values):
+     --lx-ch-side   current sidebar width: 232px | 64px | 0px (phone).
+                    <body> is padded by it, so content already starts to
+                    the right of the sidebar. Never use 100vw for widths
+                    (use 100%); a position:fixed full-bleed element must
+                    use left: var(--lx-ch-side). The offline banner and the
+                    intro bar already do; the Ask page is patched below.
+     --nav-h        0px on desktop AND phone (there is no top bar), so
+                    full-viewport pages size as
+                    calc(100dvh - var(--nav-h)) (desktop) and also minus
+                    var(--bottom-nav-height) on phones.
+   z-index: sidebar/dock 1000, menus 1100, sheet 8500-8600 (< 9000, so
+   RoamlyDialog (10000) and RoamlyToast (10050) sit above it).
 
    ── Primitives for Chronicle page templates ─────────────────────────
    .lx-ch-page        Centered reading column (max 880px) with page padding.
@@ -44,15 +58,62 @@
                       .lx-ch-skel-line (.is-short / .is-mid) and
                       .lx-ch-skel-block (set your own height).
 
+   ── Shared helpers (v2) ─────────────────────────────────────────────
+   .lx-ch-ai          THE AI action button (recap, summarise, ask): a quiet
+                      bordered button with a spark icon in --primary and a thin
+                      animated glow along its bottom edge. Put the spark svg
+                      first: <button class="lx-ch-ai"><svg>..</svg>Recap</button>.
+                      .is-busy quickens the glow (set while a request runs);
+                      :disabled / [aria-disabled] stops it; reduced motion and
+                      data-motion="calm" freeze it at rest. The product had no
+                      earlier "AI glow" style to reuse, this is the one.
+                      Rule: at most one primary + one secondary action per page
+                      header; the rest go in an overflow menu (below).
+   Overflow menu     <div class="lx-ch-menu" data-ch-menu>
+                        <button class="lx-ch-btn" aria-haspopup="menu"
+                                aria-expanded="false" aria-controls="id">More</button>
+                        <div class="lx-ch-menu-panel [lx-ch-menu-panel--end]"
+                             id="id" role="menu" hidden>
+                          <a|button role="menuitem" class="lx-ch-menu-item">..</a>
+                          <hr class="lx-ch-menu-rule"> ...
+                      Wired by chronicle.js with no setup (delegated: markup added
+                      later works too): click/Arrow keys/Home/End/Escape, outside
+                      click closes. --end right-aligns the panel to its toggle.
+   .lx-ch-timeline-spine   A date spine for anything chronological. Wrap
+                      <section class="lx-ch-day" data-date>s in it:
+                        .lx-ch-day-head   left column; holds .lx-ch-day-num (big
+                                          serif day number) + .lx-ch-day-sub (mono
+                                          "Tue, Nov"), sticky while the day scrolls
+                        .lx-ch-day-body   right column, the content (flat, no card)
+                      Modifiers on .lx-ch-day: .is-today (primary node),
+                      .is-selected (filled node), .is-link (pointer + hover wash).
+                      .lx-ch-spine-month is a month/year divider between days.
+                      The line and nodes are drawn per day, so inserting days
+                      anywhere keeps the spine unbroken. One column on phones.
+                      (Outside the spine, .lx-ch-day / .lx-ch-day-body belong to
+                      the /timeline/ feed and keep that page's own look.)
+   .lx-ch-flat        A flat section: hairline on top, 24px rhythm, no
+                      background. .lx-ch-flat-head (+ -title serif 20px, -meta
+                      mono) is its heading row. Use instead of a card.
+   .lx-ch-flatten     OPT-IN wrapper: inside it classic .card / .stat-card /
+                      .table-wrap lose background, border, shadow, radius and
+                      hover lift and keep one hairline (top; table-wrap also
+                      bottom). Beats component skins on purpose (!important).
+                      Only ever applies inside .lx-ch-flatten.
+   .lx-ch-sr          Visually hidden text.
+
    ── JS (chronicle.js) ───────────────────────────────────────────────
-   window.RoamlyChronicle = { selectedDate, setDate(iso, source),
-   onDate(cb) -> unsubscribe, today(), parse(iso), format(iso, opts) }.
+   window.RoamlyChronicle = { selectedDate, setDate(iso, source), jumpTo(iso),
+   onDate(cb) -> unsubscribe, today(), parse(iso), format(iso, opts),
+   collapse(bool), isCollapsed(), isTimeline }.
    ════════════════════════════════════════════════════════════════════ */
 
 @keyframes lx-ch-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes lx-ch-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lx-ch-ai-glow { from { background-position: 0 0; } to { background-position: 240px 0; } }
 
 html[data-layout="chronicle"] {
-    --nav-h: 56px;
+    --lx-ch-side: 0px;
     --lx-ch-feed-w: 460px;
     --lx-ch-hair: var(--border);
     --lx-ch-tint: color-mix(in srgb, var(--text) 5%, transparent);
@@ -60,155 +121,291 @@ html[data-layout="chronicle"] {
     --lx-ch-ring: color-mix(in srgb, var(--primary) 70%, transparent);
     --lx-ch-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
+/* The size contract only applies where the shell is rendered: standalone pages
+   (?embed=1) keep base.html's values, exactly as under Classic. */
+html[data-layout="chronicle"]:has(#lx-ch-side) { --nav-h: 0px; --lx-ch-side: 232px; }
+html[data-layout="chronicle"][data-ch-side="rail"]:has(#lx-ch-side) { --lx-ch-side: 64px; }
+html[data-layout="chronicle"] body { padding-left: var(--lx-ch-side); }
 
-/* The offline banner sits under the bar (base only does this for .navbar). */
-html[data-layout="chronicle"] .rly-banner { top: var(--nav-h); }
+/* Base chrome that is fixed full-width: clear the sidebar. */
+html[data-layout="chronicle"] .rly-banner,
+html[data-layout="chronicle"] .rly-intro-bar { left: var(--lx-ch-side); }
 
-/* ── Top bar ─────────────────────────────────────────────────────── */
-html[data-layout="chronicle"] .lx-ch-bar {
-    position: sticky; top: 0; z-index: 1000;
-    height: var(--nav-h);
-    display: flex; align-items: center; gap: 24px;
-    padding: 0 20px 0 24px;
+/* Classic pages that pin themselves to the viewport edge. Ask: the chat list
+   and map panel are fixed at left:0 and would slide under the sidebar. */
+html[data-layout="chronicle"] .ask-app { left: var(--lx-ch-side); border-top: 0; }
+html[data-layout="chronicle"] .day-notes-pill { max-width: min(380px, calc(100vw - var(--lx-ch-side) - 300px)); }
+@media (max-width: 860px) {
+    html[data-layout="chronicle"] .ask-side,
+    html[data-layout="chronicle"] .ask-mappanel { left: var(--lx-ch-side); }
+    html[data-layout="chronicle"] .day-notes-pill { max-width: min(380px, calc(100vw - var(--lx-ch-side) - 24px)); }
+}
+
+html[data-layout="chronicle"] .lx-ch-sr {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+html[data-layout="chronicle"] .lx-ch-ico { flex: none; display: block; }
+html[data-layout="chronicle"] .lx-ch-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Sidebar ─────────────────────────────────────────────────────── */
+html[data-layout="chronicle"] .lx-ch-side {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 1000;
+    width: var(--lx-ch-side);
+    display: flex; flex-direction: column;
     background: var(--bg);
-    border-bottom: 1px solid var(--lx-ch-hair);
+    border-right: 1px solid var(--lx-ch-hair);
+    font-family: var(--font-body);
 }
+/* Brand + collapse sit in fixed boxes: the mark is centred on x=32 and the
+   collapse button on x=32, y=56..96 in BOTH widths, so neither ever moves. */
+html[data-layout="chronicle"] .lx-ch-side-head { flex: none; height: 56px; display: flex; align-items: center; padding: 0 12px 0 18px; }
 html[data-layout="chronicle"] .lx-ch-brand {
-    display: inline-flex; align-items: center; gap: 10px; flex: none;
-    color: var(--text); text-decoration: none;
-    border-radius: var(--r-2, 0px);
+    display: inline-flex; align-items: center; gap: 10px; min-width: 0;
+    color: var(--text); text-decoration: none; border-radius: var(--r-2, 0px);
 }
-html[data-layout="chronicle"] .lx-ch-brand-mark { width: 26px; height: 26px; display: block; }
+html[data-layout="chronicle"] .lx-ch-brand-mark { width: 28px; height: 28px; flex: none; display: block; }
 html[data-layout="chronicle"] .lx-ch-brand-word {
-    font-family: var(--font-display); font-size: 19px; font-weight: 600;
-    letter-spacing: -0.01em; line-height: 1;
+    font-family: var(--font-display); font-size: 20px; font-weight: 500;
+    letter-spacing: -0.01em; line-height: 1; white-space: nowrap;
 }
-html[data-layout="chronicle"] .lx-ch-brand:focus-visible,
-html[data-layout="chronicle"] .lx-ch-tab:focus-visible,
-html[data-layout="chronicle"] .lx-ch-account-toggle:focus-visible,
-html[data-layout="chronicle"] .lx-ch-dock-item:focus-visible,
-html[data-layout="chronicle"] .lx-ch-sheet-link:focus-visible,
-html[data-layout="chronicle"] .lx-ch-sheet-close:focus-visible,
-html[data-layout="chronicle"] .lx-ch-menu-panel a:focus-visible {
-    outline: 2px solid var(--lx-ch-ring); outline-offset: 2px;
+html[data-layout="chronicle"] .lx-ch-side-tools { flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 12px; }
+html[data-layout="chronicle"] .lx-ch-iconbtn {
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+    width: 40px; height: 40px; padding: 0; cursor: pointer;
+    background: transparent; border: 1px solid transparent; border-radius: var(--r-2, 0px);
+    color: var(--text-muted);
+    transition: color 150ms ease-out, background-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-iconbtn:hover { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-search {
+    flex: 1 1 auto; min-width: 0;
+    display: flex; align-items: center; gap: 10px;
+    height: 40px; padding: 0 8px 0 12px;
+    background: color-mix(in srgb, var(--text) 3%, transparent);
+    border: 1px solid var(--lx-ch-hair); border-radius: var(--r-2, 0px);
+    color: var(--text-muted); font-size: 14px; font-weight: 500; text-decoration: none;
+    transition: color 150ms ease-out, border-color 150ms ease-out, background-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-search:hover { color: var(--text); border-color: var(--border-strong); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-search[aria-current="page"] { color: var(--text); border-color: var(--border-strong); }
+html[data-layout="chronicle"] .lx-ch-kbd {
+    margin-left: auto; flex: none;
+    min-width: 20px; padding: 1px 6px; text-align: center;
+    border: 1px solid var(--lx-ch-hair); border-radius: var(--r-1, 0px);
+    font-family: var(--font-mono); font-size: 11px; line-height: 1.5; color: var(--text-dim);
 }
 
-html[data-layout="chronicle"] .lx-ch-tabs {
-    display: flex; align-items: stretch; height: 100%; min-width: 0;
+html[data-layout="chronicle"] .lx-ch-nav {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding: 4px 12px 12px;
+    scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
 }
-html[data-layout="chronicle"] .lx-ch-tab {
+html[data-layout="chronicle"] .lx-ch-group { display: flex; flex-direction: column; gap: 2px; }
+html[data-layout="chronicle"] .lx-ch-group + .lx-ch-group { margin-top: 12px; }
+html[data-layout="chronicle"] .lx-ch-link {
     position: relative;
-    display: inline-flex; align-items: center; gap: 4px;
-    height: 100%; padding: 0 12px;
-    background: none; border: 0; cursor: pointer;
-    font-family: var(--font-body); font-size: 14px; font-weight: 500; line-height: 1;
-    color: var(--text-muted); text-decoration: none; white-space: nowrap;
+    display: flex; align-items: center; gap: 12px;
+    height: 36px; padding: 0 10px; border-radius: var(--r-2, 0px);
+    color: var(--text-muted); font-size: 14px; font-weight: 500; line-height: 1; text-decoration: none;
+    white-space: nowrap;
+    transition: color 150ms ease-out, background-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-link:hover { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-link.is-active { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-link.is-active .lx-ch-ico { color: var(--primary); }
+/* The current page is marked on the sidebar's own edge, one thin primary tick. */
+html[data-layout="chronicle"] .lx-ch-link.is-active::before {
+    content: ''; position: absolute; left: -12px; top: 9px; bottom: 9px; width: 2px;
+    background: var(--primary);
+}
+html[data-layout="chronicle"] .lx-ch-link--ask .lx-ch-ico { color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-group-toggle {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    width: 100%; height: 28px; padding: 0 10px; margin-bottom: 2px;
+    background: none; border: 0; border-radius: var(--r-2, 0px); cursor: pointer;
+    font-family: var(--font-body); font-size: 12px; font-weight: 500; color: var(--text-muted);
     transition: color 150ms ease-out;
 }
-html[data-layout="chronicle"] .lx-ch-tab::after {
-    content: ''; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px;
-    background: var(--primary);
-    transform: scaleX(0); transform-origin: center;
-    transition: transform 180ms var(--lx-ch-ease);
-}
-html[data-layout="chronicle"] .lx-ch-tab:hover { color: var(--text); }
-html[data-layout="chronicle"] .lx-ch-tab.is-active { color: var(--text); }
-html[data-layout="chronicle"] .lx-ch-tab.is-active::after { transform: scaleX(1); }
-html[data-layout="chronicle"] .lx-ch-tab:focus-visible { outline-offset: -8px; }
-html[data-layout="chronicle"] .lx-ch-caret {
-    fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
-    transition: transform 150ms ease-out;
-}
-html[data-layout="chronicle"] [aria-expanded="true"] > .lx-ch-caret { transform: rotate(180deg); }
+html[data-layout="chronicle"] .lx-ch-group-toggle:hover { color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-group-toggle svg { transition: transform 150ms ease-out; }
+html[data-layout="chronicle"] .lx-ch-group-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+html[data-layout="chronicle"] .lx-ch-more-list { display: none; flex-direction: column; gap: 2px; }
+html[data-layout="chronicle"][data-ch-more="1"] .lx-ch-more-list,
+html[data-layout="chronicle"]:not([data-ch-more="0"]) .lx-ch-more.has-active .lx-ch-more-list { display: flex; }
 
-/* Menus (More, account) */
-html[data-layout="chronicle"] .lx-ch-menu { position: relative; display: flex; align-items: stretch; }
+html[data-layout="chronicle"] .lx-ch-side-foot {
+    flex: none; position: relative;
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 12px; border-top: 1px solid var(--lx-ch-hair);
+}
+html[data-layout="chronicle"] .lx-ch-foot-row { display: flex; align-items: center; gap: 4px; }
+
+/* Day jump: the real date input, visible and styled. In the rail it becomes an
+   invisible hit area over the calendar icon (chronicle.js asks for the picker). */
+html[data-layout="chronicle"] .lx-ch-jump {
+    position: relative; display: flex; align-items: center; gap: 10px;
+    height: 36px; padding: 0 10px; border-radius: var(--r-2, 0px);
+    color: var(--text-muted); cursor: pointer;
+    transition: color 150ms ease-out, background-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-jump:hover { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-jump:focus-within { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-jump-input {
+    flex: 1 1 auto; min-width: 0; height: 100%; padding: 0; margin: 0;
+    background: transparent; border: 0; outline: 0; cursor: pointer;
+    font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text);
+    color-scheme: light;
+}
+html[data-layout="chronicle"][data-theme="dark"] .lx-ch-jump-input { color-scheme: dark; }
+html[data-layout="chronicle"] .lx-ch-jump-input::-webkit-calendar-picker-indicator { display: none; }
+html[data-layout="chronicle"] .lx-ch-jump-input::-webkit-datetime-edit { padding: 0; }
+
+/* Account */
+html[data-layout="chronicle"] .lx-ch-acct-wrap { flex: 1 1 auto; min-width: 0; display: flex; }
+html[data-layout="chronicle"] .lx-ch-acct {
+    display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0;
+    height: 44px; padding: 0 8px; cursor: pointer;
+    background: transparent; border: 1px solid transparent; border-radius: var(--r-2, 0px);
+    color: var(--text); font: inherit; font-size: 14px; font-weight: 500; text-align: left;
+    transition: background-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-acct:hover,
+html[data-layout="chronicle"] .lx-ch-acct[aria-expanded="true"] { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-acct.is-active .lx-ch-avatar { box-shadow: 0 0 0 1px var(--primary); }
+html[data-layout="chronicle"] .lx-ch-avatar {
+    flex: none; width: 28px; height: 28px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--primary) 16%, var(--bg-elevated));
+    color: var(--text); font-family: var(--font-display); font-size: 14px; font-weight: 600;
+}
+html[data-layout="chronicle"] .lx-ch-acct-name { flex: 1 1 auto; }
+html[data-layout="chronicle"] .lx-ch-acct-caret { flex: none; display: inline-flex; color: var(--text-dim); }
+
+/* Menus: the account menu, and the page overflow-menu primitive. */
+html[data-layout="chronicle"] .lx-ch-menu { position: relative; display: inline-flex; }
 html[data-layout="chronicle"] .lx-ch-menu-panel {
-    position: absolute; top: calc(100% - 4px); left: 0; z-index: 1100;
-    min-width: 220px; padding: 6px;
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 1100;
+    min-width: 200px; padding: 6px;
     background: var(--bg-elevated);
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-strong);
     border-radius: var(--r-3, 0px);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+    box-shadow: 0 8px 24px color-mix(in srgb, #000 28%, transparent);
+    animation: lx-ch-fade 120ms ease-out;
 }
 html[data-layout="chronicle"] .lx-ch-menu-panel[hidden] { display: none; }
 html[data-layout="chronicle"] .lx-ch-menu-panel--end { left: auto; right: 0; }
-html[data-layout="chronicle"] .lx-ch-menu-panel a {
-    display: block; padding: 9px 12px;
+html[data-layout="chronicle"] .lx-ch-menu-panel--up { top: auto; bottom: calc(100% + 6px); left: 0; right: 0; }
+html[data-layout="chronicle"] .lx-ch-menu-panel a,
+html[data-layout="chronicle"] .lx-ch-menu-panel button[role="menuitem"] {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    min-height: 36px; padding: 0 10px; border: 0; background: none; cursor: pointer;
     border-radius: var(--r-2, 0px);
-    font-family: var(--font-body); font-size: 14px; line-height: 1.3;
-    color: var(--text); text-decoration: none; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis;
+    font-family: var(--font-body); font-size: 14px; line-height: 1.3; text-align: left;
+    color: var(--text-muted); text-decoration: none; white-space: nowrap;
     transition: background-color 120ms ease-out, color 120ms ease-out;
 }
-html[data-layout="chronicle"] .lx-ch-menu-panel a:hover { background: var(--lx-ch-tint); }
-html[data-layout="chronicle"] .lx-ch-menu-panel a.is-active { color: var(--primary); }
-html[data-layout="chronicle"] .lx-ch-menu-panel a:focus-visible { outline-offset: -2px; }
+html[data-layout="chronicle"] .lx-ch-menu-panel a:hover,
+html[data-layout="chronicle"] .lx-ch-menu-panel a:focus-visible,
+html[data-layout="chronicle"] .lx-ch-menu-panel button[role="menuitem"]:hover,
+html[data-layout="chronicle"] .lx-ch-menu-panel button[role="menuitem"]:focus-visible { color: var(--text); background: var(--lx-ch-tint); outline: none; }
+html[data-layout="chronicle"] .lx-ch-menu-panel a.is-active { color: var(--text); background: var(--lx-ch-tint); }
 html[data-layout="chronicle"] .lx-ch-menu-rule { border: 0; border-top: 1px solid var(--border); margin: 6px 4px; }
 html[data-layout="chronicle"] .lx-ch-menu-head {
     padding: 8px 12px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--border);
     font-size: 13px; color: var(--text-muted); white-space: nowrap;
 }
 html[data-layout="chronicle"] .lx-ch-menu-head strong { color: var(--text); font-weight: 600; }
-html[data-layout="chronicle"] .lx-ch-menu-narrow { display: none; }
 
-/* Right side */
-html[data-layout="chronicle"] .lx-ch-end {
-    margin-left: auto; display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; height: 100%;
-}
-html[data-layout="chronicle"] .lx-ch-end > * { flex: none; }
-html[data-layout="chronicle"] .lx-ch-bar .lx-ch-end > .yago { flex: 0 1 auto; min-width: 0; margin-right: 6px; }
-html[data-layout="chronicle"] .lx-ch-bar .yago-chip {
-    width: auto; min-width: 0; max-width: 18rem;
-    background: transparent; border-color: var(--border);
-    border-radius: var(--r-pill, 999px);
-}
-html[data-layout="chronicle"] .lx-ch-bar .notif-toggle { width: 36px; height: 36px; border-radius: var(--r-2, 0px); }
-html[data-layout="chronicle"] .lx-ch-bar .notif-toggle:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
-html[data-layout="chronicle"] .lx-ch-bar .notif-dot { box-shadow: 0 0 0 2px var(--bg); }
-
-html[data-layout="chronicle"] .lx-ch-datejump {
-    position: relative; display: inline-flex; align-items: center; gap: 8px;
-    height: 36px; min-width: 36px; padding: 0 9px;
-    border-radius: var(--r-2, 0px);
-    color: var(--text-muted);
-    transition: color 150ms ease-out, background-color 150ms ease-out;
-}
-html[data-layout="chronicle"] .lx-ch-datejump:hover { color: var(--text); background: var(--lx-ch-tint); }
-html[data-layout="chronicle"] .lx-ch-datejump:focus-within { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
-html[data-layout="chronicle"] .lx-ch-datejump svg {
-    flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
-}
-html[data-layout="chronicle"] .lx-ch-datejump-label {
-    display: none;
-    font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap;
-}
-/* The native picker sits over the control, invisible, so a tap opens the
-   platform's own date wheel/calendar. */
-html[data-layout="chronicle"] .lx-ch-datejump-input {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-    opacity: 0; cursor: pointer; border: 0; padding: 0; margin: 0;
-    font-size: 16px; color-scheme: dark light;
+/* Bell (base.html .notif*) restyled for the foot; its panel opens to the right. */
+html[data-layout="chronicle"] .lx-ch-bell-slot { flex: none; display: flex; }
+html[data-layout="chronicle"] .lx-ch-side .notif-toggle { width: 40px; height: 40px; border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-side .notif-dot { top: 0.55rem; right: 0.6rem; box-shadow: 0 0 0 2px var(--bg); }
+html[data-layout="chronicle"] .lx-ch-side .notif-panel {
+    top: auto; right: auto; bottom: 0; left: calc(100% + 12px);
+    border-radius: var(--r-3, 0px);
 }
 
-html[data-layout="chronicle"] .lx-ch-account-toggle {
-    display: inline-flex; align-items: center; gap: 8px;
-    height: 36px; padding: 0 8px 0 4px; margin-left: 2px;
-    background: none; border: 0; cursor: pointer;
-    border-radius: var(--r-pill, 999px);
-    color: var(--text-muted); font-family: var(--font-body); font-size: 14px;
-    transition: color 150ms ease-out, background-color 150ms ease-out;
+/* Year-ago chip (base.html .yago*): a two-line row, shown at every desktop
+   width (base hides it under 1280px; chronicle.js's shell script lets it load),
+   popover to the right. */
+html[data-layout="chronicle"] .lx-ch-side .yago { flex: none; justify-content: stretch; }
+html[data-layout="chronicle"] .lx-ch-side .yago.show { display: flex !important; }
+html[data-layout="chronicle"] .lx-ch-side .yago-chip {
+    width: 100%; min-width: 0; max-width: none; height: auto; padding: 8px 10px;
+    display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; align-items: center;
+    background: transparent; border-color: var(--lx-ch-hair); border-radius: var(--r-2, 0px);
 }
-html[data-layout="chronicle"] .lx-ch-account-toggle:hover,
-html[data-layout="chronicle"] .lx-ch-account-toggle[aria-expanded="true"] { color: var(--text); background: var(--lx-ch-tint); }
-html[data-layout="chronicle"] .lx-ch-avatar {
-    width: 28px; height: 28px; border-radius: 50%;
-    display: inline-flex; align-items: center; justify-content: center;
-    background: color-mix(in srgb, var(--primary) 16%, var(--bg-elevated));
-    color: var(--text); font-family: var(--font-display); font-size: 14px; font-weight: 600;
+html[data-layout="chronicle"] .lx-ch-side .yago-icon { grid-row: 1 / span 2; }
+html[data-layout="chronicle"] .lx-ch-side .yago-tag {
+    display: block; grid-column: 2; text-transform: none; letter-spacing: 0;
+    font-family: var(--font-mono); font-size: 11px; line-height: 1.3; color: var(--text-muted);
 }
-html[data-layout="chronicle"] .lx-ch-account-name { max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-html[data-layout="chronicle"] .lx-ch-account .lx-ch-menu-panel { top: calc(100% - 6px); }
+html[data-layout="chronicle"] .lx-ch-side .yago-line { grid-column: 2; font-size: 13px; font-weight: 500; line-height: 1.35; }
+html[data-layout="chronicle"] .lx-ch-side .yago-pop {
+    top: auto; bottom: 0; left: calc(100% + 12px); transform: none;
+    border-radius: var(--r-3, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-side .yago-pop::before { top: 0; bottom: 0; left: -12px; right: auto; width: 12px; height: auto; }
+
+/* Focus rings */
+html[data-layout="chronicle"] .lx-ch-brand:focus-visible,
+html[data-layout="chronicle"] .lx-ch-iconbtn:focus-visible,
+html[data-layout="chronicle"] .lx-ch-search:focus-visible,
+html[data-layout="chronicle"] .lx-ch-link:focus-visible,
+html[data-layout="chronicle"] .lx-ch-group-toggle:focus-visible,
+html[data-layout="chronicle"] .lx-ch-acct:focus-visible,
+html[data-layout="chronicle"] .lx-ch-side .yago-chip:focus-visible,
+html[data-layout="chronicle"] .lx-ch-side .notif-toggle:focus-visible,
+html[data-layout="chronicle"] .lx-ch-dock-item:focus-visible,
+html[data-layout="chronicle"] .lx-ch-sheet-link:focus-visible,
+html[data-layout="chronicle"] .lx-ch-sheet-search:focus-visible,
+html[data-layout="chronicle"] .lx-ch-sheet-close:focus-visible,
+html[data-layout="chronicle"] .lx-ch-sheet .notif-toggle:focus-visible {
+    outline: 2px solid var(--lx-ch-ring); outline-offset: -2px;
+}
+html[data-layout="chronicle"] .lx-ch-brand:focus-visible { outline-offset: 2px; }
+
+/* Rail (collapsed, desktop/tablet only): labels go, icons centre, and the
+   floating .lx-ch-tip (chronicle.js) names whatever is hovered or focused. */
+@media (min-width: 769px) {
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-brand-word,
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-kbd,
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-acct-caret,
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-group-toggle,
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-side .yago-tag,
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-side .yago-line { display: none; }
+    /* Hidden visually only, so each link keeps its accessible name. */
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-label {
+        position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+        overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+    }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-side-tools { flex-direction: column; align-items: stretch; gap: 6px; padding-bottom: 8px; }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-search { padding: 0; justify-content: center; }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-link { justify-content: center; padding: 0; gap: 0; }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-link.is-active::before { top: 8px; bottom: 8px; }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-more { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--lx-ch-hair); }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-more-list { display: flex; }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-side-foot { align-items: center; padding: 8px 12px 12px; }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-foot-row { flex-direction: column-reverse; gap: 4px; }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-acct-wrap { flex: none; width: 40px; }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-acct { justify-content: center; padding: 0; }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-side .yago { width: 40px; }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-side .yago-chip { display: flex; justify-content: center; padding: 0; height: 40px; }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-jump { width: 40px; padding: 0; justify-content: center; }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-jump-input { position: absolute; inset: 0; width: 100%; opacity: 0; }
+    html[data-layout="chronicle"][data-ch-side="rail"] .lx-ch-menu-panel--up { left: calc(100% + 16px); right: auto; bottom: 0; min-width: 200px; }
+}
+html[data-layout="chronicle"] .lx-ch-tip {
+    position: fixed; z-index: 1150; pointer-events: none;
+    height: 28px; line-height: 26px; padding: 0 10px; white-space: nowrap; max-width: 320px;
+    overflow: hidden; text-overflow: ellipsis;
+    background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border-strong);
+    border-radius: var(--r-2, 0px); font-family: var(--font-body); font-size: 13px; font-weight: 500;
+    box-shadow: 0 4px 12px color-mix(in srgb, #000 22%, transparent);
+    animation: lx-ch-fade 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-tip[hidden] { display: none; }
 
 /* ── Phone dock + More sheet (hidden on larger screens) ─────────── */
 html[data-layout="chronicle"] .lx-ch-dock { display: none; }
@@ -216,12 +413,12 @@ html[data-layout="chronicle"] .lx-ch-sheet[hidden],
 html[data-layout="chronicle"] .lx-ch-sheet-scrim[hidden] { display: none; }
 html[data-layout="chronicle"] .lx-ch-sheet-scrim {
     position: fixed; inset: 0; z-index: 8500;
-    background: rgba(0, 0, 0, 0.45);
+    background: color-mix(in srgb, #000 45%, transparent);
     opacity: 0; transition: opacity 180ms ease-out;
 }
 html[data-layout="chronicle"] .lx-ch-sheet {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 8600;
-    max-height: min(86vh, 720px); overflow-y: auto; overscroll-behavior: contain;
+    max-height: min(88vh, 760px); overflow-y: auto; overscroll-behavior: contain;
     background: var(--bg-elevated);
     border-top: 1px solid var(--border-strong);
     border-radius: var(--r-4, 0px) var(--r-4, 0px) 0 0;
@@ -238,18 +435,32 @@ html[data-layout="chronicle"] .lx-ch-sheet-head {
     background: var(--bg-elevated);
 }
 html[data-layout="chronicle"] .lx-ch-sheet-title { font-family: var(--font-display); font-size: 22px; font-weight: 500; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-sheet-tools { display: flex; align-items: center; gap: 2px; }
+html[data-layout="chronicle"] .lx-ch-sheet .notif-toggle { width: 44px; height: 44px; border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-sheet .notif-dot { top: 0.7rem; right: 0.75rem; box-shadow: 0 0 0 2px var(--bg-elevated); }
 html[data-layout="chronicle"] .lx-ch-sheet-close {
     width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center;
     background: none; border: 0; cursor: pointer; color: var(--text-muted);
     border-radius: var(--r-2, 0px);
 }
-html[data-layout="chronicle"] .lx-ch-sheet-close svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; }
+html[data-layout="chronicle"] .lx-ch-sheet-quick { display: flex; flex-direction: column; gap: 8px; margin: 0 16px 8px; }
+html[data-layout="chronicle"] .lx-ch-sheet-search,
+html[data-layout="chronicle"] .lx-ch-sheet-jump {
+    position: relative; display: flex; align-items: center; gap: 12px;
+    min-height: 48px; padding: 0 14px;
+    border: 1px solid var(--border); border-radius: var(--r-2, 0px);
+    background: color-mix(in srgb, var(--text) 3%, transparent);
+    font-size: 15px; color: var(--text-muted); text-decoration: none;
+}
+html[data-layout="chronicle"] .lx-ch-sheet-search > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-sheet-jump .lx-ch-sheet-jump-label { flex: 1 1 auto; }
+html[data-layout="chronicle"] .lx-ch-sheet-jump .lx-ch-jump-input { flex: 0 0 auto; width: 9.5em; height: 44px; text-align: right; font-size: 16px; }
 html[data-layout="chronicle"] .lx-ch-sheet-group {
     display: grid; grid-template-columns: 1fr 1fr;
     margin: 0 16px; padding: 8px 0;
     border-top: 1px solid var(--border);
 }
-html[data-layout="chronicle"] .lx-ch-sheet-group:first-child { border-top: 0; }
+html[data-layout="chronicle"] .lx-ch-sheet-quick + .lx-ch-sheet-group { border-top: 0; }
 html[data-layout="chronicle"] .lx-ch-sheet-link {
     display: flex; flex-direction: column; justify-content: center; gap: 2px;
     min-height: 48px; padding: 8px 8px;
@@ -630,39 +841,129 @@ html[data-layout="chronicle"] .lx-ch-map .maplibregl-ctrl-group { background: va
 html[data-layout="chronicle"] .lx-ch-map .maplibregl-ctrl-group button + button { border-top-color: var(--border); }
 html[data-layout="chronicle"] .lx-ch-maphandle { display: none; }
 
+/* ── Shared helpers (v2) ─────────────────────────────────────────── */
+
+/* The AI action button: quiet, bordered, with a thin glow along its bottom edge. */
+html[data-layout="chronicle"] .lx-ch-ai {
+    position: relative;
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 36px; padding: 0 14px;
+    background: transparent; border: 1px solid var(--border-strong); border-radius: var(--r-2, 0px);
+    font-family: var(--font-body); font-size: 14px; font-weight: 500; line-height: 1.2;
+    color: var(--text); text-decoration: none; cursor: pointer;
+    transition: border-color 150ms ease-out, background-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-ai > svg { flex: none; width: 16px; height: 16px; fill: none; stroke: var(--primary); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+html[data-layout="chronicle"] .lx-ch-ai::after {
+    content: ''; position: absolute; left: 14%; right: 14%; bottom: -1px; height: 2px;
+    border-radius: var(--r-pill, 999px); pointer-events: none;
+    background: linear-gradient(90deg, transparent 0, var(--primary) 30%, var(--clay-lavender, var(--primary)) 50%, var(--primary) 70%, transparent 100%) 0 0 / 240px 100% repeat-x;
+    box-shadow: 0 2px 9px color-mix(in srgb, var(--primary) 38%, transparent);
+    opacity: 0.55;
+    animation: lx-ch-ai-glow 3.4s linear infinite;
+    transition: opacity 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-ai:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-ai:hover::after,
+html[data-layout="chronicle"] .lx-ch-ai:focus-visible::after { opacity: 1; }
+html[data-layout="chronicle"] .lx-ch-ai:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+html[data-layout="chronicle"] .lx-ch-ai.is-busy::after { opacity: 1; animation-duration: 1.2s; }
+html[data-layout="chronicle"] .lx-ch-ai:disabled,
+html[data-layout="chronicle"] .lx-ch-ai[aria-disabled="true"] { opacity: 0.55; cursor: default; }
+html[data-layout="chronicle"] .lx-ch-ai:disabled::after,
+html[data-layout="chronicle"] .lx-ch-ai[aria-disabled="true"]::after { animation: none; opacity: 0.25; }
+
+/* Date spine: one row per day, a serif day number in the left column, the
+   content flat in the right column, a hairline running down between them. */
+html[data-layout="chronicle"] .lx-ch-timeline-spine { position: relative; }
+html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day {
+    position: relative; cursor: default;
+    display: grid; grid-template-columns: 96px minmax(0, 1fr); column-gap: 32px;
+    padding: 0 0 36px; scroll-margin-top: 16px;
+}
+html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day::before {
+    content: ''; position: absolute; left: 112px; top: 0; bottom: 0; width: 1px; background: var(--border);
+}
+html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day:first-child::before { top: 14px; }
+html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day:last-child::before { bottom: auto; height: 14px; }
+html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day:only-child::before { display: none; }
+html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day::after {
+    content: ''; position: absolute; left: 107px; top: 9px; width: 11px; height: 11px; border-radius: 50%;
+    background: var(--bg); border: 1.5px solid var(--text-muted);
+    transition: background-color 150ms ease-out, border-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day.is-today::after { border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day.is-selected::after { background: var(--primary); border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day-head {
+    grid-column: 1; align-self: start; position: sticky; top: 16px;
+    text-align: right; min-width: 0;
+}
+html[data-layout="chronicle"] .lx-ch-day-num {
+    display: block; font-family: var(--font-display); font-size: 32px; line-height: 1; font-weight: 500;
+    letter-spacing: -0.02em; font-variant-numeric: lining-nums tabular-nums; color: var(--text);
+}
+html[data-layout="chronicle"] .lx-ch-day-sub {
+    display: block; margin-top: 6px;
+    font-family: var(--font-mono); font-size: 12px; line-height: 1.3; color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day-body,
+html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day:hover .lx-ch-day-body,
+html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day.is-selected .lx-ch-day-body {
+    grid-column: 2; min-width: 0; margin: 0; padding: 0 0 4px;
+    background: none; border: 0; border-radius: 0;
+}
+html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day.is-link { cursor: pointer; }
+html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day.is-link:hover .lx-ch-day-num { color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-spine-month {
+    padding: 28px 0 14px 128px;
+    font-family: var(--font-display); font-size: 18px; font-weight: 500; line-height: 1.2; color: var(--text-muted);
+}
+html[data-layout="chronicle"] .lx-ch-timeline-spine > .lx-ch-spine-month:first-child { padding-top: 4px; }
+
+/* Flat section: hairline instead of a card. */
+html[data-layout="chronicle"] .lx-ch-flat { min-width: 0; padding: 24px 0; border-top: 1px solid var(--border); background: none; }
+html[data-layout="chronicle"] .lx-ch-flat:first-child { padding-top: 0; border-top: 0; }
+html[data-layout="chronicle"] .lx-ch-flat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+html[data-layout="chronicle"] .lx-ch-flat-title { font-family: var(--font-display); font-size: 20px; line-height: 1.2; font-weight: 500; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-flat-meta { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Opt-in flattening of classic cards (only ever inside .lx-ch-flatten). */
+html[data-layout="chronicle"] .lx-ch-flatten .card,
+html[data-layout="chronicle"] .lx-ch-flatten .stat-card,
+html[data-layout="chronicle"] .lx-ch-flatten .table-wrap {
+    background: none !important; box-shadow: none !important; border-radius: 0 !important;
+    border: 0 !important; border-top: 1px solid var(--border) !important;
+    backdrop-filter: none !important; transform: none !important;
+}
+html[data-layout="chronicle"] .lx-ch-flatten .card,
+html[data-layout="chronicle"] .lx-ch-flatten .stat-card { padding-left: 0 !important; padding-right: 0 !important; }
+html[data-layout="chronicle"] .lx-ch-flatten .card::before,
+html[data-layout="chronicle"] .lx-ch-flatten .card::after,
+html[data-layout="chronicle"] .lx-ch-flatten .stat-card::before,
+html[data-layout="chronicle"] .lx-ch-flatten .stat-card::after { content: none !important; }
+html[data-layout="chronicle"] .lx-ch-flatten .table-wrap { border-bottom: 1px solid var(--border) !important; }
+html[data-layout="chronicle"] .lx-ch-flatten .card:first-child,
+html[data-layout="chronicle"] .lx-ch-flatten .stat-card:first-child { border-top-width: 0 !important; }
+
 /* ── Tablet ──────────────────────────────────────────────────────── */
-@media (max-width: 1440px) {
-    html[data-layout="chronicle"] .lx-ch-account-name { display: none; }
-}
-@media (max-width: 1180px) {
-    html[data-layout="chronicle"] .lx-ch-tab--wide { display: none; }
-    html[data-layout="chronicle"] .lx-ch-menu-narrow { display: block; }
-}
 @media (max-width: 1100px) {
     html[data-layout="chronicle"] { --lx-ch-feed-w: 400px; }
     html[data-layout="chronicle"] .lx-ch-day-title { font-size: 28px; }
 }
 @media (max-width: 900px) and (min-width: 769px) {
-    html[data-layout="chronicle"] .lx-ch-bar { gap: 12px; padding: 0 12px 0 16px; }
-    html[data-layout="chronicle"] .lx-ch-tab { padding: 0 9px; }
-    html[data-layout="chronicle"] .lx-ch-tab::after { left: 9px; right: 9px; }
     html[data-layout="chronicle"] { --lx-ch-feed-w: 360px; }
 }
 
 /* ── Phone ───────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-    html[data-layout="chronicle"] {
-        --nav-h: 52px;
+    html[data-layout="chronicle"]:has(#lx-ch-side),
+    html[data-layout="chronicle"][data-ch-side="rail"]:has(#lx-ch-side) {
+        --nav-h: 0px;
+        --lx-ch-side: 0px;
         --bottom-nav-height: calc(68px + env(safe-area-inset-bottom, 0px));
     }
-    html[data-layout="chronicle"] .lx-ch-bar { gap: 8px; padding: 0 6px 0 16px; }
-    html[data-layout="chronicle"] .lx-ch-brand-word { font-size: 18px; }
-    html[data-layout="chronicle"] .lx-ch-tabs,
-    html[data-layout="chronicle"] .lx-ch-account { display: none; }
-    html[data-layout="chronicle"] .lx-ch-end { gap: 2px; }
-    html[data-layout="chronicle"] .lx-ch-datejump { height: 44px; padding: 0 10px; }
-    html[data-layout="chronicle"] .lx-ch-datejump-label { display: inline; }
-    html[data-layout="chronicle"] .lx-ch-bar .notif-toggle { width: 44px; height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-side { display: none; }
+    html[data-layout="chronicle"] .lx-ch-tip { display: none; }
 
     html[data-layout="chronicle"] .lx-ch-dock {
         position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000;
@@ -675,15 +976,12 @@ html[data-layout="chronicle"] .lx-ch-maphandle { display: none; }
     html[data-layout="chronicle"] .lx-ch-dock-item {
         position: relative;
         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-        min-width: 0; height: 100%;
+        min-width: 0; height: 100%; padding: 0;
         background: none; border: 0; cursor: pointer;
         font-family: var(--font-body); font-size: 11px; font-weight: 500; line-height: 1;
         color: var(--text-muted); text-decoration: none;
+        -webkit-tap-highlight-color: transparent;
         transition: color 150ms ease-out;
-    }
-    html[data-layout="chronicle"] .lx-ch-dock-item svg {
-        width: 22px; height: 22px;
-        fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
     }
     html[data-layout="chronicle"] .lx-ch-dock-item::before {
         content: ''; position: absolute; top: -1px; left: 30%; right: 30%; height: 2px;
@@ -692,13 +990,35 @@ html[data-layout="chronicle"] .lx-ch-maphandle { display: none; }
     html[data-layout="chronicle"] .lx-ch-dock-item.is-active { color: var(--text); }
     html[data-layout="chronicle"] .lx-ch-dock-item.is-active::before { transform: scaleX(1); }
     html[data-layout="chronicle"] .lx-ch-dock-item:focus-visible { outline-offset: -4px; }
+    html[data-layout="chronicle"] .lx-ch-dock-dot {
+        position: absolute; top: 14px; left: calc(50% + 7px);
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--primary); box-shadow: 0 0 0 2px var(--bg);
+    }
+    html[data-layout="chronicle"] .lx-ch-dock-dot[hidden] { display: none; }
+    /* The bell's panel opens over the sheet, clear of the status bar. */
+    html[data-layout="chronicle"] .lx-ch-sheet .notif-panel { top: calc(env(safe-area-inset-top, 0px) + 8px); max-height: calc(100vh - 16px - env(safe-area-inset-top, 0px)); }
 
     html[data-layout="chronicle"] .lx-ch-page { padding: 20px 16px 48px; }
     html[data-layout="chronicle"] .lx-ch-title { font-size: 28px; }
     html[data-layout="chronicle"] .lx-ch-chip { height: auto; min-height: 44px; padding: 0 14px; }
     html[data-layout="chronicle"] .lx-ch-quiet-row { min-height: 44px; }
-    html[data-layout="chronicle"] .lx-ch-btn { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-btn,
+    html[data-layout="chronicle"] .lx-ch-ai { min-height: 44px; }
     html[data-layout="chronicle"] .lx-ch-seg > button { min-height: 40px; }
+    html[data-layout="chronicle"] .lx-ch-menu-panel a,
+    html[data-layout="chronicle"] .lx-ch-menu-panel button[role="menuitem"] { min-height: 44px; }
+
+    /* Spine: one column, the line runs down the left edge. */
+    html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day { display: block; padding: 0 0 28px 28px; }
+    html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day::before { left: 5px; }
+    html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day::after { left: 0; top: 7px; }
+    html[data-layout="chronicle"] .lx-ch-timeline-spine .lx-ch-day-head {
+        position: static; display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; text-align: left;
+    }
+    html[data-layout="chronicle"] .lx-ch-day-num { font-size: 26px; }
+    html[data-layout="chronicle"] .lx-ch-day-sub { margin-top: 0; }
+    html[data-layout="chronicle"] .lx-ch-spine-month { padding-left: 28px; }
 
     /* Timeline: map strip on top, feed below; the feed is the scroller. */
     html[data-layout="chronicle"] .lx-ch-tl {
@@ -736,18 +1056,20 @@ html[data-layout="chronicle"] .lx-ch-maphandle { display: none; }
     html[data-layout="chronicle"] .lx-ch-map-cap { top: 10px; left: 10px; max-width: calc(100% - 20px); padding: 7px 11px; }
     html[data-layout="chronicle"] .lx-ch-map-note { bottom: 12px; }
 }
-@media (max-width: 380px) {
-    html[data-layout="chronicle"] .lx-ch-brand-word { display: none; }
-}
 
 /* ── Motion preferences ──────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
     html[data-layout="chronicle"] .lx-ch-day.is-new { animation: none; }
+    html[data-layout="chronicle"] .lx-ch-ai::after { animation: none; }
+    html[data-layout="chronicle"] .lx-ch-menu-panel,
+    html[data-layout="chronicle"] .lx-ch-tip { animation: none; }
     html[data-layout="chronicle"] .lx-ch-sheet,
     html[data-layout="chronicle"] .lx-ch-sheet-scrim,
-    html[data-layout="chronicle"] .lx-ch-tab::after,
     html[data-layout="chronicle"] .lx-ch-dock-item::before { transition: none; }
 }
-html[data-layout="chronicle"][data-motion="calm"] .lx-ch-day.is-new { animation: none; }
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-day.is-new,
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-ai::after,
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-menu-panel,
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-tip { animation: none; }
 html[data-layout="chronicle"][data-motion="calm"] .lx-ch-sheet,
 html[data-layout="chronicle"][data-motion="calm"] .lx-ch-sheet-scrim { transition: none; }

@@ -1,97 +1,135 @@
 {% load static %}{% comment %}
-Chronicle layout chrome: one slim text-only top bar (desktop) and a five-tab
-bottom bar with a "More" sheet (phone, <=768px). Owns all navigation; base.html
-includes it instead of the classic navbar. Menus are driven by chronicle.js
-(data-ch-menu / data-ch-sheet), never by base.html's .nav-dropdown handler.
-{% endcomment %}{% with u=request.resolver_match.url_name %}
-<header class="lx-ch-bar" id="lx-ch-bar">
-    <a class="lx-ch-brand" href="{% url 'tracker:layout_timeline' %}" aria-label="Roamly timeline">
-        <img src="{% static 'tracker/roamlymark.svg' %}" alt="" class="lx-ch-brand-mark" width="26" height="26">
-        <span class="lx-ch-brand-word">Roamly</span>
-    </a>
+Chronicle layout chrome. Desktop/tablet: one left sidebar (232px, collapsible to a
+64px rail, state in localStorage `roamly_ch_side`). Phone (<=768px): no header,
+a five-item bottom dock and a "More" sheet. Owns all navigation; base.html
+includes it instead of the classic navbar + bottom nav. Behaviour: styles/layouts/chronicle.js.
 
-    <nav class="lx-ch-tabs" aria-label="Sections">
-        <a href="{% url 'tracker:layout_timeline' %}" class="lx-ch-tab{% if u == 'layout_timeline' %} is-active{% endif %}"{% if u == 'layout_timeline' %} aria-current="page"{% endif %}>Timeline</a>
-        <a href="{% url 'tracker:map' %}" class="lx-ch-tab{% if u == 'map' %} is-active{% endif %}"{% if u == 'map' %} aria-current="page"{% endif %}>Map</a>
-        <a href="{% url 'tracker:journals' %}" class="lx-ch-tab{% if u == 'journals' %} is-active{% endif %}"{% if u == 'journals' %} aria-current="page"{% endif %}>Journals</a>
-        <a href="{% url 'tracker:places' %}" class="lx-ch-tab{% if u == 'places' %} is-active{% endif %}"{% if u == 'places' %} aria-current="page"{% endif %}>Places</a>
-        <a href="{% url 'tracker:adventures' %}" class="lx-ch-tab lx-ch-tab--wide{% if u == 'adventures' or u == 'adventure_edit' %} is-active{% endif %}"{% if u == 'adventures' or u == 'adventure_edit' %} aria-current="page"{% endif %}>Adventures</a>
-        <a href="{% url 'tracker:health' %}" class="lx-ch-tab lx-ch-tab--wide{% if u == 'health' or u == 'activities' or u == 'activity_detail' %} is-active{% endif %}"{% if u == 'health' or u == 'activities' or u == 'activity_detail' %} aria-current="page"{% endif %}>Health</a>
-        <a href="{% url 'tracker:stats' %}" class="lx-ch-tab lx-ch-tab--wide{% if u == 'stats' %} is-active{% endif %}"{% if u == 'stats' %} aria-current="page"{% endif %}>Stats</a>
+Exactly one copy of the yago chip and the notification bell is included (base.html
+wires both by id): the chip lives in the sidebar foot (hidden on phones), the bell
+is moved between the sidebar foot and the phone sheet header by chronicle.js.
 
-        <div class="lx-ch-menu" data-ch-menu>
-            <button type="button" class="lx-ch-tab lx-ch-menu-toggle{% if u == 'search' or u == 'ask' or u == 'visits' or u == 'achievements' or u == 'data' or u == 'cells' or u == 'flights' or u == 'editor' or u == 'trip_blog' %} is-active{% endif %}" aria-haspopup="true" aria-expanded="false" aria-controls="lx-ch-more-menu">
-                More
-                <svg class="lx-ch-caret" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
-            </button>
-            <div class="lx-ch-menu-panel" id="lx-ch-more-menu" role="menu" hidden>
-                <div class="lx-ch-menu-narrow">
-                    <a role="menuitem" href="{% url 'tracker:adventures' %}"{% if u == 'adventures' or u == 'adventure_edit' %} class="is-active"{% endif %}>Adventures</a>
-                    <a role="menuitem" href="{% url 'tracker:health' %}"{% if u == 'health' or u == 'activities' or u == 'activity_detail' %} class="is-active"{% endif %}>Health</a>
-                    <a role="menuitem" href="{% url 'tracker:stats' %}"{% if u == 'stats' %} class="is-active"{% endif %}>Stats</a>
-                    <hr class="lx-ch-menu-rule">
-                </div>
-                {% if FEATURED_TRIP %}<a role="menuitem" href="{% url 'tracker:trip_blog' FEATURED_TRIP.id %}" title="{{ FEATURED_TRIP.name }}"{% if u == 'trip_blog' %} class="is-active"{% endif %}>Trip: {{ FEATURED_TRIP.name|truncatechars:28 }}</a>{% endif %}
-                <a role="menuitem" href="{% url 'tracker:search' %}"{% if u == 'search' %} class="is-active"{% endif %}>Search</a>
-                {% if AI_ASK_ENABLED %}<a role="menuitem" href="{% url 'tracker:ask' %}"{% if u == 'ask' %} class="is-active"{% endif %}>Ask</a>{% endif %}
-                <hr class="lx-ch-menu-rule">
-                <a role="menuitem" href="{% url 'tracker:visits' %}"{% if u == 'visits' %} class="is-active"{% endif %}>Visits</a>
-                <a role="menuitem" href="{% url 'tracker:achievements' %}"{% if u == 'achievements' %} class="is-active"{% endif %}>Achievements</a>
-                <a role="menuitem" href="{% url 'tracker:flights' %}"{% if u == 'flights' %} class="is-active"{% endif %}>Flights</a>
-                <a role="menuitem" href="{% url 'tracker:data' %}"{% if u == 'data' %} class="is-active"{% endif %}>Raw data</a>
-                <a role="menuitem" href="{% url 'tracker:cells' %}"{% if u == 'cells' %} class="is-active"{% endif %}>Cell signal</a>
-                <a role="menuitem" href="{% url 'tracker:editor' %}"{% if u == 'editor' %} class="is-active"{% endif %}>Map editor</a>
+Layout contract (see chronicle.css): --lx-ch-side, --nav-h:0, body padding-left.
+{% endcomment %}<script>
+/* Before first paint: the rail + "More" state, so the page never jumps sideways
+   after load. No stored choice on a tablet-width window starts as the rail (not saved).
+   Also: base.html only fetches the year-ago chip above 1280px; a sidebar has room
+   for it at every desktop width, so that one width query is answered for the phone
+   breakpoint instead until the document has been parsed (restored on DOMContentLoaded). */
+(function () {
+    var de = document.documentElement, v = null, m = null;
+    try { v = localStorage.getItem('roamly_ch_side'); } catch (e) {}
+    try { m = localStorage.getItem('roamly_ch_more'); } catch (e) {}
+    if (v === '1' || (v === null && window.matchMedia && window.matchMedia('(min-width: 769px) and (max-width: 1100px)').matches)) {
+        de.setAttribute('data-ch-side', 'rail');
+    }
+    if (m === '1' || m === '0') de.setAttribute('data-ch-more', m);
+    try {
+        var orig = window.matchMedia;
+        if (orig) {
+            window.matchMedia = function (q) {
+                if (typeof q === 'string' && q.replace(/\s+/g, '') === '(max-width:1280px)') q = '(max-width: 768px)';
+                return orig.call(window, q);
+            };
+            document.addEventListener('DOMContentLoaded', function () { window.matchMedia = orig; });
+        }
+    } catch (e) {}
+})();
+</script>
+{% with u=request.resolver_match.url_name %}
+<aside class="lx-ch-side" id="lx-ch-side" aria-label="Main">
+    <div class="lx-ch-side-head">
+        <a class="lx-ch-brand" href="{% url 'tracker:layout_timeline' %}" aria-label="Roamly timeline" data-tip="Timeline">
+            <img class="lx-ch-brand-mark" src="{% static 'tracker/roamlymark.svg' %}" alt="" width="28" height="28">
+            <span class="lx-ch-brand-word">Roamly</span>
+        </a>
+    </div>
+
+    <div class="lx-ch-side-tools">
+        <button type="button" class="lx-ch-iconbtn lx-ch-collapse" id="lx-ch-collapse" aria-controls="lx-ch-side" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar">{% include 'tracker/layouts/chronicle/_icon.html' with name='sidebar' %}</button>
+        <a class="lx-ch-search" href="{% url 'tracker:search' %}" id="lx-ch-search" data-tip="Search" aria-keyshortcuts="/"{% if u == 'search' %} aria-current="page"{% endif %}>
+            {% include 'tracker/layouts/chronicle/_icon.html' with name='search' %}
+            <span class="lx-ch-label">Search</span>
+            <kbd class="lx-ch-kbd" aria-hidden="true">/</kbd>
+        </a>
+    </div>
+
+    <nav class="lx-ch-nav" aria-label="Main navigation">
+        {% if AI_ASK_ENABLED %}<div class="lx-ch-group lx-ch-group--ask">
+            <a class="lx-ch-link lx-ch-link--ask{% if u == 'ask' %} is-active{% endif %}" href="{% url 'tracker:ask' %}" data-tip="Ask"{% if u == 'ask' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='ask' %}<span class="lx-ch-label">Ask Roamly</span></a>
+        </div>{% endif %}
+        <div class="lx-ch-group">
+            <a class="lx-ch-link{% if u == 'layout_home' %} is-active{% endif %}" href="{% url 'tracker:layout_home' %}" data-tip="Overview"{% if u == 'layout_home' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='overview' %}<span class="lx-ch-label">Overview</span></a>
+            <a class="lx-ch-link{% if u == 'layout_timeline' %} is-active{% endif %}" href="{% url 'tracker:layout_timeline' %}" data-tip="Timeline"{% if u == 'layout_timeline' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='timeline' %}<span class="lx-ch-label">Timeline</span></a>
+            <a class="lx-ch-link{% if u == 'map' %} is-active{% endif %}" href="{% url 'tracker:map' %}" data-tip="Map"{% if u == 'map' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='map' %}<span class="lx-ch-label">Map</span></a>
+            <a class="lx-ch-link{% if u == 'journals' %} is-active{% endif %}" href="{% url 'tracker:journals' %}" data-tip="Journals"{% if u == 'journals' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='journals' %}<span class="lx-ch-label">Journals</span></a>
+            <a class="lx-ch-link{% if u == 'places' %} is-active{% endif %}" href="{% url 'tracker:places' %}" data-tip="Places"{% if u == 'places' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='places' %}<span class="lx-ch-label">Places</span></a>
+            <a class="lx-ch-link{% if u == 'adventures' or u == 'adventure_edit' or u == 'adventure_plan' %} is-active{% endif %}" href="{% url 'tracker:adventures' %}" data-tip="Adventures"{% if u == 'adventures' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='adventures' %}<span class="lx-ch-label">Adventures</span></a>
+            {% if FEATURED_TRIP %}<a class="lx-ch-link{% if u == 'trip_blog' %} is-active{% endif %}" href="{% url 'tracker:trip_blog' FEATURED_TRIP.id %}" data-tip="Trip: {{ FEATURED_TRIP.name }}" title="{{ FEATURED_TRIP.name }}"{% if u == 'trip_blog' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='trip' %}<span class="lx-ch-label">Trip: {{ FEATURED_TRIP.name }}</span></a>{% endif %}
+            <a class="lx-ch-link{% if u == 'health' or u == 'activities' or u == 'activity_detail' %} is-active{% endif %}" href="{% url 'tracker:health' %}" data-tip="Health"{% if u == 'health' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='health' %}<span class="lx-ch-label">Health</span></a>
+            <a class="lx-ch-link{% if u == 'stats' %} is-active{% endif %}" href="{% url 'tracker:stats' %}" data-tip="Stats"{% if u == 'stats' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='stats' %}<span class="lx-ch-label">Stats</span></a>
+        </div>
+        <div class="lx-ch-group lx-ch-more{% if u == 'visits' or u == 'achievements' or u == 'flights' or u == 'data' or u == 'cells' or u == 'editor' %} has-active{% endif %}" id="lx-ch-more">
+            <button type="button" class="lx-ch-group-toggle" id="lx-ch-more-toggle" aria-expanded="false" aria-controls="lx-ch-more-list"><span>More</span>{% include 'tracker/layouts/chronicle/_icon.html' with name='chevron-down' size=16 %}</button>
+            <div class="lx-ch-more-list" id="lx-ch-more-list">
+                <a class="lx-ch-link{% if u == 'visits' %} is-active{% endif %}" href="{% url 'tracker:visits' %}" data-tip="Visits"{% if u == 'visits' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='visits' %}<span class="lx-ch-label">Visits</span></a>
+                <a class="lx-ch-link{% if u == 'achievements' %} is-active{% endif %}" href="{% url 'tracker:achievements' %}" data-tip="Achievements"{% if u == 'achievements' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='achievements' %}<span class="lx-ch-label">Achievements</span></a>
+                <a class="lx-ch-link{% if u == 'flights' %} is-active{% endif %}" href="{% url 'tracker:flights' %}" data-tip="Flights"{% if u == 'flights' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='flights' %}<span class="lx-ch-label">Flights</span></a>
+                <a class="lx-ch-link{% if u == 'data' %} is-active{% endif %}" href="{% url 'tracker:data' %}" data-tip="Raw data"{% if u == 'data' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='data' %}<span class="lx-ch-label">Raw data</span></a>
+                <a class="lx-ch-link{% if u == 'cells' %} is-active{% endif %}" href="{% url 'tracker:cells' %}" data-tip="Cell signal"{% if u == 'cells' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='cells' %}<span class="lx-ch-label">Cell signal</span></a>
+                <a class="lx-ch-link{% if u == 'editor' %} is-active{% endif %}" href="{% url 'tracker:editor' %}" data-tip="Map editor"{% if u == 'editor' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/chronicle/_icon.html' with name='editor' %}<span class="lx-ch-label">Map editor</span></a>
             </div>
         </div>
     </nav>
 
-    <div class="lx-ch-end">
+    <div class="lx-ch-side-foot">
         {% include 'tracker/_nav_yago.html' %}
-        <div class="lx-ch-datejump" title="Jump to a day">
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="1.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
-            <span class="lx-ch-datejump-label" id="lx-ch-datejump-label">Jump to day</span>
-            <input type="date" class="lx-ch-datejump-input rly-native" id="lx-ch-datejump" aria-label="Jump to a day on the timeline">
-        </div>
-        {% include 'tracker/_nav_notif.html' %}
-        <div class="lx-ch-menu lx-ch-account" data-ch-menu>
-            <button type="button" class="lx-ch-account-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="lx-ch-account-menu" title="Account">
-                <span class="lx-ch-avatar" aria-hidden="true">{{ user.username|slice:":1"|upper }}</span>
-                <span class="lx-ch-account-name">{{ user.username }}</span>
-                <svg class="lx-ch-caret" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
-            </button>
-            <div class="lx-ch-menu-panel lx-ch-menu-panel--end" id="lx-ch-account-menu" role="menu" hidden>
-                <div class="lx-ch-menu-head">Signed in as <strong>{{ user.username }}</strong></div>
-                <a role="menuitem" href="{% url 'tracker:settings' %}"{% if u == 'settings' %} class="is-active"{% endif %}>Settings</a>
-                <a role="menuitem" href="{% url 'tracker:settings' %}#appearance">Appearance</a>
-                <a role="menuitem" href="{% url 'tracker:diagnostics' %}"{% if u == 'diagnostics' %} class="is-active"{% endif %}>Diagnostics</a>
-                {% if IS_ADMIN %}<a role="menuitem" href="{% url 'tracker:admin_panel' %}"{% if u == 'admin_panel' %} class="is-active"{% endif %}>Admin Panel</a>{% endif %}
-                <hr class="lx-ch-menu-rule">
-                <a role="menuitem" href="{% url 'tracker:logout' %}">Log out</a>
+        <label class="lx-ch-jump" data-tip="Jump to day" title="Jump to a day on the timeline">
+            {% include 'tracker/layouts/chronicle/_icon.html' with name='calendar' %}
+            <input type="date" class="lx-ch-jump-input rly-native" data-ch-jump aria-label="Jump to day">
+        </label>
+        <div class="lx-ch-foot-row">
+            <div class="lx-ch-menu lx-ch-acct-wrap" data-ch-menu>
+                <button type="button" class="lx-ch-acct{% if u == 'settings' or u == 'diagnostics' or u == 'admin_panel' %} is-active{% endif %}" id="lx-ch-acct" aria-haspopup="menu" aria-expanded="false" aria-controls="lx-ch-acct-menu" data-tip="{{ user.username }}">
+                    <span class="lx-ch-avatar" aria-hidden="true">{{ user.username|slice:":1"|upper }}</span>
+                    <span class="lx-ch-label lx-ch-acct-name">{{ user.username }}</span>
+                    <span class="lx-ch-acct-caret">{% include 'tracker/layouts/chronicle/_icon.html' with name='chevron-up' size=16 %}</span>
+                    <span class="lx-ch-sr">Account menu</span>
+                </button>
+                <div class="lx-ch-menu-panel lx-ch-menu-panel--up" id="lx-ch-acct-menu" role="menu" aria-labelledby="lx-ch-acct" hidden>
+                    <a role="menuitem" class="lx-ch-menu-item{% if u == 'settings' %} is-active{% endif %}" href="{% url 'tracker:settings' %}">{% include 'tracker/layouts/chronicle/_icon.html' with name='settings' %}Settings</a>
+                    <a role="menuitem" class="lx-ch-menu-item" href="{% url 'tracker:settings' %}#appearance">{% include 'tracker/layouts/chronicle/_icon.html' with name='appearance' %}Appearance</a>
+                    <a role="menuitem" class="lx-ch-menu-item{% if u == 'diagnostics' %} is-active{% endif %}" href="{% url 'tracker:diagnostics' %}">{% include 'tracker/layouts/chronicle/_icon.html' with name='diagnostics' %}Diagnostics</a>
+                    {% if IS_ADMIN %}<a role="menuitem" class="lx-ch-menu-item{% if u == 'admin_panel' %} is-active{% endif %}" href="{% url 'tracker:admin_panel' %}">{% include 'tracker/layouts/chronicle/_icon.html' with name='admin' %}Admin Panel</a>{% endif %}
+                    <hr class="lx-ch-menu-rule">
+                    <a role="menuitem" class="lx-ch-menu-item" href="{% url 'tracker:logout' %}">{% include 'tracker/layouts/chronicle/_icon.html' with name='logout' %}Log out</a>
+                </div>
             </div>
+            <div class="lx-ch-bell-slot" id="lx-ch-bell-side">{% include 'tracker/_nav_notif.html' %}</div>
         </div>
     </div>
-</header>
+</aside>
 
 <nav class="lx-ch-dock" aria-label="Sections">
     <a href="{% url 'tracker:layout_timeline' %}" class="lx-ch-dock-item{% if u == 'layout_timeline' %} is-active{% endif %}"{% if u == 'layout_timeline' %} aria-current="page"{% endif %}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v18"/><circle cx="6" cy="7" r="2"/><circle cx="6" cy="16" r="2"/><path d="M11 7h9M11 16h6"/></svg>
+        {% include 'tracker/layouts/chronicle/_icon.html' with name='timeline' size=22 %}
         <span>Timeline</span>
     </a>
     <a href="{% url 'tracker:map' %}" class="lx-ch-dock-item{% if u == 'map' %} is-active{% endif %}"{% if u == 'map' %} aria-current="page"{% endif %}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5l6-2.5 6 2.5 6-2.5v13.5l-6 2.5-6-2.5-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg>
+        {% include 'tracker/layouts/chronicle/_icon.html' with name='map' size=22 %}
         <span>Map</span>
     </a>
     <a href="{% url 'tracker:journals' %}" class="lx-ch-dock-item{% if u == 'journals' %} is-active{% endif %}"{% if u == 'journals' %} aria-current="page"{% endif %}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3"/><path d="M9 7.5h6M9 11h4"/></svg>
+        {% include 'tracker/layouts/chronicle/_icon.html' with name='journals' size=22 %}
         <span>Journals</span>
     </a>
     <a href="{% url 'tracker:places' %}" class="lx-ch-dock-item{% if u == 'places' %} is-active{% endif %}"{% if u == 'places' %} aria-current="page"{% endif %}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></svg>
+        {% include 'tracker/layouts/chronicle/_icon.html' with name='places' size=22 %}
         <span>Places</span>
     </a>
-    <button type="button" class="lx-ch-dock-item{% if u != 'layout_timeline' and u != 'map' and u != 'journals' and u != 'places' %} is-active{% endif %}" data-ch-sheet-open="lx-ch-sheet" aria-haspopup="dialog" aria-expanded="false" aria-controls="lx-ch-sheet">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18.5" cy="12" r="1.4"/></svg>
+    <button type="button" class="lx-ch-dock-item{% if u != 'layout_timeline' and u != 'map' and u != 'journals' and u != 'places' %} is-active{% endif %}" id="lx-ch-more-open" data-ch-sheet-open="lx-ch-sheet" aria-haspopup="dialog" aria-expanded="false" aria-controls="lx-ch-sheet">
+        {% include 'tracker/layouts/chronicle/_icon.html' with name='more' size=22 %}
         <span>More</span>
+        <i class="lx-ch-dock-dot" id="lx-ch-dock-dot" hidden></i>
     </button>
 </nav>
 
@@ -99,18 +137,27 @@ includes it instead of the classic navbar. Menus are driven by chronicle.js
 <div class="lx-ch-sheet" id="lx-ch-sheet" role="dialog" aria-modal="true" aria-labelledby="lx-ch-sheet-title" hidden>
     <div class="lx-ch-sheet-head">
         <h2 class="lx-ch-sheet-title" id="lx-ch-sheet-title">More</h2>
-        <button type="button" class="lx-ch-sheet-close" data-ch-sheet-close aria-label="Close">
-            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-        </button>
+        <div class="lx-ch-sheet-tools">
+            <div class="lx-ch-bell-slot" id="lx-ch-bell-sheet"></div>
+            <button type="button" class="lx-ch-sheet-close" data-ch-sheet-close aria-label="Close">{% include 'tracker/layouts/chronicle/_icon.html' with name='close' size=20 %}</button>
+        </div>
     </div>
     <div class="lx-ch-sheet-body">
+        <div class="lx-ch-sheet-quick">
+            <a class="lx-ch-sheet-search{% if u == 'search' %} is-active{% endif %}" href="{% url 'tracker:search' %}">{% include 'tracker/layouts/chronicle/_icon.html' with name='search' size=20 %}<span>Search your places and days</span></a>
+            <label class="lx-ch-sheet-jump">
+                {% include 'tracker/layouts/chronicle/_icon.html' with name='calendar' size=20 %}
+                <span class="lx-ch-sheet-jump-label">Jump to day</span>
+                <input type="date" class="lx-ch-jump-input rly-native" data-ch-jump aria-label="Jump to day">
+            </label>
+        </div>
         <div class="lx-ch-sheet-group" role="group" aria-label="Your days">
-            {% if FEATURED_TRIP %}<a class="lx-ch-sheet-link{% if u == 'trip_blog' %} is-active{% endif %}" href="{% url 'tracker:trip_blog' FEATURED_TRIP.id %}">Trip<span class="lx-ch-sheet-sub">{{ FEATURED_TRIP.name }}</span></a>{% endif %}
-            <a class="lx-ch-sheet-link{% if u == 'adventures' or u == 'adventure_edit' %} is-active{% endif %}" href="{% url 'tracker:adventures' %}">Adventures</a>
+            <a class="lx-ch-sheet-link{% if u == 'layout_home' %} is-active{% endif %}" href="{% url 'tracker:layout_home' %}">Overview</a>
+            <a class="lx-ch-sheet-link{% if u == 'adventures' or u == 'adventure_edit' or u == 'adventure_plan' %} is-active{% endif %}" href="{% url 'tracker:adventures' %}">Adventures</a>
             <a class="lx-ch-sheet-link{% if u == 'health' or u == 'activities' or u == 'activity_detail' %} is-active{% endif %}" href="{% url 'tracker:health' %}">Health</a>
             <a class="lx-ch-sheet-link{% if u == 'stats' %} is-active{% endif %}" href="{% url 'tracker:stats' %}">Stats</a>
-            <a class="lx-ch-sheet-link{% if u == 'search' %} is-active{% endif %}" href="{% url 'tracker:search' %}">Search</a>
-            {% if AI_ASK_ENABLED %}<a class="lx-ch-sheet-link{% if u == 'ask' %} is-active{% endif %}" href="{% url 'tracker:ask' %}">Ask</a>{% endif %}
+            {% if FEATURED_TRIP %}<a class="lx-ch-sheet-link{% if u == 'trip_blog' %} is-active{% endif %}" href="{% url 'tracker:trip_blog' FEATURED_TRIP.id %}">Trip<span class="lx-ch-sheet-sub">{{ FEATURED_TRIP.name }}</span></a>{% endif %}
+            {% if AI_ASK_ENABLED %}<a class="lx-ch-sheet-link{% if u == 'ask' %} is-active{% endif %}" href="{% url 'tracker:ask' %}">Ask Roamly</a>{% endif %}
         </div>
         <div class="lx-ch-sheet-group" role="group" aria-label="Data">
             <a class="lx-ch-sheet-link{% if u == 'visits' %} is-active{% endif %}" href="{% url 'tracker:visits' %}">Visits</a>
@@ -130,3 +177,15 @@ includes it instead of the classic navbar. Menus are driven by chronicle.js
     </div>
 </div>
 {% endwith %}
+<script>
+/* Before first paint: on a phone the bell lives in the More sheet, not the
+   (hidden) sidebar. chronicle.js keeps it in the right slot when the width changes. */
+(function () {
+    try {
+        if (window.matchMedia('(max-width: 768px)').matches) {
+            var bell = document.getElementById('notif'), slot = document.getElementById('lx-ch-bell-sheet');
+            if (bell && slot) slot.appendChild(bell);
+        }
+    } catch (e) {}
+})();
+</script>
