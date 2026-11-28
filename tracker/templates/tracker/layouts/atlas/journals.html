@@ -1,0 +1,1571 @@
+{% extends 'tracker/base.html' %}
+{% comment %}
+  ATLAS · Journals. Replaces tracker/journals.html for users on the Atlas layout.
+
+  A list-first page that runs both as the ~440px panel over the map (?embed=1)
+  and as a full page. Stack navigation inside the page, no reloads:
+      list  ->  entry (editor + day map)  /  recap  /  settings
+  Phone and panel show one view at a time (back chevron returns). A full page at
+  900px+ shows the list on the left and the pushed view on the right.
+
+  Deep link: ?date=YYYY-MM-DD opens that day's entry (the URL is kept in step with
+  replaceState so the panel's "Open full page" lands on the same entry).
+  Esc pops one level: the pushed view carries data-lx-esc while it is showing.
+{% endcomment %}
+{% block title %}Journals - Roamly{% endblock %}
+
+{% block extra_css %}
+html[data-layout="atlas"] body .lx-at-page.lx-at-j {
+    --lx-j-pad: 16px;
+    --lx-j-bg: var(--bg);
+    --lx-j-head-h: 0px;
+    max-width: none;
+    padding: 0 0 48px;
+}
+html[data-layout="atlas"].lx-embedded body .lx-at-page.lx-at-j { --lx-j-bg: var(--bg-card); padding: 0 0 32px; }
+html[data-layout="atlas"] .lx-at-j [hidden] { display: none !important; }
+
+/* ── Which pane shows ── */
+html[data-layout="atlas"] .lx-at-j-pane { min-width: 0; }
+html[data-layout="atlas"] .lx-at-j[data-view="list"] .lx-at-j-detail { display: none; }
+html[data-layout="atlas"] .lx-at-j:not([data-view="list"]) .lx-at-j-listpane { display: none; }
+
+/* ── Sticky bars (list head, pushed-view bar) ── */
+html[data-layout="atlas"] .lx-at-j-head,
+html[data-layout="atlas"] .lx-at-j-bar {
+    position: sticky;
+    top: 0;
+    z-index: 6;
+    background: var(--lx-j-bg);
+    border-bottom: 1px solid var(--border);
+    padding-left: var(--lx-j-pad);
+    padding-right: var(--lx-j-pad);
+}
+html[data-layout="atlas"] .lx-at-j-head { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; padding-bottom: 10px; }
+html[data-layout="atlas"] .lx-at-j-headrow { display: flex; align-items: center; gap: 8px; }
+html[data-layout="atlas"] .lx-at-j-head .lx-at-iconbtn,
+html[data-layout="atlas"] .lx-at-j-bar .lx-at-iconbtn { flex: none; }
+html[data-layout="atlas"] .lx-at-j-bar { display: flex; align-items: center; gap: 4px; min-height: 56px; padding-top: 8px; padding-bottom: 8px; padding-left: calc(var(--lx-j-pad) - 8px); }
+html[data-layout="atlas"] .lx-at-j-bar-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-left: 4px; }
+html[data-layout="atlas"] .lx-at-j-bar-title { margin: 0; font-family: var(--font-display); font-size: 1.0625rem; font-weight: 500; line-height: 1.25; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="atlas"] .lx-at-j-kickrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+html[data-layout="atlas"] .lx-at-j-kickrow .lx-at-kicker { flex: none; }
+
+/* Search */
+html[data-layout="atlas"] .lx-at-j-search { position: relative; flex: 1 1 auto; min-width: 0; display: flex; align-items: center; }
+html[data-layout="atlas"] .lx-at-j-search > .lx-at-ico { position: absolute; left: 10px; width: 16px; height: 16px; color: var(--text-muted); pointer-events: none; }
+html[data-layout="atlas"] .lx-at-j-search input {
+    width: 100%;
+    height: 36px;
+    box-sizing: border-box;
+    padding: 0 36px 0 34px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--r-2);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 0.875rem;
+    transition: border-color 120ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-j-search input::placeholder { color: var(--text-dim); }
+html[data-layout="atlas"] .lx-at-j-search input:focus { outline: none; border-color: var(--primary); }
+html[data-layout="atlas"] .lx-at-j-search input:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+html[data-layout="atlas"] .lx-at-j-search input::-webkit-search-cancel-button { display: none; }
+html[data-layout="atlas"] .lx-at-j-search .lx-at-iconbtn { position: absolute; right: 2px; width: 32px; height: 32px; }
+html[data-layout="atlas"] .lx-at-j-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+html[data-layout="atlas"] .lx-at-j-filters .lx-at-seg { margin-right: 2px; }
+html[data-layout="atlas"] .lx-at-j[data-mode="month"] .lx-at-j-filter { display: none; }
+
+/* ── Body blocks ── */
+html[data-layout="atlas"] .lx-at-j-body { padding: 16px var(--lx-j-pad) 0; display: flex; flex-direction: column; gap: 16px; }
+html[data-layout="atlas"] #lxj-main { padding-bottom: 12px; }
+html[data-layout="atlas"] .lx-at-j-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+html[data-layout="atlas"] .lx-at-j-stats .lx-at-stat { padding: 10px 12px; gap: 4px; }
+html[data-layout="atlas"] .lx-at-j-stats .lx-at-stat-value { font-size: 1.125rem; }
+html[data-layout="atlas"] .lx-at-j-stats .lx-at-stat-label { font-size: 0.625rem; }
+html[data-layout="atlas"] .lx-at-j-stats-fail { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; font-size: 0.8125rem; color: var(--text-muted); }
+
+html[data-layout="atlas"] .lx-at-j-aibtn { border: 1px solid var(--border); border-radius: var(--r-3); background: transparent; }
+html[data-layout="atlas"] .lx-at-j-aibtn .lx-at-row-lead { color: var(--primary); background: var(--lx-at-tint); }
+html[data-layout="atlas"] .lx-at-j-aibtn .lx-at-row-main > span { display: block; }
+html[data-layout="atlas"] .lx-at-j-aibtn:hover { border-color: var(--border-strong); }
+
+/* Today box */
+html[data-layout="atlas"] .lx-at-j-today { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-3); }
+html[data-layout="atlas"].lx-embedded .lx-at-j-today { background: var(--bg-input); }
+html[data-layout="atlas"] .lx-at-j-today-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 20px; }
+html[data-layout="atlas"] .lx-at-j-today-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+html[data-layout="atlas"] .lx-at-j-textarea {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    resize: none;
+    padding: 10px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--r-2);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    transition: border-color 120ms ease-out;
+}
+html[data-layout="atlas"].lx-embedded .lx-at-j-today .lx-at-j-textarea { background: var(--bg-card); }
+html[data-layout="atlas"] .lx-at-j-textarea::placeholder { color: var(--text-dim); }
+html[data-layout="atlas"] .lx-at-j-textarea:focus { outline: none; border-color: var(--primary); }
+html[data-layout="atlas"] .lx-at-j-textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+html[data-layout="atlas"] .lx-at-j-textarea:disabled { opacity: 0.6; }
+
+html[data-layout="atlas"] .lx-at-j-linkbtn { border: 0; background: none; padding: 4px 0; color: var(--link, var(--primary)); font: inherit; font-size: 0.8125rem; font-weight: 500; cursor: pointer; }
+html[data-layout="atlas"] .lx-at-j-linkbtn:hover { text-decoration: underline; }
+html[data-layout="atlas"] .lx-at-j-linkbtn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--r-1); }
+
+/* Save pills */
+html[data-layout="atlas"] .lx-at-j-pill { border: 0; background: none; padding: 0; font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 500; color: var(--text-muted); cursor: default; }
+html[data-layout="atlas"] .lx-at-j-pill:disabled { color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-j-pill.is-saving { color: var(--clay-amber); }
+html[data-layout="atlas"] .lx-at-j-pill.is-saved { color: var(--clay-mint); }
+html[data-layout="atlas"] .lx-at-j-pill.is-failed { color: var(--danger); cursor: pointer; text-decoration: underline; }
+html[data-layout="atlas"] .lx-at-j-pill:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ── Entry rows, grouped by month ── */
+html[data-layout="atlas"] .lx-at-j-month {
+    position: sticky;
+    top: var(--lx-j-head-h);
+    z-index: 4;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0;
+    padding: 10px var(--lx-j-pad) 6px;
+    background: var(--lx-j-bg);
+    font-family: var(--font-body);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text);
+}
+html[data-layout="atlas"] .lx-at-j-month .lx-at-num { font-size: 0.6875rem; font-weight: 400; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-j-feed { padding-top: 4px; }
+html[data-layout="atlas"] .lx-at-j-feed .lx-at-j-rows,
+html[data-layout="atlas"] .lx-at-j-results .lx-at-j-rows { border-top: 1px solid var(--border); }
+html[data-layout="atlas"] .lx-at-j-rows .lx-at-row { padding-left: var(--lx-j-pad); padding-right: var(--lx-j-pad); align-items: flex-start; gap: 12px; min-height: 64px; padding-top: 10px; padding-bottom: 10px; }
+html[data-layout="atlas"] .lx-at-j-rows .lx-at-row:is(.is-selected) { box-shadow: inset 2px 0 0 var(--primary); }
+html[data-layout="atlas"] .lx-at-j-day { flex: none; width: 36px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding-top: 1px; }
+html[data-layout="atlas"] .lx-at-j-daynum { font-family: var(--font-mono); font-size: 1.125rem; font-weight: 500; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--text); }
+html[data-layout="atlas"] .lx-at-j-dayname { font-family: var(--font-mono); font-size: 0.625rem; line-height: 1.2; color: var(--text-muted); white-space: nowrap; }
+html[data-layout="atlas"] .lx-at-j-row .lx-at-row-main > span { display: block; }
+html[data-layout="atlas"] .lx-at-j-row .lx-at-row-title { display: flex; align-items: center; gap: 6px; }
+html[data-layout="atlas"] .lx-at-j-row .lx-at-row-title > .lx-at-j-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="atlas"] .lx-at-j-row .lx-at-row-title.is-pending > .lx-at-j-t { color: var(--text-muted); font-weight: 400; font-style: italic; }
+html[data-layout="atlas"] .lx-at-j-mood { flex: none; font-size: 0.9375rem; line-height: 1; }
+html[data-layout="atlas"] .lx-at-j-fav { flex: none; width: 13px; height: 13px; color: var(--clay-amber); fill: currentColor; }
+html[data-layout="atlas"] .lx-at-j-row .lx-at-row-meta { display: flex; align-items: center; gap: 5px; }
+html[data-layout="atlas"] .lx-at-j-row .lx-at-row-meta > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="atlas"] .lx-at-j-row .lx-at-row-meta .lx-at-ico { flex: none; width: 12px; height: 12px; color: var(--primary); }
+html[data-layout="atlas"] .lx-at-j-row .lx-at-row-meta.is-foot { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--text-dim); margin-top: 3px; }
+html[data-layout="atlas"] .lx-at-j-thumb { flex: none; width: 44px; height: 44px; border-radius: var(--r-2); overflow: hidden; background: var(--bg-input); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
+html[data-layout="atlas"] .lx-at-j-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+html[data-layout="atlas"] .lx-at-j-thumb svg { width: 100%; height: 100%; display: block; }
+html[data-layout="atlas"] .lx-at-j-more { display: flex; margin: 16px auto 0; }
+html[data-layout="atlas"] .lx-at-j-count { padding: 0 var(--lx-j-pad); margin: 0 0 8px; }
+
+html[data-layout="atlas"] .lx-at-j-note { padding: 24px var(--lx-j-pad); text-align: center; font-size: 0.8125rem; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-j-note.is-error { color: var(--danger); }
+html[data-layout="atlas"] .lx-at-j-note .lx-at-btn { margin-top: 12px; }
+html[data-layout="atlas"] .lx-at-j-skel { padding: 4px var(--lx-j-pad); display: flex; flex-direction: column; gap: 10px; }
+
+/* ── Month calendar ── */
+html[data-layout="atlas"] .lx-at-j-calhead { display: flex; align-items: center; gap: 4px; }
+html[data-layout="atlas"] .lx-at-j-caltitle { flex: 1 1 auto; margin: 0; font-family: var(--font-display); font-size: 1.0625rem; font-weight: 500; color: var(--text); }
+html[data-layout="atlas"] .lx-at-j-weekdays,
+html[data-layout="atlas"] .lx-at-j-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+html[data-layout="atlas"] .lx-at-j-weekdays { margin: 12px 0 6px; }
+html[data-layout="atlas"] .lx-at-j-weekdays span { text-align: center; font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-j-cell {
+    position: relative;
+    min-height: 44px;
+    aspect-ratio: 1 / 1;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--r-2);
+    background: var(--bg-input);
+    color: var(--text-muted);
+    font: inherit;
+    cursor: pointer;
+    transition: border-color 120ms ease-out, background-color 120ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-j-cell.is-pad { background: transparent; cursor: default; }
+html[data-layout="atlas"] .lx-at-j-cell:not(.is-pad):not(:disabled):hover { border-color: var(--border-strong); }
+html[data-layout="atlas"] .lx-at-j-cell:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+html[data-layout="atlas"] .lx-at-j-cell.is-future { opacity: 0.4; cursor: default; }
+html[data-layout="atlas"] .lx-at-j-cell.has-entry { background: var(--lx-at-tint); border-color: color-mix(in srgb, var(--primary) 30%, transparent); color: var(--text); }
+html[data-layout="atlas"] .lx-at-j-cell.is-today { border-color: var(--primary); }
+html[data-layout="atlas"] .lx-at-j-cell-n { font-family: var(--font-mono); font-size: 0.75rem; font-variant-numeric: tabular-nums; line-height: 1; }
+html[data-layout="atlas"] .lx-at-j-cell-m { font-size: 0.875rem; line-height: 1; }
+html[data-layout="atlas"] .lx-at-j-cell-fav { position: absolute; top: 3px; right: 3px; width: 9px; height: 9px; color: var(--clay-amber); fill: currentColor; }
+html[data-layout="atlas"] .lx-at-j-cell-dot { position: absolute; bottom: 4px; width: 4px; height: 4px; border-radius: var(--r-pill); background: var(--clay-lavender); }
+
+/* ── Pushed views ── */
+html[data-layout="atlas"] .lx-at-j-fields { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+html[data-layout="atlas"] .lx-at-j-form { padding: 16px var(--lx-j-pad) 0; display: flex; flex-direction: column; gap: 16px; }
+html[data-layout="atlas"] .lx-at-j-lbl { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+html[data-layout="atlas"] .lx-at-j-lbl-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+html[data-layout="atlas"] .lx-at-j-lbl-hint { font-size: 0.6875rem; color: var(--text-dim); }
+html[data-layout="atlas"] .lx-at-j-titlein {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 0 8px;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 500;
+    line-height: 1.2;
+}
+html[data-layout="atlas"] .lx-at-j-titlein::placeholder { color: var(--text-dim); }
+html[data-layout="atlas"] .lx-at-j-titlein:focus { outline: none; border-bottom-color: var(--primary); }
+html[data-layout="atlas"] .lx-at-j-input {
+    width: 100%;
+    height: 36px;
+    box-sizing: border-box;
+    padding: 0 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--r-2);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 0.875rem;
+}
+html[data-layout="atlas"] .lx-at-j-input::placeholder { color: var(--text-dim); }
+html[data-layout="atlas"] .lx-at-j-input:focus { outline: none; border-color: var(--primary); }
+html[data-layout="atlas"] .lx-at-j-input:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+html[data-layout="atlas"] .lx-at-j-quick { padding: 8px 12px; min-height: 40px; overflow: hidden; line-height: 1.5; }
+html[data-layout="atlas"] .lx-at-j-body-in { min-height: 180px; }
+html[data-layout="atlas"] .lx-at-j-foot { display: flex; align-items: center; justify-content: space-between; min-height: 20px; }
+
+html[data-layout="atlas"] .lx-at-j-moods { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+html[data-layout="atlas"] .lx-at-j-moodbtn {
+    height: 40px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--r-2);
+    background: var(--bg-input);
+    font-size: 1.125rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 120ms ease-out, background-color 120ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-j-moodbtn:hover { border-color: var(--border-strong); }
+html[data-layout="atlas"] .lx-at-j-moodbtn[aria-pressed="true"] { border-color: var(--primary); background: var(--lx-at-tint); }
+html[data-layout="atlas"] .lx-at-j-moodbtn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+html[data-layout="atlas"] #lxj-e-fav[aria-pressed="true"] { color: var(--clay-amber); }
+html[data-layout="atlas"] #lxj-e-fav[aria-pressed="true"] svg { fill: currentColor; }
+
+html[data-layout="atlas"] .lx-at-j-datewrap { position: relative; display: block; min-width: 0; }
+html[data-layout="atlas"] .lx-at-j-datebtn { display: block; max-width: 100%; padding: 0; margin: 0; border: 0; background: none; color: var(--text); font-family: var(--font-display); font-size: 1.0625rem; font-weight: 500; line-height: 1.25; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px dashed transparent; }
+html[data-layout="atlas"] .lx-at-j-datebtn:hover { border-bottom-color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-j-datebtn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--r-1); }
+html[data-layout="atlas"] .lx-at-j-dateinput { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+html[data-layout="atlas"] .lx-at-j-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
+html[data-layout="atlas"] .lx-at-j-photo { position: relative; aspect-ratio: 1 / 1; border-radius: var(--r-2); overflow: hidden; border: 1px solid var(--border); background: var(--bg-input); }
+html[data-layout="atlas"] .lx-at-j-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+html[data-layout="atlas"] .lx-at-j-photo .lx-at-iconbtn { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; background: color-mix(in srgb, var(--bg) 78%, transparent); color: var(--text); }
+html[data-layout="atlas"] .lx-at-j-photo .lx-at-iconbtn:hover { background: var(--danger); color: var(--on-primary, var(--bg)); }
+html[data-layout="atlas"] .lx-at-j-photo .lx-at-iconbtn .lx-at-ico { width: 14px; height: 14px; }
+html[data-layout="atlas"] .lx-at-j-photoadd { aspect-ratio: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 1px dashed var(--border-strong); border-radius: var(--r-2); background: transparent; color: var(--text-muted); font-family: var(--font-body); font-size: 0.75rem; cursor: pointer; transition: color 120ms ease-out, border-color 120ms ease-out; }
+html[data-layout="atlas"] .lx-at-j-photoadd:hover { color: var(--primary); border-color: var(--primary); }
+html[data-layout="atlas"] .lx-at-j-photoadd:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+html[data-layout="atlas"] .lx-at-j-mapbox { position: relative; height: 220px; border: 1px solid var(--border); border-radius: var(--r-3); overflow: hidden; background: var(--bg-input); }
+html[data-layout="atlas"] .lx-at-j-map { position: absolute; inset: 0; }
+html[data-layout="atlas"] .lx-at-j-mapempty { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 16px; text-align: center; background: var(--bg-input); color: var(--text-muted); font-size: 0.8125rem; }
+html[data-layout="atlas"] .lx-at-j-mapempty .lx-at-ico { width: 24px; height: 24px; }
+html[data-layout="atlas"] .lx-at-j-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+html[data-layout="atlas"] .lx-at-j-chips .lx-at-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+html[data-layout="atlas"] .lx-at-j-recap { padding: 16px var(--lx-j-pad) 0; font-size: 0.9375rem; line-height: 1.6; color: var(--text); }
+html[data-layout="atlas"] .lx-at-j-recap p { margin: 0 0 12px; max-width: 64ch; }
+html[data-layout="atlas"] .lx-at-j-recap h3 { margin: 20px 0 8px; font-family: var(--font-display); font-size: 1rem; font-weight: 500; color: var(--text); }
+html[data-layout="atlas"] .lx-at-j-recap h3:first-child { margin-top: 0; }
+html[data-layout="atlas"] .lx-at-j-recap .is-muted { color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-j-recap .is-error { color: var(--danger); }
+html[data-layout="atlas"] .lx-at-j-recap .is-small { font-size: 0.75rem; color: var(--text-dim); margin-top: 16px; }
+html[data-layout="atlas"] .lx-at-j-recap a { color: var(--link, var(--primary)); }
+html[data-layout="atlas"] .lx-at-j-facts { margin-top: 16px; border-top: 1px solid var(--border); }
+html[data-layout="atlas"] .lx-at-j-fact { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--border); }
+html[data-layout="atlas"] .lx-at-j-fact .l { font-size: 0.8125rem; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-j-fact .v { font-family: var(--font-mono); font-size: 0.875rem; text-align: right; font-variant-numeric: tabular-nums; }
+html[data-layout="atlas"] .lx-at-j-fact .e { grid-column: 1 / -1; font-family: var(--font-mono); font-size: 0.6875rem; color: var(--text-dim); text-align: right; }
+html[data-layout="atlas"] .lx-at-j-loading { display: flex; align-items: center; gap: 10px; color: var(--text-muted); }
+
+html[data-layout="atlas"] .lx-at-j-setrow { display: flex; align-items: flex-start; gap: 12px; padding: 14px var(--lx-j-pad); border-bottom: 1px solid var(--border); cursor: pointer; }
+html[data-layout="atlas"] .lx-at-j-setrow input { flex: none; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--primary); }
+html[data-layout="atlas"] .lx-at-j-setrow.is-off { opacity: 0.55; cursor: default; }
+html[data-layout="atlas"] .lx-at-j-setrow .t { display: block; font-size: 0.875rem; font-weight: 500; color: var(--text); }
+html[data-layout="atlas"] .lx-at-j-setrow .d { display: block; margin-top: 2px; font-size: 0.75rem; line-height: 1.45; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-j-setnote { margin: 0; padding: 12px var(--lx-j-pad); font-size: 0.75rem; color: var(--text-muted); }
+
+/* Full page, wide: list on the left, the pushed view on the right. */
+@media (min-width: 900px) {
+    html[data-layout="atlas"]:not(.lx-embedded) body .lx-at-page.lx-at-j {
+        --lx-j-pad: 20px;
+        --lx-j-bg: var(--bg-card);
+        max-width: 1120px;
+        padding: 32px 32px 32px;
+        display: grid;
+        grid-template-columns: minmax(340px, 400px) minmax(0, 1fr);
+        gap: 24px;
+        align-items: start;
+    }
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-j .lx-at-j-pane {
+        position: sticky;
+        top: 32px;
+        height: calc(100vh - 64px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--r-3);
+    }
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-j[data-view="list"] .lx-at-j-detail,
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-j:not([data-view="list"]) .lx-at-j-listpane { display: block; }
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-j .lx-at-j-head,
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-j .lx-at-j-bar { border-top-left-radius: var(--r-3); border-top-right-radius: var(--r-3); }
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-j .lx-at-j-listpane { padding-bottom: 32px; }
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-j .lx-at-j-detail { padding-bottom: 32px; }
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-j .lx-at-j-empty { display: flex; min-height: 60%; align-items: center; justify-content: center; }
+}
+@media (max-width: 899px) { html[data-layout="atlas"] .lx-at-j .lx-at-j-empty { display: none !important; } }
+
+@media (max-width: 768px) {
+    html[data-layout="atlas"] .lx-at-j-search input,
+    html[data-layout="atlas"] .lx-at-j-input,
+    html[data-layout="atlas"] .lx-at-j-textarea,
+    html[data-layout="atlas"] .lx-at-j-titlein { font-size: 1rem; }
+    html[data-layout="atlas"] .lx-at-j-search input,
+    html[data-layout="atlas"] .lx-at-j-input { height: 44px; }
+    html[data-layout="atlas"] .lx-at-j-search .lx-at-iconbtn { width: 40px; height: 40px; }
+    html[data-layout="atlas"] .lx-at-j-head .lx-at-iconbtn,
+    html[data-layout="atlas"] .lx-at-j-bar .lx-at-iconbtn,
+    html[data-layout="atlas"] .lx-at-j-calhead .lx-at-iconbtn { width: 44px; height: 44px; }
+    html[data-layout="atlas"] .lx-at-j-moodbtn { height: 44px; }
+    html[data-layout="atlas"] .lx-at-j-cell { min-height: 40px; }
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-j-head,
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-j-bar { padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+    html[data-layout="atlas"] .lx-at-j * { transition-duration: 1ms !important; }
+}
+html[data-layout="atlas"][data-motion="calm"] .lx-at-j * { transition-duration: 1ms !important; }
+{% endblock %}
+
+{% block content %}
+<div class="lx-at-page lx-at-j" id="lxj" data-view="list" data-mode="entries">
+
+    <!-- ═════ List ═════ -->
+    <section class="lx-at-j-pane lx-at-j-listpane" id="lxj-listpane" aria-label="Journal entries">
+        <div class="lx-at-j-head" id="lxj-head">
+            <h1 class="lx-at-sr">Journals</h1>
+            <div class="lx-at-j-headrow">
+                <div class="lx-at-j-search" id="lxj-searchbox">
+                    <svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></svg>
+                    <input type="search" id="lxj-search" placeholder="Search entries" aria-label="Search journal entries" autocomplete="off" spellcheck="false">
+                    <button type="button" class="lx-at-iconbtn" id="lxj-search-clear" aria-label="Clear search" hidden>{% include 'tracker/layouts/atlas/_icon.html' with i='close' %}</button>
+                </div>
+                <button type="button" class="lx-at-iconbtn" id="lxj-settings-btn" aria-label="Journal settings" title="Journal settings">
+                    <svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
+                </button>
+            </div>
+            <div class="lx-at-j-filters" id="lxj-filters">
+                <div class="lx-at-seg" role="group" aria-label="View">
+                    <button type="button" data-mode="entries" aria-pressed="true">Entries</button>
+                    <button type="button" data-mode="month" aria-pressed="false">Month</button>
+                </div>
+                <button type="button" class="lx-at-chip lx-at-j-filter" data-filter="fav" aria-pressed="false">Favourites</button>
+                <button type="button" class="lx-at-chip lx-at-j-filter" data-filter="photos" aria-pressed="false">With photos</button>
+            </div>
+        </div>
+
+        <div class="lx-at-j-body" id="lxj-main">
+            <div class="lx-at-stats lx-at-j-stats" id="lxj-stats" aria-busy="true" aria-label="Journal statistics">
+                {% for i in "123456" %}<div class="lx-at-stat" aria-hidden="true"><span class="skeleton skel-line sm" style="width:60%"></span><span class="skeleton skel-line lg" style="width:40%"></span></div>{% endfor %}
+            </div>
+
+            <button type="button" class="lx-at-row lx-at-j-aibtn is-interactive" id="lxj-recap-open">
+                <span class="lx-at-row-lead" aria-hidden="true"><svg class="lx-at-ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"/><path d="M19 16l.7 1.8 1.8.7-1.8.7L19 21l-.7-1.8-1.8-.7 1.8-.7L19 16Z"/></svg></span>
+                <span class="lx-at-row-main"><span class="lx-at-row-title">Recap my past few days</span><span class="lx-at-row-meta">Written by your AI provider, not saved</span></span>
+                <svg class="lx-at-ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--text-dim)"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+
+            <div class="lx-at-j-today" id="lxj-today">
+                <div class="lx-at-j-today-top">
+                    <span class="lx-at-kicker" id="lxj-today-label">Today</span>
+                    <span role="status" aria-live="polite"><button type="button" class="lx-at-j-pill" id="lxj-mini-pill" disabled hidden></button></span>
+                </div>
+                <textarea class="lx-at-j-textarea" id="lxj-mini" rows="3" placeholder="What happened today?" aria-labelledby="lxj-today-label" disabled></textarea>
+                <div class="lx-at-j-today-foot">
+                    <span class="lx-at-j-lbl-hint">Saves as you type</span>
+                    <button type="button" class="lx-at-j-linkbtn" id="lxj-open-today">Open full entry</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="lxj-feedwrap">
+            <div class="lx-at-j-feed" id="lxj-feed" aria-busy="true">
+                <div class="lx-at-j-skel" aria-hidden="true">{% for i in "1234" %}<div class="skeleton lx-at-skel-row" style="height:60px"></div>{% endfor %}</div>
+            </div>
+        </div>
+
+        <div class="lx-at-j-body" id="lxj-monthwrap" hidden>
+            <div class="lx-at-j-calhead">
+                <h2 class="lx-at-j-caltitle" id="lxj-caltitle" aria-live="polite">&nbsp;</h2>
+                <button type="button" class="lx-at-iconbtn" id="lxj-prev" aria-label="Previous month"><svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>
+                <button type="button" class="lx-at-btn" id="lxj-thismonth">Today</button>
+                <button type="button" class="lx-at-iconbtn" id="lxj-next" aria-label="Next month"><svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+            </div>
+            <div>
+                <div class="lx-at-j-weekdays" id="lxj-weekdays" aria-hidden="true"></div>
+                <div class="lx-at-j-grid" id="lxj-grid" role="group" aria-label="Days of the month"></div>
+            </div>
+        </div>
+
+        <div class="lx-at-j-results" id="lxj-results" hidden>
+            <div class="lx-at-j-body" style="padding-bottom:0"><span class="lx-at-kicker" id="lxj-results-count" role="status"></span></div>
+            <div id="lxj-results-list"></div>
+        </div>
+    </section>
+
+    <!-- ═════ Pushed views ═════ -->
+    <section class="lx-at-j-pane lx-at-j-detail" id="lxj-detail" aria-label="Journal entry">
+
+        <div class="lx-at-j-empty lx-at-empty" id="lxj-v-empty">
+            <span class="lx-at-empty-icon" aria-hidden="true">{% include 'tracker/layouts/atlas/_icon.html' with i='journals' %}</span>
+            <h2 class="lx-at-empty-title">Pick a day</h2>
+            <p class="lx-at-empty-text">Choose an entry from the list, or switch to Month and tap a day to write one.</p>
+        </div>
+
+        <!-- Entry -->
+        <div id="lxj-v-entry" hidden>
+            <header class="lx-at-j-bar">
+                <button type="button" class="lx-at-iconbtn" data-act="back" aria-label="Back to entries"><svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>
+                <div class="lx-at-j-bar-main">
+                    <div class="lx-at-j-kickrow">
+                        <span class="lx-at-kicker" id="lxj-e-weekday"></span>
+                        <span role="status" aria-live="polite"><button type="button" class="lx-at-j-pill" id="lxj-e-pill" disabled hidden></button></span>
+                    </div>
+                    <div class="lx-at-j-datewrap">
+                        <button type="button" class="lx-at-j-datebtn" id="lxj-e-date" title="Move this entry to another day"></button>
+                        <input type="date" class="lx-at-j-dateinput rly-native" id="lxj-e-dateinput" tabindex="-1" aria-label="Move this entry to another day">
+                    </div>
+                </div>
+                <button type="button" class="lx-at-iconbtn" id="lxj-e-fav" aria-pressed="false" aria-label="Favourite" title="Favourite"><svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.8 6.8 19.6l1-5.8-4.3-4.1 5.9-.9L12 3.5Z"/></svg></button>
+                <button type="button" class="lx-at-iconbtn" id="lxj-e-delete" aria-label="Delete entry" title="Delete entry"><svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 7h15M10 7V4.5h4V7M6.5 7l.8 12.5h9.4L17.5 7M10 11v5M14 11v5"/></svg></button>
+            </header>
+            <div class="lx-at-j-form" id="lxj-e-form" aria-busy="true">
+                <fieldset class="lx-at-j-fields" id="lxj-e-fields" disabled>
+                    <legend class="lx-at-sr">Entry</legend>
+                    <label class="lx-at-sr" for="lxj-e-title">Title</label>
+                    <input type="text" class="lx-at-j-titlein" id="lxj-e-title" placeholder="Give the day a title" maxlength="300" autocomplete="off">
+
+                    <div class="lx-at-j-lbl">
+                        <span class="lx-at-kicker" id="lxj-e-mood-l">Mood</span>
+                        <div class="lx-at-j-moods" id="lxj-e-moods" role="group" aria-labelledby="lxj-e-mood-l"></div>
+                    </div>
+
+                    <label class="lx-at-j-lbl"><span class="lx-at-kicker">Weather</span>
+                        <input type="text" class="lx-at-j-input" id="lxj-e-weather" placeholder="Sunny, 22°" maxlength="60" autocomplete="off">
+                    </label>
+
+                    <div class="lx-at-j-lbl">
+                        <span class="lx-at-j-lbl-row"><label class="lx-at-kicker" for="lxj-e-quick">Quick note</label><span class="lx-at-j-lbl-hint">Shows on the map</span></span>
+                        <textarea class="lx-at-j-textarea lx-at-j-quick" id="lxj-e-quick" rows="1" maxlength="2000" placeholder="What you did, in a line"></textarea>
+                    </div>
+
+                    <div class="lx-at-j-lbl">
+                        <label class="lx-at-kicker" for="lxj-e-body">Entry</label>
+                        <textarea class="lx-at-j-textarea lx-at-j-body-in" id="lxj-e-body" placeholder="What happened today?"></textarea>
+                        <div class="lx-at-j-foot"><span class="lx-at-num lx-at-j-lbl-hint" id="lxj-e-words"></span></div>
+                    </div>
+
+                    <div class="lx-at-j-lbl">
+                        <span class="lx-at-kicker" id="lxj-e-photos-l">Photos</span>
+                        <div class="lx-at-j-photos" id="lxj-e-photos" role="group" aria-labelledby="lxj-e-photos-l"></div>
+                        <input type="file" id="lxj-e-photoinput" accept="image/*" multiple hidden>
+                    </div>
+                </fieldset>
+
+                <section aria-labelledby="lxj-e-day-l">
+                    <div class="lx-at-section-head"><h2 class="lx-at-section-title" id="lxj-e-day-l">The day on the map</h2></div>
+                    <div class="lx-at-j-mapbox">
+                        <div class="lx-at-j-map" id="lxj-e-map"></div>
+                        <div class="lx-at-j-mapempty" id="lxj-e-mapempty" hidden>
+                            <svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-5.4-6.5-11a6.5 6.5 0 0 1 13 0c0 5.6-6.5 11-6.5 11Z"/><circle cx="12" cy="10" r="2.25"/></svg>
+                            <span>No tracked location for this day</span>
+                        </div>
+                    </div>
+                    <div class="lx-at-stats lx-at-j-stats" id="lxj-e-mapstats" style="margin-top:12px" hidden></div>
+                    <div class="lx-at-j-chips" id="lxj-e-places" style="margin-top:12px"></div>
+                </section>
+            </div>
+        </div>
+
+        <!-- Recap -->
+        <div id="lxj-v-recap" hidden>
+            <header class="lx-at-j-bar">
+                <button type="button" class="lx-at-iconbtn" data-act="back" aria-label="Back to entries"><svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>
+                <div class="lx-at-j-bar-main">
+                    <span class="lx-at-kicker" id="lxj-r-span">Recent days</span>
+                    <h2 class="lx-at-j-bar-title" id="lxj-r-title" tabindex="-1">Your past few days</h2>
+                </div>
+            </header>
+            <div class="lx-at-j-recap" id="lxj-r-body" aria-live="polite"></div>
+        </div>
+
+        <!-- Settings -->
+        <div id="lxj-v-settings" hidden>
+            <header class="lx-at-j-bar">
+                <button type="button" class="lx-at-iconbtn" data-act="back" aria-label="Back to entries"><svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>
+                <div class="lx-at-j-bar-main">
+                    <span class="lx-at-kicker">Journals</span>
+                    <h2 class="lx-at-j-bar-title" id="lxj-s-title" tabindex="-1">Journal settings</h2>
+                </div>
+            </header>
+            <div id="lxj-s-list">
+                <label class="lx-at-j-setrow"><input type="checkbox" data-setting="auto_title" disabled><span><span class="t">AI title</span><span class="d">Titles a day you left untitled, when you close the entry.</span></span></label>
+                <label class="lx-at-j-setrow"><input type="checkbox" data-setting="auto_mood" disabled><span><span class="t">AI mood emoji</span><span class="d">Picks an emoji for how the day felt, if you did not.</span></span></label>
+                <label class="lx-at-j-setrow"><input type="checkbox" data-setting="auto_weather" disabled><span><span class="t">Fetch the weather</span><span class="d">Fills a blank weather field from Open-Meteo, using the day's rough location.</span></span></label>
+            </div>
+            <p class="lx-at-j-setnote" id="lxj-s-note" hidden></p>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    'use strict';
+
+    var CSRF = '{{ csrf_token }}';
+    var AI_READY = {{ AI_ASK_ENABLED|yesno:"true,false" }};
+    var MOODS = ['😀', '🙂', '😐', '😔', '😢', '😡', '😴', '🥳', '😍', '🤔', '😎', '🤒'];
+    var WD_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var WD_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    var CAL_HEAD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    var CARTO_QS = '{{ CARTO_TILE_QS|escapejs }}';
+    var EMBEDDED = (function () { try { return window.self !== window.top; } catch (e) { return true; } })();
+
+    var ICO = {
+        pencil: '<path d="M5 19l1-4.5L16 4.5a2 2 0 0 1 3 0l.5.5a2 2 0 0 1 0 3L9.5 18 5 19Z"/>',
+        star: '<path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.8 6.8 19.6l1-5.8-4.3-4.1 5.9-.9L12 3.5Z"/>',
+        close: '<path d="m6 6 12 12M18 6 6 18"/>',
+        plus: '<path d="M12 5v14M5 12h14"/>',
+        book: '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5v-15Z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3"/><path d="M9 7.5h6"/>',
+        pin: '<path d="M12 21s-6.5-5.4-6.5-11a6.5 6.5 0 0 1 13 0c0 5.6-6.5 11-6.5 11Z"/><circle cx="12" cy="10" r="2.25"/>'
+    };
+    function ic(name, cls, size) {
+        var s = size || 16;
+        return '<svg class="lx-at-ico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" width="' + s + '" height="' + s + '" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + ICO[name] + '</svg>';
+    }
+
+    function $(id) { return document.getElementById(id); }
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
+    function el(tag, cls, text) {
+        var n = document.createElement(tag);
+        if (cls) n.className = cls;
+        if (text != null) n.textContent = text;
+        return n;
+    }
+    function toast(msg, type) { if (window.roamlyToast) window.roamlyToast(msg, type ? { type: type } : undefined); }
+    function pad2(n) { return String(n).padStart(2, '0'); }
+    function todayStr() { var d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+    function parts(ds) { var p = ds.split('-').map(Number); return { y: p[0], m: p[1], d: p[2] }; }
+    function fmtLong(ds) { var p = parts(ds); return MONTHS[p.m - 1] + ' ' + p.d + ', ' + p.y; }
+    function fmtWeekday(ds) { var p = parts(ds); return WD_LONG[new Date(p.y, p.m - 1, p.d).getDay()]; }
+    function validDate(ds) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(ds || '')) return false;
+        var p = parts(ds), dt = new Date(p.y, p.m - 1, p.d);
+        return dt.getFullYear() === p.y && dt.getMonth() === p.m - 1 && dt.getDate() === p.d;
+    }
+    function cssColor(name, fallback) {
+        try {
+            var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+            if (/^(#|rgb|hsl)/i.test(v)) return v;
+        } catch (e) { /* use the fallback */ }
+        return fallback;
+    }
+    function jsonHeaders() { return { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF }; }
+    function tzQ() { return 'tz=' + new Date().getTimezoneOffset(); }
+
+    var root = $('lxj');
+    var detail = $('lxj-detail');
+
+    // ═════ State ═════
+    var view = 'list';
+    var mode = 'entries';
+    var viewYear, viewMonth, monthEntries = {};
+    var currentDate = null, currentEntry = null, entryOpen = false, entryLoaded = false;
+    var saveTimer = null, dirty = false, editedThisOpen = false;
+    var currentMood = '', currentFav = false;
+    var feedEntries = [], feedShown = 12, FEED_STEP = 12, titleBackfillDone = false;
+    var filters = { fav: false, photos: false };
+    var journalSettings = null;
+    var listScroll = 0, opener = null;
+    var searchTimer = null, searchSeq = 0, searchQuery = '';
+    var jmap = null, jmapLoaded = false, jDrawSeq = 0;
+    var recapAbort = null;
+    var mini = $('lxj-mini'), miniPill = $('lxj-mini-pill');
+    var miniDirty = false, miniTimer = null, miniReady = false;
+
+    // ═════ View stack ═════
+    function syncHeadH() {
+        var h = $('lxj-head');
+        if (h) root.style.setProperty('--lx-j-head-h', h.offsetHeight + 'px');
+    }
+    function setView(v) {
+        var prev = view;
+        if (prev === 'list' && v !== 'list') listScroll = window.pageYOffset || 0;
+        if (prev === 'recap' && v !== 'recap') closeRecapState();
+        view = v;
+        root.setAttribute('data-view', v);
+        $('lxj-v-empty').hidden = v !== 'list';
+        $('lxj-v-entry').hidden = v !== 'entry';
+        $('lxj-v-recap').hidden = v !== 'recap';
+        $('lxj-v-settings').hidden = v !== 'settings';
+        // While a pushed view is showing, Esc goes back one level instead of
+        // closing the Atlas panel (atlas.js leaves Esc alone when it sees this).
+        if (v === 'list') detail.removeAttribute('data-lx-esc'); else detail.setAttribute('data-lx-esc', '');
+        if (v === 'list') {
+            window.scrollTo(0, listScroll);
+            syncHeadH();
+            var back = opener && opener.isConnected ? opener : null;
+            opener = null;
+            if (back) { try { back.focus({ preventScroll: true }); } catch (e) { /* detached */ } }
+        } else {
+            window.scrollTo(0, 0);
+            if (detail.scrollTo) { try { detail.scrollTo(0, 0); } catch (e) { /* not scrollable */ } }
+        }
+    }
+    function setMode(m) {
+        mode = m;
+        root.setAttribute('data-mode', m);
+        document.querySelectorAll('#lxj-filters [data-mode]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.mode === m)); });
+        applyListChrome();
+        if (m === 'month') renderGrid();
+        syncHeadH();
+    }
+    function applyListChrome() {
+        var searching = !!searchQuery;
+        $('lxj-main').hidden = searching || mode !== 'entries';
+        $('lxj-feedwrap').hidden = searching || mode !== 'entries';
+        $('lxj-monthwrap').hidden = searching || mode !== 'month';
+        $('lxj-results').hidden = !searching;
+    }
+
+    // History: a full page gets a real entry for the open day (so Back works);
+    // inside a panel the iframe shares history with the top window, so it only
+    // ever rewrites its own URL.
+    function syncUrl(ds, push) {
+        try {
+            var u = new URL(location.href);
+            if (ds) u.searchParams.set('date', ds); else u.searchParams.delete('date');
+            var next = u.pathname + u.search + u.hash;
+            if (push && !EMBEDDED) history.pushState({ lxj: 1 }, '', next);
+            else history.replaceState(ds ? history.state : null, '', next);
+        } catch (e) { /* the URL is a convenience */ }
+    }
+    function goBack() {
+        if (view === 'entry') {
+            if (!EMBEDDED && history.state && history.state.lxj === 1) { history.back(); return; }
+            closeEntry(false);
+        } else if (view !== 'list') {
+            setView('list');
+        }
+    }
+    window.addEventListener('popstate', function (e) {
+        if (view === 'entry' && !(e.state && e.state.lxj === 1)) closeEntry(true);
+        else if (view === 'list' && e.state && e.state.lxj === 1) {
+            var d = new URLSearchParams(location.search).get('date');
+            if (d && validDate(d)) openEntry(d, { fromHistory: true });
+        }
+    });
+
+    // ═════ Stats ═════
+    function statCell(label, value) {
+        var c = el('div', 'lx-at-stat');
+        c.appendChild(el('span', 'lx-at-stat-label', label));
+        c.appendChild(el('span', 'lx-at-stat-value', value));
+        return c;
+    }
+    function loadStats() {
+        var box = $('lxj-stats');
+        fetch('/api/journals/stats/').then(function (r) { if (!r.ok) throw new Error('stats'); return r.json(); }).then(function (s) {
+            box.removeAttribute('aria-busy');
+            box.textContent = '';
+            [['Streak', s.current_streak + ' d'], ['Best streak', s.longest_streak + ' d'], ['Entries', String(s.total_entries)],
+             ['This year', String(s.this_year)], ['Words', (s.total_words || 0).toLocaleString()], ['Photos', String(s.total_photos)]
+            ].forEach(function (c) { box.appendChild(statCell(c[0], c[1])); });
+        }).catch(function () {
+            box.removeAttribute('aria-busy');
+            box.textContent = '';
+            var f = el('div', 'lx-at-j-stats-fail');
+            f.appendChild(el('span', null, 'Could not load your stats.'));
+            var b = el('button', 'lx-at-btn', 'Retry'); b.type = 'button'; b.addEventListener('click', loadStats);
+            f.appendChild(b);
+            box.appendChild(f);
+        });
+    }
+
+    // ═════ Month calendar ═════
+    function renderWeekdays() { $('lxj-weekdays').innerHTML = CAL_HEAD.map(function (w) { return '<span>' + w + '</span>'; }).join(''); }
+    function loadMonth() {
+        $('lxj-caltitle').textContent = MONTHS[viewMonth - 1] + ' ' + viewYear;
+        var wanted = viewYear + '-' + viewMonth;
+        fetch('/api/journals/?year=' + viewYear + '&month=' + viewMonth).then(function (r) { if (!r.ok) throw new Error('month'); return r.json(); }).then(function (data) {
+            if (wanted !== viewYear + '-' + viewMonth) return;
+            monthEntries = {};
+            (data.entries || []).forEach(function (e) { monthEntries[e.date] = e; });
+            renderGrid();
+        }).catch(function () { toast('Could not load the calendar.', 'error'); });
+    }
+    function renderGrid() {
+        var grid = $('lxj-grid');
+        if (!grid) return;
+        var lead = (new Date(viewYear, viewMonth - 1, 1).getDay() + 6) % 7;
+        var days = new Date(viewYear, viewMonth, 0).getDate();
+        var today = todayStr();
+        var html = '';
+        for (var i = 0; i < lead; i++) html += '<span class="lx-at-j-cell is-pad" aria-hidden="true"></span>';
+        for (var d = 1; d <= days; d++) {
+            var ds = viewYear + '-' + pad2(viewMonth) + '-' + pad2(d);
+            var e = monthEntries[ds];
+            var future = ds > today;
+            var cls = 'lx-at-j-cell' + (e ? ' has-entry' : '') + (ds === today ? ' is-today' : '') + (future ? ' is-future' : '');
+            var inner = '<span class="lx-at-j-cell-n">' + d + '</span>';
+            if (e && e.mood) inner += '<span class="lx-at-j-cell-m">' + esc(e.mood) + '</span>';
+            if (e && e.is_favorite) inner += ic('star', 'lx-at-j-cell-fav', 9);
+            if (e && e.photo_count) inner += '<span class="lx-at-j-cell-dot"></span>';
+            var label = MONTHS[viewMonth - 1] + ' ' + d + ', ' + viewYear + (e ? ', has an entry' : (future ? '' : ', no entry'));
+            html += '<button type="button" class="' + cls + '" data-date="' + ds + '" aria-label="' + esc(label) + '"' + (ds === today ? ' aria-current="date"' : '') + (future ? ' disabled' : '') + '>' + inner + '</button>';
+        }
+        grid.innerHTML = html;
+    }
+
+    // ═════ Entry rows ═════
+    // A tile-free map snapshot of the day: the route fitted into a small SVG.
+    function trackSnapshot(pts) {
+        var minLa = 90, maxLa = -90, minLo = 180, maxLo = -180;
+        pts.forEach(function (p) { minLa = Math.min(minLa, p[0]); maxLa = Math.max(maxLa, p[0]); minLo = Math.min(minLo, p[1]); maxLo = Math.max(maxLo, p[1]); });
+        var k = Math.cos(((minLa + maxLa) / 2) * Math.PI / 180);
+        var w = Math.max((maxLo - minLo) * k, 1e-5), h = Math.max(maxLa - minLa, 1e-5);
+        var s = 84 / Math.max(w, h), ox = (100 - w * s) / 2, oy = (100 - h * s) / 2;
+        function xy(p) { return (ox + (p[1] - minLo) * k * s).toFixed(1) + ',' + (oy + (maxLa - p[0]) * s).toFixed(1); }
+        var last = xy(pts[pts.length - 1]).split(',');
+        return '<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">'
+            + '<polyline points="' + pts.map(xy).join(' ') + '" fill="none" stroke="var(--primary)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'
+            + '<circle cx="' + last[0] + '" cy="' + last[1] + '" r="5" fill="var(--primary)"/></svg>';
+    }
+    function entryRow(e, withMonth) {
+        var a = el('a', 'lx-at-row lx-at-j-row is-interactive');
+        a.href = '/journals/?date=' + encodeURIComponent(e.date);
+        a.setAttribute('data-date', e.date);
+        var p = parts(e.date);
+        var day = el('span', 'lx-at-j-day');
+        day.appendChild(el('span', 'lx-at-j-daynum', String(p.d)));
+        day.appendChild(el('span', 'lx-at-j-dayname', withMonth ? MONTHS[p.m - 1].slice(0, 3) + ' ' + String(p.y).slice(2) : WD_SHORT[new Date(p.y, p.m - 1, p.d).getDay()]));
+        a.appendChild(day);
+
+        var quick = (e.quick_note || '').trim().split('\n')[0];
+        var main = el('span', 'lx-at-row-main');
+        var title = el('span', 'lx-at-row-title' + (e.title ? '' : ' is-pending'));
+        if (e.mood) title.appendChild(el('span', 'lx-at-j-mood', e.mood));
+        var t = el('span', 'lx-at-j-t', e.title || ((quick || e.snippet) ? 'Untitled' : 'Empty day'));
+        t.setAttribute('data-title-for', e.date);
+        title.appendChild(t);
+        if (e.is_favorite) {
+            var fav = document.createElement('span'); fav.innerHTML = ic('star', 'lx-at-j-fav', 13);
+            title.appendChild(fav.firstChild);
+        }
+        main.appendChild(title);
+        if (quick) {
+            var q = el('span', 'lx-at-row-meta');
+            var qi = document.createElement('span'); qi.innerHTML = ic('pencil', null, 12);
+            q.appendChild(qi.firstChild);
+            q.appendChild(el('span', null, quick));
+            main.appendChild(q);
+        } else if (e.snippet) {
+            var sn = el('span', 'lx-at-row-meta'); sn.appendChild(el('span', null, e.snippet)); main.appendChild(sn);
+        }
+        var foot = [];
+        if (e.word_count) foot.push(e.word_count.toLocaleString() + (e.word_count === 1 ? ' word' : ' words'));
+        if (e.photo_count) foot.push(e.photo_count + (e.photo_count === 1 ? ' photo' : ' photos'));
+        if (e.location_name) foot.push(e.location_name);
+        if (foot.length) { var f = el('span', 'lx-at-row-meta is-foot'); f.appendChild(el('span', null, foot.join('  ·  '))); main.appendChild(f); }
+        a.appendChild(main);
+
+        var thumb = null;
+        if (e.cover) {
+            thumb = el('span', 'lx-at-j-thumb');
+            var img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.src = e.cover;
+            thumb.appendChild(img);
+        } else if (Array.isArray(e.track) && e.track.length > 1) {
+            thumb = el('span', 'lx-at-j-thumb');
+            thumb.innerHTML = trackSnapshot(e.track);
+        }
+        if (thumb) a.appendChild(thumb);
+        return a;
+    }
+    function markSelected() {
+        root.querySelectorAll('a[data-date]').forEach(function (a) {
+            var on = entryOpen && a.getAttribute('data-date') === currentDate;
+            a.classList.toggle('is-selected', on);
+            if (on) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
+        });
+    }
+    function passes(e) {
+        if (filters.fav && !e.is_favorite) return false;
+        if (filters.photos && !(e.photo_count > 0)) return false;
+        return true;
+    }
+    function noteBlock(text, isError, retry, retryLabel) {
+        var n = el('div', 'lx-at-j-note' + (isError ? ' is-error' : ''));
+        n.appendChild(el('div', null, text));
+        if (retry) {
+            var b = el('button', 'lx-at-btn', retryLabel || 'Retry'); b.type = 'button'; b.addEventListener('click', retry);
+            n.appendChild(b);
+        }
+        return n;
+    }
+    function emptyBlock(title, text, btnLabel, onBtn) {
+        var n = el('div', 'lx-at-empty');
+        var icon = el('span', 'lx-at-empty-icon'); icon.innerHTML = ic('book', null, 20); n.appendChild(icon);
+        n.appendChild(el('h2', 'lx-at-empty-title', title));
+        n.appendChild(el('p', 'lx-at-empty-text', text));
+        if (btnLabel) { var b = el('button', 'lx-at-btn', btnLabel); b.type = 'button'; b.addEventListener('click', onBtn); n.appendChild(b); }
+        return n;
+    }
+    function renderFeed() {
+        var box = $('lxj-feed');
+        box.removeAttribute('aria-busy');
+        box.textContent = '';
+        if (!feedEntries.length) {
+            box.appendChild(emptyBlock('No entries yet', 'Write a line about today above and it will show up here.'));
+            return;
+        }
+        var list = feedEntries.filter(passes);
+        if (!list.length) {
+            box.appendChild(emptyBlock('Nothing matches', 'No entries match these filters.', 'Clear filters', function () { filters.fav = filters.photos = false; syncFilterButtons(); renderFeed(); }));
+            return;
+        }
+        var counts = {};
+        list.forEach(function (e) { var m = e.date.slice(0, 7); counts[m] = (counts[m] || 0) + 1; });
+        var shown = list.slice(0, feedShown), month = null, ul = null;
+        shown.forEach(function (e) {
+            var m = e.date.slice(0, 7);
+            if (m !== month) {
+                var p = m.split('-').map(Number);
+                var h = el('h3', 'lx-at-j-month');
+                h.appendChild(el('span', null, MONTHS[p[1] - 1] + ' ' + p[0]));
+                h.appendChild(el('span', 'lx-at-num', counts[m] + (counts[m] === 1 ? ' entry' : ' entries')));
+                ul = el('ul', 'lx-at-list lx-at-j-rows');
+                box.appendChild(h); box.appendChild(ul);
+                month = m;
+            }
+            var li = document.createElement('li'); li.appendChild(entryRow(e, false)); ul.appendChild(li);
+        });
+        if (list.length > feedShown) {
+            var more = el('button', 'lx-at-btn lx-at-j-more', 'Show older entries'); more.type = 'button';
+            more.addEventListener('click', function () { feedShown += FEED_STEP; renderFeed(); });
+            box.appendChild(more);
+        }
+        syncHeadH();
+        markSelected();
+    }
+    function loadRecent() {
+        fetch('/api/journals/?' + tzQ()).then(function (r) { if (!r.ok) throw new Error('recent'); return r.json(); }).then(function (data) {
+            feedEntries = data.entries || [];
+            renderFeed();
+            backfillTitles();
+        }).catch(function () {
+            var box = $('lxj-feed');
+            box.removeAttribute('aria-busy');
+            box.textContent = '';
+            box.appendChild(noteBlock('Could not load your entries.', true, loadRecent));
+        });
+    }
+    // Untitled days with something written get an AI title, a few at a time, once per
+    // page load. Only runs when the account switched "AI title" on (it sends text out).
+    function backfillTitles() {
+        if (titleBackfillDone || !journalSettings || !journalSettings.ai_available || !journalSettings.auto_title) return;
+        if (!feedEntries.some(function (e) { return !e.title && (e.snippet || (e.quick_note || '').trim()); })) return;
+        titleBackfillDone = true;
+        function round() {
+            fetch('/api/journals/title-missing/', { method: 'POST', headers: { 'X-CSRFToken': CSRF } })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) {
+                    if (!d) return;
+                    var dates = Object.keys(d.titled || {});
+                    dates.forEach(function (ds) {
+                        var e = feedEntries.find(function (x) { return x.date === ds; });
+                        if (e) e.title = d.titled[ds];
+                        if (monthEntries[ds]) monthEntries[ds].title = d.titled[ds];
+                    });
+                    if (dates.length) renderFeed();
+                    if (dates.length && d.remaining > 0) round();
+                }).catch(function () { /* the next load tries again */ });
+        }
+        round();
+    }
+    function refreshLists() { loadMonth(); loadRecent(); loadStats(); }
+
+    // ═════ Search ═════
+    function runSearch(q) {
+        var seq = ++searchSeq;
+        searchQuery = q.trim();
+        if (!searchQuery) { clearSearch(); return; }
+        applyListChrome();
+        fetch('/api/journals/search/?q=' + encodeURIComponent(searchQuery)).then(function (r) { if (!r.ok) throw new Error('search'); return r.json(); }).then(function (data) {
+            if (seq !== searchSeq) return;
+            var list = (data.entries || []).filter(passes);
+            $('lxj-results-count').textContent = list.length + (list.length === 1 ? ' result' : ' results');
+            var box = $('lxj-results-list'); box.textContent = '';
+            if (!list.length) { box.appendChild(noteBlock('No matches found.', false)); return; }
+            var ul = el('ul', 'lx-at-list lx-at-j-rows');
+            list.forEach(function (e) { var li = document.createElement('li'); li.appendChild(entryRow(e, true)); ul.appendChild(li); });
+            box.appendChild(ul);
+            markSelected();
+        }).catch(function () {
+            if (seq !== searchSeq) return;
+            $('lxj-results-count').textContent = '';
+            var box = $('lxj-results-list'); box.textContent = '';
+            box.appendChild(noteBlock('Search failed.', true, function () { runSearch($('lxj-search').value); }));
+        });
+        syncHeadH();
+    }
+    function clearSearch() {
+        searchSeq++;
+        searchQuery = '';
+        var inp = $('lxj-search'); inp.value = '';
+        $('lxj-search-clear').hidden = true;
+        $('lxj-searchbox').removeAttribute('data-lx-esc');
+        $('lxj-results-list').textContent = '';
+        applyListChrome();
+        syncHeadH();
+    }
+    function syncFilterButtons() {
+        document.querySelectorAll('#lxj-filters [data-filter]').forEach(function (b) { b.setAttribute('aria-pressed', String(!!filters[b.dataset.filter])); });
+    }
+
+    // ═════ Entry editor ═════
+    function renderMoods() {
+        var box = $('lxj-e-moods');
+        box.textContent = '';
+        MOODS.forEach(function (m) {
+            var b = el('button', 'lx-at-j-moodbtn', m);
+            b.type = 'button'; b.setAttribute('data-mood', m); b.setAttribute('aria-pressed', String(m === currentMood)); b.setAttribute('aria-label', 'Mood ' + m);
+            box.appendChild(b);
+        });
+    }
+    function setFav(v) {
+        currentFav = !!v;
+        var b = $('lxj-e-fav');
+        b.setAttribute('aria-pressed', String(currentFav));
+        b.setAttribute('aria-label', currentFav ? 'Remove from favourites' : 'Favourite');
+        b.title = currentFav ? 'Remove from favourites' : 'Favourite';
+    }
+    function sizeQuick() {
+        var q = $('lxj-e-quick'); q.style.height = 'auto'; q.style.height = Math.max(q.scrollHeight + 2, 40) + 'px';
+    }
+    function sizeBody() {
+        var b = $('lxj-e-body'); b.style.height = 'auto'; b.style.height = Math.max(b.scrollHeight + 2, 180) + 'px';
+    }
+    function updateWordCount() {
+        var w = $('lxj-e-body').value.trim().split(/\s+/).filter(Boolean).length;
+        $('lxj-e-words').textContent = w ? w + (w === 1 ? ' word' : ' words') : '';
+    }
+    function setPill(btn, state, text, onclick) {
+        btn.className = 'lx-at-j-pill' + (state ? ' is-' + state : '');
+        btn.textContent = text || '';
+        btn.hidden = !text;
+        btn.disabled = state !== 'failed';
+        btn.onclick = state === 'failed' ? onclick : null;
+    }
+
+    function openEntry(dateStr, opts) {
+        opts = opts || {};
+        if (!validDate(dateStr)) return;
+        if (entryOpen) {                      // switching days: keep what was typed
+            var wasEdited = editedThisOpen;
+            flushSave().then(function () { if (wasEdited) refreshLists(); });
+        }
+        var fromList = view === 'list';
+        if (fromList) { var a = opts.opener || document.activeElement; opener = a && a !== document.body ? a : null; }
+        editedThisOpen = false;
+        currentDate = dateStr;
+        currentEntry = null;
+        entryOpen = true;
+        entryLoaded = false;
+        syncUrl(dateStr, fromList && !opts.fromHistory);
+        $('lxj-e-date').textContent = fmtLong(dateStr);
+        $('lxj-e-date').setAttribute('aria-label', 'Date: ' + fmtLong(dateStr) + '. Change it to move this entry to another day');
+        markSelected();
+        $('lxj-e-weekday').textContent = fmtWeekday(dateStr);
+        $('lxj-e-dateinput').value = dateStr;
+        currentMood = '';
+        renderMoods();
+        $('lxj-e-title').value = '';
+        $('lxj-e-body').value = (dateStr === todayStr() && miniReady) ? mini.value : '';
+        $('lxj-e-quick').value = '';
+        $('lxj-e-weather').value = '';
+        $('lxj-e-photos').textContent = '';
+        setPill($('lxj-e-pill'), '', '');
+        setFav(false);
+        $('lxj-e-fields').disabled = true;
+        $('lxj-e-form').setAttribute('aria-busy', 'true');
+        setView('entry');
+        sizeQuick(); sizeBody(); updateWordCount();
+        resetDayMap();
+        loadEntry(dateStr);
+        var t = document.querySelector('#lxj-v-entry [data-act="back"]');
+        if (t) { try { t.focus({ preventScroll: true }); } catch (e) { /* hidden */ } }
+    }
+    function loadEntry(dateStr) {
+        fetch('/api/journals/' + dateStr + '/?' + tzQ()).then(function (r) { if (!r.ok) throw new Error('entry'); return r.json(); }).then(function (data) {
+            if (currentDate !== dateStr || !entryOpen) return;
+            currentEntry = data.entry;
+            entryLoaded = true;
+            $('lxj-e-fields').disabled = false;
+            $('lxj-e-form').removeAttribute('aria-busy');
+            $('lxj-e-title').value = data.entry.title || '';
+            if (!(dateStr === todayStr() && miniReady)) $('lxj-e-body').value = data.entry.body || '';
+            $('lxj-e-quick').value = data.entry.quick_note || '';
+            $('lxj-e-weather').value = data.entry.weather || '';
+            currentMood = data.entry.mood || '';
+            renderMoods();
+            setFav(data.entry.is_favorite);
+            renderPhotos(data.entry.photos || []);
+            sizeQuick(); sizeBody(); updateWordCount();
+            renderDayMap(data.track || {});
+            fillWeather(dateStr);
+        }).catch(function () {
+            if (currentDate !== dateStr || !entryOpen) return;
+            $('lxj-e-form').removeAttribute('aria-busy');
+            setPill($('lxj-e-pill'), 'failed', 'Could not load. Retry', function () {
+                setPill($('lxj-e-pill'), '', '');
+                $('lxj-e-form').setAttribute('aria-busy', 'true');
+                loadEntry(dateStr);
+            });
+        });
+    }
+    // Into the field only: it is saved with the entry, so just opening a day creates nothing.
+    function fillWeather(dateStr) {
+        if (!journalSettings || !journalSettings.auto_weather) return;
+        if ($('lxj-e-weather').value) return;
+        fetch('/api/journals/' + dateStr + '/weather/').then(function (r) { return r.ok ? r.json() : {}; }).then(function (d) {
+            var input = $('lxj-e-weather');
+            if (d.weather && currentDate === dateStr && entryOpen && !input.value) input.value = d.weather;
+        }).catch(function () { /* weather is a nicety */ });
+    }
+
+    // Back from the entry: save, return to the list, then (never on the autosave) the AI fill.
+    function closeEntry(fromPop) {
+        var dateStr = currentDate;
+        var edited = editedThisOpen;
+        var needsAi = journalSettings && journalSettings.ai_available &&
+            ((journalSettings.auto_title && !$('lxj-e-title').value.trim()) ||
+             (journalSettings.auto_mood && !currentMood)) &&
+            ($('lxj-e-body').value.trim() || $('lxj-e-quick').value.trim());
+        var saved = flushSave();
+        entryOpen = false;
+        editedThisOpen = false;
+        if (dateStr === todayStr() && miniReady) mini.value = $('lxj-e-body').value;
+        if (!fromPop) syncUrl(null, false);
+        setView('list');
+        markSelected();
+        saved.then(function (ok) {
+            if (dateStr !== todayStr()) loadMini();
+            refreshLists();
+            if (ok && edited && needsAi) autofillEntry(dateStr);
+        });
+    }
+    // After the save has landed, never on the autosave: that fires every pause in typing.
+    function autofillEntry(dateStr) {
+        fetch('/api/journals/' + dateStr + '/autofill/', { method: 'POST', headers: { 'X-CSRFToken': CSRF } })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+                if (!res.ok) { toast(res.d.error || 'The AI title could not be generated.', 'error'); return; }
+                var d = res.d;
+                if (!d.title && !d.mood) return;
+                refreshLists();
+                if (currentDate === dateStr && entryOpen) {
+                    if (d.title && !$('lxj-e-title').value) $('lxj-e-title').value = d.title;
+                    if (d.mood && !currentMood) { currentMood = d.mood; renderMoods(); }
+                }
+                toast(((d.mood || '') + ' ' + (d.title || 'Mood added')).trim());
+            }).catch(function () { /* the fill is optional */ });
+    }
+
+    function moveEntry(target) {
+        var input = $('lxj-e-dateinput');
+        var from = currentDate;
+        if (!target || target === from) { input.value = from; return Promise.resolve(); }
+        return flushSave().then(function () {
+            if (dirty) { input.value = from; return 'unsaved'; }      // the save failed: do not move what is not stored
+            return fetch('/api/journals/' + from + '/move/', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ date: target }) }).catch(function () { return null; });
+        }).then(function (r) {
+            if (r === 'unsaved') return;
+            if (!r) { input.value = from; toast('Could not reach Roamly to move this entry.', 'error'); return; }
+            if (r.status === 404) { openEntry(target); return; }   // nothing saved yet: just a different day
+            return r.json().catch(function () { return {}; }).then(function (d) {
+                if (!r.ok) {
+                    input.value = from;
+                    if (window.roamlyAlert) window.roamlyAlert(d.error || 'Could not move this entry.');
+                    return;
+                }
+                openEntry(d.date);
+                refreshLists();
+                toast('Moved to ' + fmtLong(d.date));
+            });
+        });
+    }
+
+    // ── Autosave ──
+    function scheduleSave() {
+        if (!entryLoaded) return;
+        dirty = true;
+        editedThisOpen = true;
+        setPill($('lxj-e-pill'), 'saving', 'Saving');
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(function () { flushSave(); }, 800);
+    }
+    // Only what changed is sent. Saving on every close wrote a blank row for any day
+    // merely opened, and could overwrite an entry with the empty form if it closed
+    // before the entry had loaded. Resolves true once nothing is left unsaved.
+    function flushSave(keepalive) {
+        clearTimeout(saveTimer);
+        if (!currentDate) return Promise.resolve(false);
+        if (!dirty) return Promise.resolve(true);
+        dirty = false;
+        var pill = $('lxj-e-pill');
+        var date = currentDate;
+        var body = {
+            title: $('lxj-e-title').value,
+            body: $('lxj-e-body').value,
+            quick_note: $('lxj-e-quick').value,
+            mood: currentMood,
+            weather: $('lxj-e-weather').value,
+            is_favorite: currentFav
+        };
+        // Check r.ok, not just that a response arrived: a 500 returns the HTML error
+        // page, and telling someone typed prose is saved when it is not is the worst
+        // thing this page can do.
+        var opts = { method: 'POST', headers: jsonHeaders(), body: JSON.stringify(body) };
+        if (keepalive) opts.keepalive = true;
+        return fetch('/api/journals/' + date + '/save/', opts).then(function (r) {
+            if (!r.ok) throw new Error('save failed');
+            return r.json();
+        }).then(function () {
+            if (currentDate === date) setPill(pill, 'saved', 'Saved');
+            return true;
+        }).catch(function () {
+            dirty = true;
+            setPill(pill, 'failed', 'Not saved. Retry', function () { flushSave(); });
+            toast('Could not save this entry. Your text is still here. Use "Not saved" to try again.', 'error');
+            return false;
+        });
+    }
+
+    // ── Photos ──
+    function renderPhotos(photos) {
+        var box = $('lxj-e-photos');
+        box.textContent = '';
+        photos.forEach(function (p) {
+            var w = el('div', 'lx-at-j-photo');
+            var img = document.createElement('img'); img.alt = 'Journal photo'; img.loading = 'lazy'; img.src = p.thumbnail || p.url || '';
+            w.appendChild(img);
+            var del = el('button', 'lx-at-iconbtn'); del.type = 'button'; del.setAttribute('data-photo-del', p.id); del.setAttribute('aria-label', 'Remove photo');
+            del.innerHTML = ic('close', null, 14);
+            w.appendChild(del);
+            box.appendChild(w);
+        });
+        var add = el('button', 'lx-at-j-photoadd'); add.type = 'button'; add.setAttribute('data-photo-add', '1');
+        add.innerHTML = ic('plus', null, 18) + '<span>Add</span>';
+        box.appendChild(add);
+    }
+    function reloadPhotos(dateStr) {
+        return fetch('/api/journals/' + dateStr + '/').then(function (r) { return r.json(); }).then(function (data) {
+            if (currentDate === dateStr && entryOpen) renderPhotos((data.entry && data.entry.photos) || []);
+        }).catch(function () { /* keep what is shown */ });
+    }
+    function uploadPhotos(input) {
+        if (!input.files.length || !currentDate) return;
+        var date = currentDate;
+        var fd = new FormData();
+        Array.prototype.forEach.call(input.files, function (f) { fd.append('photos', f); });
+        var box = $('lxj-e-photos');
+        var ph = el('div', 'lx-at-j-photo skeleton'); ph.setAttribute('aria-label', 'Uploading'); box.insertBefore(ph, box.firstChild);
+        fetch('/api/journals/' + date + '/photos/', { method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: fd })
+            .then(function (r) { if (!r.ok) throw new Error('upload'); return r.json(); })
+            .then(function () { input.value = ''; return reloadPhotos(date); })
+            .catch(function () { input.value = ''; toast('Could not upload the photo.', 'error'); if (ph.parentNode) ph.parentNode.removeChild(ph); });
+    }
+    function deletePhoto(id) {
+        var date = currentDate;
+        fetch('/api/journals/photos/' + id + '/delete/', { method: 'POST', headers: { 'X-CSRFToken': CSRF } })
+            .then(function (r) { if (!r.ok) throw new Error('delete'); return reloadPhotos(date); })
+            .catch(function () { toast('Could not remove the photo.', 'error'); });
+    }
+
+    function deleteEntry() {
+        var date = currentDate;
+        var go = window.roamlyConfirm ? window.roamlyConfirm('Delete this journal entry? This cannot be undone.', { danger: true, confirmText: 'Delete entry' }) : Promise.resolve(window.confirm('Delete this journal entry? This cannot be undone.'));
+        go.then(function (yes) {
+            if (!yes) return;
+            clearTimeout(saveTimer); dirty = false;      // or the pending autosave recreates it
+            return fetch('/api/journals/' + date + '/delete/', { method: 'POST', headers: { 'X-CSRFToken': CSRF } }).then(function (r) {
+                if (!r.ok) throw new Error('delete');
+                entryOpen = false; editedThisOpen = false;
+                syncUrl(null, false);
+                setView('list');
+                markSelected();
+                if (date === todayStr()) loadMini();
+                refreshLists();
+            }).catch(function () { toast('Could not delete this entry.', 'error'); });
+        });
+    }
+
+    // ── Day map ──
+    function ensureMap() {
+        if (jmap || !window.maplibregl) return !!jmap;
+        try {
+            var theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light_all' : 'dark_all';
+            jmap = new window.maplibregl.Map({
+                container: 'lxj-e-map',
+                style: {
+                    version: 8,
+                    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+                    sources: { base: { type: 'raster', tiles: ['https://basemaps.cartocdn.com/' + theme + '/{z}/{x}/{y}.png' + CARTO_QS], tileSize: 256, attribution: '© OpenStreetMap © CARTO' } },
+                    layers: [{ id: 'base', type: 'raster', source: 'base' }]
+                },
+                center: [0, 20], zoom: 1, attributionControl: { compact: true }
+            });
+            jmap.on('load', function () { jmapLoaded = true; });
+        } catch (e) { jmap = null; return false; }
+        return true;
+    }
+    function resetDayMap() {
+        jDrawSeq++;
+        $('lxj-e-mapempty').hidden = true;
+        $('lxj-e-mapstats').hidden = true;
+        $('lxj-e-mapstats').textContent = '';
+        $('lxj-e-places').textContent = '';
+    }
+    function renderDayMap(track) {
+        var emptyEl = $('lxj-e-mapempty'), statsEl = $('lxj-e-mapstats'), placesEl = $('lxj-e-places');
+        statsEl.textContent = ''; placesEl.textContent = '';
+        var has = track && track.point_count > 0;
+        emptyEl.hidden = !!has;
+        statsEl.hidden = !has;
+        if (has) {
+            statsEl.appendChild(statCell('Distance', (track.distance_km || 0).toFixed(1) + ' km'));
+            statsEl.appendChild(statCell('Places', String((track.places || []).length)));
+            statsEl.appendChild(statCell('Points', (track.point_count || 0).toLocaleString()));
+            (track.places || []).slice(0, 6).forEach(function (p) {
+                var c = el('span', 'lx-at-chip');
+                var i = document.createElement('span'); i.innerHTML = ic('pin', null, 12); c.appendChild(i.firstChild);
+                c.appendChild(document.createTextNode(p.name));
+                placesEl.appendChild(c);
+            });
+        }
+        if (!ensureMap()) return;
+        var seq = ++jDrawSeq;
+        function draw() {
+            if (seq !== jDrawSeq || !entryOpen) return;
+            if (!jmapLoaded) { setTimeout(draw, 80); return; }
+            try {
+                jmap.resize();
+                ['j-line', 'j-start', 'j-end'].forEach(function (id) { if (jmap.getLayer(id)) jmap.removeLayer(id); });
+                ['line', 'startend'].forEach(function (id) { if (jmap.getSource(id)) jmap.removeSource(id); });
+                if (!track || !track.points || !track.points.length) return;
+                var primary = cssColor('--primary', '#d0694a');
+                var segs = track.segments && track.segments.length ? track.segments : null;
+                // Only draw a line from proper chronological segments: a flat point list
+                // would join points across tracking gaps and draw spaghetti.
+                if (segs) {
+                    jmap.addSource('line', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'MultiLineString', coordinates: segs } } });
+                    jmap.addLayer({ id: 'j-line', type: 'line', source: 'line', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': primary, 'line-width': 4, 'line-opacity': 0.9 } });
+                }
+                var startPt = track.start || track.points[0];
+                var endPt = track.end || track.points[track.points.length - 1];
+                if (startPt && endPt) {
+                    jmap.addSource('startend', { type: 'geojson', data: { type: 'FeatureCollection', features: [
+                        { type: 'Feature', properties: { kind: 'start' }, geometry: { type: 'Point', coordinates: startPt } },
+                        { type: 'Feature', properties: { kind: 'end' }, geometry: { type: 'Point', coordinates: endPt } }] } });
+                    var ring = cssColor('--bg-card', '#222');
+                    jmap.addLayer({ id: 'j-start', type: 'circle', source: 'startend', filter: ['==', 'kind', 'start'], paint: { 'circle-radius': 6, 'circle-color': cssColor('--clay-sky', '#7ba3b8'), 'circle-stroke-width': 2.5, 'circle-stroke-color': ring } });
+                    jmap.addLayer({ id: 'j-end', type: 'circle', source: 'startend', filter: ['==', 'kind', 'end'], paint: { 'circle-radius': 6, 'circle-color': cssColor('--clay-coral', '#d0694a'), 'circle-stroke-width': 2.5, 'circle-stroke-color': ring } });
+                }
+                var b = new window.maplibregl.LngLatBounds();
+                track.points.forEach(function (c) { b.extend(c); });
+                if (!b.isEmpty()) jmap.fitBounds(b, { padding: 40, maxZoom: 14, duration: 300 });
+            } catch (e) { /* the map is secondary: the entry still works */ }
+        }
+        setTimeout(draw, 120);   // let the view lay out before sizing the map
+    }
+
+    // ═════ Today box (list) ═════
+    // The quick way to write today's entry. It saves only `body`, so it can never
+    // overwrite the title, mood or weather. While the editor is open on today
+    // (wide full page) it mirrors the editor's body, which does the saving.
+    function editorOnToday() { return view === 'entry' && entryOpen && currentDate === todayStr(); }
+    function loadMini() {
+        miniReady = false; mini.disabled = true;
+        fetch('/api/journals/' + todayStr() + '/?' + tzQ()).then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+            .then(function (data) { mini.value = data.entry.body || ''; mini.disabled = false; miniReady = true; setPill(miniPill, '', ''); })
+            .catch(function () { setPill(miniPill, 'failed', 'Could not load. Retry', loadMini); });
+    }
+    function flushMini(keepalive) {
+        clearTimeout(miniTimer);
+        if (!miniDirty || !miniReady) return Promise.resolve(true);
+        miniDirty = false;
+        var opts = { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ body: mini.value }) };
+        if (keepalive) opts.keepalive = true;
+        return fetch('/api/journals/' + todayStr() + '/save/', opts)
+            .then(function (r) { if (!r.ok) throw new Error('save'); setPill(miniPill, 'saved', 'Saved'); loadMonth(); return true; })
+            .catch(function () {
+                miniDirty = true;
+                setPill(miniPill, 'failed', 'Not saved. Retry', function () { flushMini(); });
+                return false;
+            });
+    }
+    mini.addEventListener('input', function () {
+        if (editorOnToday()) {
+            var body = $('lxj-e-body');
+            body.value = mini.value;
+            body.dispatchEvent(new Event('input'));
+            return;
+        }
+        miniDirty = true;
+        setPill(miniPill, 'saving', 'Saving');
+        clearTimeout(miniTimer);
+        miniTimer = setTimeout(function () { flushMini(); }, 800);
+    });
+    $('lxj-today-label').textContent = 'Today, ' + fmtLong(todayStr());
+    $('lxj-open-today').addEventListener('click', function () {
+        if (!miniReady) return;
+        flushMini().then(function () { openEntry(todayStr()); });
+    });
+
+    // ═════ Journal settings ═════
+    function renderJournalSettings() {
+        var s = journalSettings;
+        if (!s) return;
+        document.querySelectorAll('#lxj-s-list input[data-setting]').forEach(function (box) {
+            var ai = box.dataset.setting !== 'auto_weather';
+            box.checked = !!s[box.dataset.setting];
+            box.disabled = ai && !s.ai_available;
+            box.closest('.lx-at-j-setrow').classList.toggle('is-off', box.disabled);
+        });
+        var note = $('lxj-s-note');
+        note.hidden = !!s.ai_available;
+        note.textContent = s.ai_available ? '' : 'The AI options use the provider from your AI Ask settings. Set one up in Settings to turn them on.';
+    }
+    function saveJournalSetting(box) {
+        fetch('/api/journals/settings/', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify((function () { var o = {}; o[box.dataset.setting] = box.checked; return o; })()) })
+            .then(function (r) { if (!r.ok) throw new Error('settings'); return r.json(); })
+            .then(function (s) { journalSettings = s; renderJournalSettings(); backfillTitles(); })
+            .catch(function () { box.checked = !box.checked; toast('Could not save that setting.', 'error'); });
+    }
+    function loadJournalSettings() {
+        fetch('/api/journals/settings/').then(function (r) { return r.ok ? r.json() : null; }).then(function (s) {
+            if (s) {
+                journalSettings = s; renderJournalSettings(); backfillTitles();
+                if (entryOpen && entryLoaded) fillWeather(currentDate);
+            }
+        }).catch(function () { /* settings stay unset */ });
+    }
+
+    // ═════ AI recap (a pushed view; nothing is kept) ═════
+    function recapParas(paras) { return (paras || []).map(function (p) { return '<p>' + esc(p) + '</p>'; }).join(''); }
+    function recapShort(ds) { var p = parts(ds); return MONTHS[p.m - 1].slice(0, 3) + ' ' + p.d; }
+    function renderRecap(r) {
+        var body = $('lxj-r-body');
+        $('lxj-r-span').textContent = recapShort(r.from) + ' to ' + recapShort(r.to);
+        if (r.status === 'empty') { body.innerHTML = '<p class="is-muted">Nothing was recorded in the past ' + esc(r.days) + ' days, so there is nothing to recap.</p>'; return; }
+        var html = '<h3>Recap</h3>' + recapParas(r.summary);
+        if (r.has_earlier) {
+            if (r.comparison && r.comparison.length) html += '<h3>Compared with before</h3>' + recapParas(r.comparison);
+        } else {
+            html += '<p class="is-muted">Not enough earlier data to compare these days with yet.</p>';
+        }
+        var earlierLabel = r.weeks_compared === 1 ? 'same days last week' : 'average of ' + esc(r.weeks_compared) + ' earlier weeks';
+        html += '<div class="lx-at-j-facts">' + (r.facts || []).map(function (f) {
+            return '<div class="lx-at-j-fact"><span class="l">' + esc(f.label) + '</span><span class="v">' + esc(f.value) + '</span>'
+                + (f.earlier ? '<span class="e">' + esc(f.earlier) + ' vs ' + earlierLabel + '</span>' : '') + '</div>';
+        }).join('') + '</div>';
+        var source = 'From your location history';
+        if (r.journals_used) source += ' and ' + esc(r.journals_used) + ' journal ' + (r.journals_used === 1 ? 'entry' : 'entries');
+        html += '<p class="is-small">' + source + '. Written by your AI provider and not saved.' + (r.journals_allowed ? '' : ' Journal text is left out unless you allow it in <a href="/settings/#notifications">AI Ask settings</a>.') + '</p>';
+        body.innerHTML = html;
+    }
+    function recapSetupNote() {
+        $('lxj-r-body').innerHTML = '<p class="is-muted">Recaps use the AI provider from your AI Ask settings, the same one as the summary emails.</p><p><a href="/settings/#notifications">Set up AI Ask in Settings</a></p>';
+    }
+    function recapError(message) {
+        var body = $('lxj-r-body');
+        body.innerHTML = '<p class="is-error">' + esc(message) + '</p>';
+        var b = el('button', 'lx-at-btn', 'Try again'); b.type = 'button'; b.addEventListener('click', loadRecap);
+        body.appendChild(b);
+    }
+    function loadRecap() {
+        if (recapAbort) recapAbort.abort();
+        var abort = recapAbort = new AbortController();
+        $('lxj-r-body').innerHTML = '<div class="lx-at-j-loading"><span class="spinner"></span><span>Reading your past few days</span></div>';
+        fetch('/api/journals/recap/', { method: 'POST', headers: { 'X-CSRFToken': CSRF }, signal: abort.signal })
+            .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, data: d }; }); })
+            .then(function (res) {
+                if (abort !== recapAbort) return;
+                if (res.ok) renderRecap(res.data);
+                else if (res.data.setup) recapSetupNote();
+                else recapError(res.data.error || 'Could not write your recap.');
+            })
+            .catch(function (e) {
+                if (e.name !== 'AbortError' && abort === recapAbort) recapError('Could not reach Roamly. Check your connection.');
+            });
+    }
+    function openRecap() {
+        var a = document.activeElement; opener = a && a !== document.body ? a : null;
+        $('lxj-r-span').textContent = 'Recent days';
+        setView('recap');
+        var t = $('lxj-r-title'); if (t) { try { t.focus({ preventScroll: true }); } catch (e) { /* hidden */ } }
+        if (AI_READY) loadRecap(); else recapSetupNote();
+    }
+    function closeRecapState() {   // leaving the recap throws it away
+        if (recapAbort) recapAbort.abort();
+        recapAbort = null;
+        $('lxj-r-body').textContent = '';
+    }
+    function openSettings() {
+        var a = document.activeElement; opener = a && a !== document.body ? a : null;
+        setView('settings');
+        var t = $('lxj-s-title'); if (t) { try { t.focus({ preventScroll: true }); } catch (e) { /* hidden */ } }
+    }
+
+    // ═════ Events (delegated) ═════
+    root.addEventListener('click', function (e) {
+        var t = e.target;
+        if (!t || !t.closest) return;
+        var row = t.closest('a[data-date]');
+        if (row && root.contains(row)) {
+            // Plain clicks stay in the page; modifier-clicks keep their new-tab behaviour.
+            if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); openEntry(row.getAttribute('data-date'), { opener: row }); }
+            return;
+        }
+        var cell = t.closest('.lx-at-j-cell[data-date]');
+        if (cell && !cell.disabled) { openEntry(cell.getAttribute('data-date'), { opener: cell }); return; }
+        var back = t.closest('[data-act="back"]');
+        if (back) { goBack(); return; }
+        var mb = t.closest('#lxj-filters [data-mode]');
+        if (mb) { setMode(mb.dataset.mode); return; }
+        var fb = t.closest('#lxj-filters [data-filter]');
+        if (fb) {
+            filters[fb.dataset.filter] = !filters[fb.dataset.filter];
+            syncFilterButtons();
+            renderFeed();
+            if (searchQuery) runSearch($('lxj-search').value);
+            return;
+        }
+        var mood = t.closest('[data-mood]');
+        if (mood) {
+            var m = mood.getAttribute('data-mood');
+            currentMood = currentMood === m ? '' : m;
+            renderMoods();
+            scheduleSave();
+            return;
+        }
+        var pd = t.closest('[data-photo-del]');
+        if (pd) { deletePhoto(pd.getAttribute('data-photo-del')); return; }
+        if (t.closest('[data-photo-add]')) { $('lxj-e-photoinput').click(); return; }
+    });
+    $('lxj-prev').addEventListener('click', function () { viewMonth--; if (viewMonth < 1) { viewMonth = 12; viewYear--; } loadMonth(); });
+    $('lxj-next').addEventListener('click', function () { viewMonth++; if (viewMonth > 12) { viewMonth = 1; viewYear++; } loadMonth(); });
+    $('lxj-thismonth').addEventListener('click', function () { var d = new Date(); viewYear = d.getFullYear(); viewMonth = d.getMonth() + 1; loadMonth(); });
+    $('lxj-recap-open').addEventListener('click', openRecap);
+    $('lxj-settings-btn').addEventListener('click', openSettings);
+    $('lxj-s-list').addEventListener('change', function (e) { if (e.target && e.target.matches && e.target.matches('input[data-setting]')) saveJournalSetting(e.target); });
+
+    var searchInput = $('lxj-search');
+    searchInput.addEventListener('input', function () {
+        var q = searchInput.value;
+        $('lxj-search-clear').hidden = !q;
+        // Esc clears the search first (atlas.js leaves Esc alone while this is set).
+        if (q) $('lxj-searchbox').setAttribute('data-lx-esc', ''); else $('lxj-searchbox').removeAttribute('data-lx-esc');
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function () { runSearch(q); }, 300);
+    });
+    $('lxj-search-clear').addEventListener('click', function () { clearSearch(); searchInput.focus(); });
+
+    $('lxj-e-fav').addEventListener('click', function () { if (!entryLoaded) return; setFav(!currentFav); scheduleSave(); });
+    $('lxj-e-delete').addEventListener('click', deleteEntry);
+    $('lxj-e-photoinput').addEventListener('change', function (e) { uploadPhotos(e.target); });
+    ['lxj-e-title', 'lxj-e-weather'].forEach(function (id) { $(id).addEventListener('input', scheduleSave); });
+    $('lxj-e-quick').addEventListener('input', function () { sizeQuick(); scheduleSave(); });
+    $('lxj-e-body').addEventListener('input', function () {
+        sizeBody(); updateWordCount(); scheduleSave();
+        if (currentDate === todayStr() && miniReady) mini.value = $('lxj-e-body').value;
+    });
+    var dateBtn = $('lxj-e-date'), dateInput = $('lxj-e-dateinput');
+    dateBtn.addEventListener('click', function () {
+        if (!entryLoaded) return;
+        try { dateInput.showPicker(); } catch (err) { dateInput.focus(); dateInput.click(); }
+    });
+    dateInput.addEventListener('change', function () { moveEntry(dateInput.value); });
+
+    // Esc goes back one level. A dialog or picker that is open keeps its own Esc.
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape' || e.defaultPrevented) return;
+        if (document.querySelector('.rly-dialog-overlay.open, .rly-date.open, .rly-select.open')) return;
+        if (view !== 'list') { e.preventDefault(); goBack(); return; }
+        if (searchQuery || searchInput.value) { e.preventDefault(); clearSearch(); }
+    });
+
+    // Typed text must survive the panel being swapped out or the page being left.
+    function flushAll() { try { flushSave(true); flushMini(true); } catch (err) { /* leaving anyway */ } }
+    window.addEventListener('pagehide', flushAll);
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') flushAll(); });
+    if (window.ResizeObserver) { try { new ResizeObserver(syncHeadH).observe($('lxj-head')); } catch (e) { /* optional */ } }
+    window.addEventListener('resize', syncHeadH);
+
+    // ═════ Init ═════
+    (function init() {
+        var d = new Date();
+        viewYear = d.getFullYear(); viewMonth = d.getMonth() + 1;
+        renderWeekdays();
+        renderMoods();
+        syncHeadH();
+        loadJournalSettings();
+        loadStats();
+        loadMonth();
+        loadRecent();
+        loadMini();
+        // Deep link: ?date=YYYY-MM-DD opens that day (never a future one).
+        var qd = new URLSearchParams(location.search).get('date');
+        if (qd && validDate(qd) && qd <= todayStr()) openEntry(qd, { fromHistory: true });
+        else if (qd) syncUrl(null, false);
+    })();
+})();
+</script>
+{% endblock %}
