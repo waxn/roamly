@@ -4,14 +4,19 @@
 {# No map on this page: skip MapLibre (~1MB JS + 70KB CSS). #}
 {% block map_css %}{% endblock %}
 {% block map_js %}{% endblock %}
-{% comment %} Chronicle health: a day-oriented log. Totals and one chart for the
-   range, a year of days as a heatmap, a log of recent days, and the open day's
-   detail inline. Same endpoints as the classic page (/api/health/...), same
-   deep links: ?day=YYYY-MM-DD opens a day, ?start=&end= sets the range. The
-   Health / Activities switch is the shared _health_tabs.html, restyled below. {% endcomment %}
+{% comment %} Chronicle health: one tile per metric the account has data for (steps,
+   distance, energy, workouts, heart rate), a chart of whichever tile is chosen, a
+   year of days as a heatmap, the open day's detail inline, and a flat timeline of
+   workouts: sessions imported from Health Connect merged with activities recorded in
+   Roamly (/api/health/workouts/ does the merge). Same endpoints as the classic page,
+   same deep links: ?day=YYYY-MM-DD opens a day, ?start=&end= sets the range. The
+   Health / Activities switch is the shared _health_tabs.html, restyled below.
+   Health Connect only carries steps, distance and calories (plus an average heart
+   rate on imported workouts), so there are no sleep or weight tiles: a tile only
+   exists when its data does. {% endcomment %}
 
 {% block extra_css %}
-html[data-layout="chronicle"] .lx-ch-page.lx-ch-h { max-width: 960px; }
+html[data-layout="chronicle"] .lx-ch-page.lx-ch-h { max-width: 1040px; }
 html[data-layout="chronicle"] .lx-ch-h [hidden] { display: none !important; }
 html[data-layout="chronicle"] .lx-ch-h svg.lx-ch-h-i { flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -33,19 +38,47 @@ html[data-layout="chronicle"] .lx-ch-h .pill-tabs .tab-btn.active { background: 
 html[data-layout="chronicle"] .lx-ch-h .pill-tabs .tab-btn:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
 
 html[data-layout="chronicle"] .lx-ch-title.lx-ch-h-title { margin-top: 2px; }
-html[data-layout="chronicle"] .lx-ch-h-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 20px 0 28px; }
+html[data-layout="chronicle"] .lx-ch-h-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 20px 0 24px; }
 html[data-layout="chronicle"] .lx-ch-h-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 html[data-layout="chronicle"] .lx-ch-h-dates { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
 html[data-layout="chronicle"] .lx-ch-h-dates label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
 html[data-layout="chronicle"] .lx-ch-h-field {
     height: 32px; padding: 0 10px; box-sizing: border-box;
     background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--r-2, 0px);
-    color: var(--text); color-scheme: dark light; font-family: var(--font-mono); font-size: 13px; box-shadow: none;
+    color: var(--text); color-scheme: dark; font-family: var(--font-mono); font-size: 13px; box-shadow: none;
 }
+html[data-layout="chronicle"][data-theme="light"] .lx-ch-h-field { color-scheme: light; }
 html[data-layout="chronicle"] .lx-ch-h-field:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
 
-html[data-layout="chronicle"] .lx-ch-h .lx-ch-stats { gap: 16px 40px; }
-html[data-layout="chronicle"] .lx-ch-h .lx-ch-stat-value { font-size: 28px; }
+/* Metric tiles: flat surface, one hairline, a sparkline at the foot. */
+html[data-layout="chronicle"] .lx-ch-h-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+html[data-layout="chronicle"] .lx-ch-h-tile {
+    --tc: var(--primary);
+    display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; min-height: 148px; padding: 14px 16px 12px; margin: 0;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-3, 0px);
+    font: inherit; text-align: left; color: var(--text); text-decoration: none; cursor: default;
+    transition: border-color 150ms ease-out, background-color 150ms ease-out;
+}
+html[data-layout="chronicle"] button.lx-ch-h-tile { cursor: pointer; }
+html[data-layout="chronicle"] button.lx-ch-h-tile:hover { border-color: var(--border-strong); }
+html[data-layout="chronicle"] button.lx-ch-h-tile[aria-pressed="true"] { border-color: var(--tc); background: color-mix(in srgb, var(--tc) 6%, var(--bg-card)); }
+html[data-layout="chronicle"] button.lx-ch-h-tile:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+html[data-layout="chronicle"] .lx-ch-h-tile-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; line-height: 1.3; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-h-tile-top svg { color: var(--tc); }
+html[data-layout="chronicle"] .lx-ch-h-tile-val {
+    display: block; margin-top: 2px; min-height: 1.1em;
+    font-family: var(--font-display); font-size: 32px; line-height: 1.1; font-weight: 500; letter-spacing: -0.015em;
+    font-variant-numeric: lining-nums tabular-nums; color: var(--text); overflow-wrap: anywhere;
+}
+html[data-layout="chronicle"] .lx-ch-h-tile-val small { margin-left: 5px; font-family: var(--font-body); font-size: 13px; font-weight: 400; letter-spacing: 0; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-h-tile-val.is-none { font-size: 20px; font-weight: 400; color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-h-tile-sub { font-family: var(--font-mono); font-size: 12px; line-height: 1.4; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-h-spark { display: block; width: 100%; height: 28px; margin-top: auto; padding-top: 8px; box-sizing: content-box; overflow: visible; color: var(--tc); }
+html[data-layout="chronicle"] .lx-ch-h-spark path { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+html[data-layout="chronicle"] .lx-ch-h-spark path.area { fill: color-mix(in srgb, currentColor 14%, transparent); stroke: none; }
+html[data-layout="chronicle"] .lx-ch-h-spark path.base { stroke: var(--border-strong); }
+html[data-layout="chronicle"] .lx-ch-h-tile.is-skel { cursor: default; }
+html[data-layout="chronicle"] .lx-ch-h-tile.is-skel .skeleton { display: block; }
 
 /* Charts */
 html[data-layout="chronicle"] .lx-ch-h-chart { position: relative; width: 100%; height: 260px; margin-top: 8px; }
@@ -62,7 +95,6 @@ html[data-layout="chronicle"] .lx-ch-h-dot {
     position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--primary);
     border: 2px solid var(--bg); transform: translate(-50%, -50%); opacity: 0; pointer-events: none;
 }
-html[data-layout="chronicle"] .lx-ch-h-metric { margin-bottom: 4px; }
 
 /* Year heatmap */
 html[data-layout="chronicle"] .lx-ch-h-heat { position: relative; }
@@ -93,18 +125,8 @@ html[data-layout="chronicle"] .lx-ch-h-legend i[data-l="3"] { background: color-
 html[data-layout="chronicle"] .lx-ch-h-legend i[data-l="4"] { background: var(--primary); }
 html[data-layout="chronicle"] .lx-ch-h-year { height: 30px; padding: 0 8px; }
 
-/* Day log (the days of the chosen range) */
-html[data-layout="chronicle"] .lx-ch-row.lx-ch-h-logrow { align-items: center; gap: 16px; padding: 12px 8px; margin: 0 -8px; width: calc(100% + 16px); box-sizing: border-box; border-radius: var(--r-2, 0px); }
-html[data-layout="chronicle"] .lx-ch-h-logrow.is-sel { background: color-mix(in srgb, var(--primary) 7%, transparent); }
-html[data-layout="chronicle"] .lx-ch-h-logdate { flex: none; width: 128px; font-family: var(--font-display); font-size: 16px; line-height: 1.2; color: var(--text); }
-html[data-layout="chronicle"] .lx-ch-h-logbar { flex: 1 1 auto; min-width: 0; height: 4px; background: var(--lx-ch-tint); border-radius: var(--r-pill, 999px); overflow: hidden; }
-html[data-layout="chronicle"] .lx-ch-h-logbar i { display: block; height: 100%; background: var(--primary); opacity: 0.8; }
-html[data-layout="chronicle"] .lx-ch-h-logmeta { flex: none; min-width: 150px; text-align: right; font-family: var(--font-mono); font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-html[data-layout="chronicle"] .lx-ch-h-logmeta b { font-weight: 400; color: var(--text); }
-html[data-layout="chronicle"] .lx-ch-h-more { margin: 16px 0 0; }
-
 /* The open day */
-html[data-layout="chronicle"] .lx-ch-h-day { scroll-margin-top: calc(var(--nav-h) + 16px); margin-top: 40px; padding: 4px 0 8px; border-top: 2px solid var(--text); }
+html[data-layout="chronicle"] .lx-ch-h-day { scroll-margin-top: 24px; margin-top: 40px; padding: 4px 0 8px; border-top: 2px solid var(--text); }
 html[data-layout="chronicle"] .lx-ch-h-dayhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-top: 18px; }
 html[data-layout="chronicle"] .lx-ch-h-daytitle {
     display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; margin: 2px 0 0;
@@ -127,16 +149,35 @@ html[data-layout="chronicle"] .lx-ch-h-town { display: inline-flex; align-items:
 html[data-layout="chronicle"] .lx-ch-h-town small { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); }
 html[data-layout="chronicle"] .lx-ch-h-dayact { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
 
-/* Workouts */
-html[data-layout="chronicle"] .lx-ch-h-wo { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--border); }
-html[data-layout="chronicle"] .lx-ch-h-wo-ic { flex: none; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--r-2, 0px); color: var(--primary); }
+/* Workout timeline: a month head, then a date spine and the sessions of each day. */
+html[data-layout="chronicle"] .lx-ch-h-tlbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin: 4px 0 0; }
+html[data-layout="chronicle"] .lx-ch-h-tlmonth { content-visibility: auto; contain-intrinsic-size: auto 240px; margin-top: 28px; }
+html[data-layout="chronicle"] .lx-ch-h-tlmonth-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border-strong); }
+html[data-layout="chronicle"] .lx-ch-h-tlmonth-title { margin: 0; font-family: var(--font-display); font-size: 24px; line-height: 1.15; font-weight: 500; letter-spacing: -0.01em; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-h-tlmonth-meta { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; text-align: right; }
+html[data-layout="chronicle"] .lx-ch-h-tlday { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 0 20px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-h-tldate {
+    align-self: start; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 2px 6px; margin: -2px -6px;
+    background: none; border: 0; border-radius: var(--r-2, 0px); font: inherit; text-align: left; color: var(--text); cursor: pointer;
+    transition: background-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-h-tldate:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-h-tldate:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-h-tlnum { font-family: var(--font-display); font-size: 30px; line-height: 1; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: lining-nums tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-h-tlwd { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.3; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-h-tlentries { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-h-wo { display: flex; align-items: flex-start; gap: 14px; min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-h-wo-ic { flex: none; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--r-2, 0px); color: var(--primary); }
 html[data-layout="chronicle"] .lx-ch-h-wo-main { flex: 1 1 auto; min-width: 0; }
-html[data-layout="chronicle"] .lx-ch-h-wo-t { font-family: var(--font-display); font-size: 17px; line-height: 1.25; font-weight: 500; color: var(--text); }
-html[data-layout="chronicle"] a.lx-ch-h-wo-t { text-decoration: none; }
-html[data-layout="chronicle"] a.lx-ch-h-wo-t:hover { text-decoration: underline; }
+html[data-layout="chronicle"] .lx-ch-h-wo-t { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-family: var(--font-display); font-size: 18px; line-height: 1.25; font-weight: 500; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-h-wo-t .lx-ch-badge { font-family: var(--font-body); font-weight: 400; letter-spacing: 0; }
+html[data-layout="chronicle"] a.lx-ch-h-wo-t { text-decoration: none; border-radius: var(--r-1, 0px); }
+html[data-layout="chronicle"] a.lx-ch-h-wo-t:hover .lx-ch-h-wo-name { text-decoration: underline; }
 html[data-layout="chronicle"] a.lx-ch-h-wo-t:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
-html[data-layout="chronicle"] .lx-ch-h-wo-tag { margin-left: 10px; vertical-align: middle; }
-html[data-layout="chronicle"] .lx-ch-h-wo-sub { margin-top: 2px; font-family: var(--font-mono); font-size: 12.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+html[data-layout="chronicle"] .lx-ch-h-wo-sub { display: flex; flex-wrap: wrap; gap: 0 16px; margin-top: 3px; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; color: var(--text-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+html[data-layout="chronicle"] .lx-ch-h-wo-sub b { font-weight: 400; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-h-more { margin: 20px 0 0; }
+html[data-layout="chronicle"] .lx-ch-h-tlskel { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 20px; padding: 16px 0; border-bottom: 1px solid var(--border); }
 
 /* Sync and sources */
 html[data-layout="chronicle"] .lx-ch-h-status { margin: 0; padding: 0; list-style: none; }
@@ -159,27 +200,35 @@ html[data-layout="chronicle"] .lx-ch-h-radio span { flex: 1 1 auto; min-width: 0
 html[data-layout="chronicle"] .lx-ch-h-radio em { font-style: normal; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
 html[data-layout="chronicle"] .lx-ch-h-radio:focus-within { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
 
-html[data-layout="chronicle"] .lx-ch-h-empty { margin-top: 8px; padding: 28px 0; font-size: 14px; line-height: 1.6; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-h-empty { margin-top: 8px; padding: 28px 0; font-size: 14px; line-height: 1.6; color: var(--text-muted); max-width: 60ch; }
 html[data-layout="chronicle"] .lx-ch-h-err { color: var(--danger); }
 html[data-layout="chronicle"] .lx-ch-h-link { color: var(--link); text-decoration: none; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
 html[data-layout="chronicle"] .lx-ch-h-link:hover { text-decoration: underline; }
+html[data-layout="chronicle"] .lx-ch-h-link:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; border-radius: var(--r-1, 0px); }
 
 @media (max-width: 768px) {
     html[data-layout="chronicle"] .lx-ch-h-dates { margin-left: 0; width: 100%; }
     html[data-layout="chronicle"] .lx-ch-h-dates label { flex: 1 1 140px; flex-direction: column; align-items: stretch; gap: 4px; }
     html[data-layout="chronicle"] .lx-ch-h-field { height: 44px; font-size: 16px; }
     html[data-layout="chronicle"] .lx-ch-h-year { height: 44px; }
-    html[data-layout="chronicle"] .lx-ch-h .lx-ch-stat-value { font-size: 24px; }
+    html[data-layout="chronicle"] .lx-ch-h-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    html[data-layout="chronicle"] .lx-ch-h-tile { min-height: 132px; padding: 12px; }
+    html[data-layout="chronicle"] .lx-ch-h-tile-val { font-size: 26px; }
+    html[data-layout="chronicle"] .lx-ch-h .lx-ch-stat-value { font-size: 22px; }
     html[data-layout="chronicle"] .lx-ch-h .lx-ch-stats { gap: 16px 28px; }
     html[data-layout="chronicle"] .lx-ch-h-chart { height: 220px; }
     html[data-layout="chronicle"] .lx-ch-h-daytitle { font-size: 28px; }
     html[data-layout="chronicle"] .lx-ch-h-iconbtn { min-width: 44px; height: 44px; }
-    html[data-layout="chronicle"] .lx-ch-h-logdate { width: auto; flex: 1 1 auto; }
-    html[data-layout="chronicle"] .lx-ch-h-logbar { display: none; }
-    html[data-layout="chronicle"] .lx-ch-h-logmeta { min-width: 0; }
-    html[data-layout="chronicle"] .lx-ch-h-logrow { min-height: 52px; }
     html[data-layout="chronicle"] .lx-ch-h .pill-tabs .tab-btn { min-height: 44px; }
     html[data-layout="chronicle"] .lx-ch-h-src > summary { min-height: 44px; align-items: center; }
+    html[data-layout="chronicle"] .lx-ch-h-tlday, html[data-layout="chronicle"] .lx-ch-h-tlskel { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    html[data-layout="chronicle"] .lx-ch-h-tldate { flex-direction: row; align-items: center; gap: 8px; min-height: 44px; padding: 0 6px; }
+    html[data-layout="chronicle"] .lx-ch-h-tlnum { font-size: 24px; }
+    html[data-layout="chronicle"] .lx-ch-h-tlmonth-title { font-size: 21px; }
+    html[data-layout="chronicle"] .lx-ch-h-wo-ic { width: 32px; height: 32px; }
+}
+@media (max-width: 380px) {
+    html[data-layout="chronicle"] .lx-ch-h-tile-val { font-size: 23px; }
 }
 @media (prefers-reduced-motion: reduce) {
     html[data-layout="chronicle"] .lx-ch-h * { transition: none !important; }
@@ -194,7 +243,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
     <span class="lx-ch-kicker" id="lxh-kicker">&nbsp;</span>
     <h1 class="lx-ch-title lx-ch-h-title">Health</h1>
 
-    <div class="lx-ch-h-toolbar" id="lxh-toolbar" role="group" aria-label="Range" hidden>
+    <div class="lx-ch-h-toolbar" id="lxh-toolbar" role="group" aria-label="Range">
         <div class="lx-ch-h-chips" id="lxh-chips">
             <button type="button" class="lx-ch-chip" data-range="24" aria-pressed="false">24 hours</button>
             <button type="button" class="lx-ch-chip" data-range="72" aria-pressed="false">3 days</button>
@@ -217,32 +266,30 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
         <p>Roamly reads steps, distance and calories from <strong>Health Connect</strong> on Android. Open the Roamly app, go to Settings, then Health, grant permission and turn on syncing. Your data stays between your phone and this server.</p>
         <p>Workouts stay under your control: browse your exercise sessions in the app and import only the ones you want. If your data lives in Zepp, connect it or import a file below.</p>
     </div>
-    <div class="lx-ch-empty" id="lxh-loaderr" hidden>
+    <div class="lx-ch-empty" id="lxh-loaderr" hidden role="alert">
         <div class="lx-ch-empty-title">Health didn&rsquo;t load</div>
         <p>Roamly couldn&rsquo;t reach the server. Your data is untouched.</p>
         <button type="button" class="lx-ch-btn" id="lxh-retry">Try again</button>
     </div>
 
-    <div id="lxh-content" hidden>
-        <div class="lx-ch-stats" id="lxh-stats" aria-busy="true">
-            <div class="lx-ch-stat"><span class="lx-ch-stat-value" id="lxh-st-steps"><span class="skeleton" style="display:block;width:5.5rem;height:1.5rem;"></span></span><span class="lx-ch-stat-label">Steps</span></div>
-            <div class="lx-ch-stat"><span class="lx-ch-stat-value" id="lxh-st-dist"><span class="skeleton" style="display:block;width:5rem;height:1.5rem;"></span></span><span class="lx-ch-stat-label">Distance</span></div>
-            <div class="lx-ch-stat"><span class="lx-ch-stat-value" id="lxh-st-cal"><span class="skeleton" style="display:block;width:6rem;height:1.5rem;"></span></span><span class="lx-ch-stat-label">Active calories</span></div>
-            <div class="lx-ch-stat"><span class="lx-ch-stat-value" id="lxh-st-avg"><span class="skeleton" style="display:block;width:4.5rem;height:1.5rem;"></span></span><span class="lx-ch-stat-label">Steps a day, on average</span></div>
+    <div id="lxh-content">
+        <div class="lx-ch-h-tiles" id="lxh-tiles" aria-busy="true" role="group" aria-label="Totals for the range. Choose one to chart it.">
+            {% for i in "1234" %}
+            <div class="lx-ch-h-tile is-skel" aria-hidden="true">
+                <span class="skeleton" style="width:45%;height:13px;"></span>
+                <span class="skeleton" style="width:70%;height:30px;margin-top:6px;"></span>
+                <span class="skeleton" style="width:55%;height:12px;margin-top:6px;"></span>
+            </div>
+            {% endfor %}
         </div>
 
         <section class="lx-ch-section" aria-labelledby="lxh-over-title">
             <div class="lx-ch-section-head">
-                <h2 class="lx-ch-section-title" id="lxh-over-title">Over time</h2>
+                <h2 class="lx-ch-section-title" id="lxh-over-title">Steps over time</h2>
                 <span class="lx-ch-section-meta" id="lxh-note"></span>
             </div>
-            <div class="lx-ch-seg lx-ch-h-metric" id="lxh-metric" role="group" aria-label="Metric">
-                <button type="button" data-metric="steps" aria-pressed="true">Steps</button>
-                <button type="button" data-metric="distance" aria-pressed="false">Distance</button>
-                <button type="button" data-metric="calories" aria-pressed="false">Calories</button>
-            </div>
             <div class="lx-ch-h-chart" id="lxh-main-chart-wrap">
-                <canvas id="lxh-main-chart" role="img" aria-label="Chart of the chosen metric over the range. The days below hold the same figures."></canvas>
+                <canvas id="lxh-main-chart" role="img" aria-label="Chart of the chosen metric over the range."></canvas>
                 <div class="lx-ch-h-line" id="lxh-main-line"></div>
                 <div class="lx-ch-h-dot" id="lxh-main-dot"></div>
                 <div class="lx-ch-h-tip" id="lxh-main-tip"></div>
@@ -259,7 +306,9 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
             </div>
             <div class="lx-ch-h-heat" id="lxh-heat">
                 <div class="lx-ch-h-heatscroll" id="lxh-heatscroll">
-                    <div class="lx-ch-h-grid" id="lxh-grid" role="group" aria-label="One square per day. Use the arrow keys to move between days and Enter to open one."></div>
+                    <div class="lx-ch-h-grid" id="lxh-grid" role="group" aria-label="One square per day. Use the arrow keys to move between days and Enter to open one.">
+                        <span class="skeleton" style="grid-column:1 / -1;height:140px;"></span>
+                    </div>
                 </div>
                 <div class="lx-ch-h-legend" id="lxh-legend" aria-hidden="true"></div>
                 <div class="lx-ch-h-tip" id="lxh-heat-tip"></div>
@@ -278,7 +327,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
                     <button type="button" class="lx-ch-h-iconbtn" id="lxh-dayclose" aria-label="Close this day"><svg class="lx-ch-h-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
                 </div>
             </div>
-            <div class="lx-ch-h-empty" id="lxh-dayloading">Loading&hellip;</div>
+            <div class="lx-ch-h-empty" id="lxh-dayloading" role="status">Loading&hellip;</div>
             <div id="lxh-daycontent" hidden>
                 <div class="lx-ch-stats" id="lxh-daystats"></div>
                 <h3 class="lx-ch-h-subhead">Steps by hour</h3>
@@ -293,32 +342,29 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
                 <div class="lx-ch-h-dayact" id="lxh-daylinks"></div>
             </div>
         </section>
-
-        <section class="lx-ch-section" aria-labelledby="lxh-log-title">
-            <div class="lx-ch-section-head">
-                <h2 class="lx-ch-section-title" id="lxh-log-title">Days</h2>
-                <span class="lx-ch-section-meta" id="lxh-log-meta"></span>
-            </div>
-            <div id="lxh-log" aria-busy="true">
-                {% for i in "12345" %}<div class="lx-ch-row" aria-hidden="true"><span class="skeleton" style="display:block;width:100%;height:1rem;"></span></div>{% endfor %}
-            </div>
-        </section>
-
-        <section class="lx-ch-section" aria-labelledby="lxh-wo-title">
-            <div class="lx-ch-section-head">
-                <h2 class="lx-ch-section-title" id="lxh-wo-title">Workouts</h2>
-                <span class="lx-ch-section-meta" id="lxh-wo-count"></span>
-            </div>
-            <div id="lxh-workouts" aria-busy="true">
-                {% for i in "1234" %}
-                <div class="lx-ch-h-wo" aria-hidden="true">
-                    <span class="skeleton" style="width:40px;height:40px;flex:0 0 auto;"></span>
-                    <div style="flex:1 1 auto;"><div class="skeleton lx-ch-skel-line is-short" style="margin-bottom:6px;"></div><div class="skeleton lx-ch-skel-line is-mid"></div></div>
-                </div>
-                {% endfor %}
-            </div>
-        </section>
     </div>
+
+    <section class="lx-ch-section" id="lxh-timeline" aria-labelledby="lxh-wo-title">
+        <div class="lx-ch-section-head">
+            <h2 class="lx-ch-section-title" id="lxh-wo-title">Workouts and activities</h2>
+            <span class="lx-ch-section-meta" id="lxh-wo-count"></span>
+        </div>
+        <div class="lx-ch-h-tlbar" id="lxh-tlbar" hidden>
+            <div class="lx-ch-seg" id="lxh-wofilter" role="group" aria-label="Show">
+                <button type="button" data-f="all" aria-pressed="true">All</button>
+                <button type="button" data-f="recorded" aria-pressed="false">Recorded in Roamly</button>
+                <button type="button" data-f="imported" aria-pressed="false">Imported</button>
+            </div>
+        </div>
+        <div id="lxh-workouts" aria-busy="true">
+            {% for i in "123" %}
+            <div class="lx-ch-h-tlskel" aria-hidden="true">
+                <span class="skeleton" style="width:48px;height:30px;"></span>
+                <div><div class="skeleton lx-ch-skel-line is-short" style="margin-bottom:8px;"></div><div class="skeleton lx-ch-skel-line is-mid"></div></div>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
 
     <section class="lx-ch-section" id="lxh-sync" aria-labelledby="lxh-sync-title">
         <div class="lx-ch-section-head">
@@ -349,10 +395,11 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
         if (!root) return;
         const $ = id => document.getElementById(id);
         const csrfToken = '{{ csrf_token }}';
+        const USER_KEY = '{{ request.user.id }}';
         const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const TZ_OFFSET = new Date().getTimezoneOffset();
         const CHART_TICKS = 5;
-        const LOG_STEP = 14;
+        const WO_PAGE = 50;
 
         // ── Helpers ───────────────────────────────────────────────────
         function esc(s) {
@@ -366,11 +413,18 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
             } catch (e) {}
             return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
         }
+        function icon(name, size) {
+            try { return window.RoamlyIcons && window.RoamlyIcons.svg ? window.RoamlyIcons.svg(name, size || 18) : ''; } catch (e) { return ''; }
+        }
         // roamly_speed_unit decides the distance unit AND the clock face, as on the classic page.
         function isImperial() { try { return (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph'; } catch (e) { return false; } }
         function formatDistanceM(metres) {
             const km = (metres || 0) / 1000;
             return isImperial() ? (km * 0.621371).toFixed(1) + ' mi' : km.toFixed(1) + ' km';
+        }
+        function distParts(metres) {
+            const v = ((metres || 0) / 1000) * (isImperial() ? 0.621371 : 1);
+            return { n: v >= 100 ? Math.round(v).toLocaleString() : (Math.round(v * 10) / 10).toLocaleString(), unit: isImperial() ? 'mi' : 'km' };
         }
         const fmtInt = n => Math.round(n || 0).toLocaleString();
         const use12h = isImperial;
@@ -385,6 +439,9 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
             try {
                 return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: use12h() ? 'numeric' : '2-digit', minute: '2-digit', hour12: use12h() });
             } catch (e) { return ''; }
+        }
+        function fmtClock(iso) {
+            try { return new Date(iso).toLocaleTimeString([], { hour: use12h() ? 'numeric' : '2-digit', minute: '2-digit', hour12: use12h() }); } catch (e) { return ''; }
         }
         function addDays(dateStr, n) {
             const p = dateStr.split('-').map(Number);
@@ -403,10 +460,12 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
             return new Date(p[0], (p[1] || 1) - 1, p[2] || 1);
         }
         const fmtDayLong = d => parseDay(d).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-        function localToday() {
-            const n = new Date();
+        function localDayOf(iso) {
+            const n = new Date(iso);
+            if (isNaN(n)) return '';
             return n.getFullYear() + '-' + pad2(n.getMonth() + 1) + '-' + pad2(n.getDate());
         }
+        function localToday() { return localDayOf(new Date().toISOString()); }
         const isLeapYear = y => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
         function fmtDuration(seconds) {
             const s = Math.max(0, Math.round(seconds || 0));
@@ -437,6 +496,23 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
         }
         const distanceUnitLabel = () => isImperial() ? 'miles' : 'kilometres';
 
+        // Stale-while-revalidate over sessionStorage: paint the last answer for
+        // this exact request at once, then fetch and repaint only if it changed.
+        function ssGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
+        function ssSet(k, v) { try { sessionStorage.setItem(k, v); } catch (e) { /* quota or blocked: the page works uncached */ } }
+        function swr(url, apply, fail) {
+            const key = 'roamly_ch_h:v1:' + USER_KEY + ':' + url;
+            const cached = ssGet(key);
+            let shown = false;
+            if (cached) { try { apply(JSON.parse(cached)); shown = true; } catch (e) { /* corrupt copy */ } }
+            return fetch(url, { credentials: 'same-origin' })
+                .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+                .then(text => {
+                    if (text !== cached || !shown) { ssSet(key, text); apply(JSON.parse(text)); }
+                })
+                .catch(err => { if (!shown && fail) fail(err); });
+        }
+
         // Canvas can't read CSS variables, and a token may be hex, rgb or a
         // color-mix: paint it into a pixel and read the RGB back.
         const probe = document.createElement('canvas');
@@ -460,9 +536,18 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
         let healthData = null, heatData = null, heatYear = null, dayData = null, dayToken = 0;
         let rangeValue = '720';
         let metric = 'steps';
-        let logShown = LOG_STEP;
         let connected = false;
+        let dailySeq = 0, woSeq = 0;
+        let woRows = [], woTotal = 0, woHasMore = false, woFilter = 'all', woCounts = { imported: 0, recorded: 0 };
         const chartState = {};
+
+        // The metrics a tile can chart. `key` reads the bucket, `tok` colours tile, line and sparkline alike.
+        const METRICS = {
+            steps: { label: 'Steps', tok: '--primary', fb: [232, 118, 61], icon: 'feet', title: 'Steps over time' },
+            distance: { label: 'Distance', tok: '--clay-sky', fb: [100, 160, 200], icon: 'route', title: 'Distance over time' },
+            calories: { label: 'Active energy', tok: '--clay-amber', fb: [224, 160, 48], icon: 'flame', title: 'Active energy over time' },
+            calories_total: { label: 'Total energy', tok: '--clay-coral', fb: [208, 105, 74], icon: 'flame', title: 'Total energy over time' },
+        };
 
         // ── Range ─────────────────────────────────────────────────────
         function rangeParams() {
@@ -494,9 +579,8 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
         function rangeChanged() {
             syncRangeUi();
             closeDay();           // the open day may not be in the new range
-            logShown = LOG_STEP;
-            loadDaily();
-            loadWorkouts();
+            if (connected) loadDaily();
+            loadWorkouts(true);
         }
         $('lxh-chips').addEventListener('click', e => {
             const b = e.target.closest ? e.target.closest('[data-range]') : null;
@@ -516,15 +600,15 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
 
         // ── Status: shows the data or the connect prompt ──────────────
         function loadStatus() {
-            return fetch('/api/health/status/').then(r => { if (!r.ok) throw new Error('status'); return r.json(); }).then(s => {
+            return fetch('/api/health/status/', { credentials: 'same-origin' }).then(r => { if (!r.ok) throw new Error('status'); return r.json(); }).then(s => {
                 connected = !!s.connected;
                 $('lxh-loaderr').hidden = true;
                 $('lxh-empty').hidden = connected;
                 $('lxh-content').hidden = !connected;
-                $('lxh-toolbar').hidden = !connected;
-                $('lxh-kicker').textContent = connected ? describeRange() : 'No data yet';
+                syncRangeUi();
                 renderStatus(s);
                 renderSources(s);
+                if (woRows.length) renderTimeline();     // the day buttons depend on being connected
                 return s;
             });
         }
@@ -555,12 +639,12 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
                 else if (zeppCfg.last_error) { rows.push(['Zepp', 'Sync failed. ' + zeppCfg.last_error]); zbad = true; }
                 else rows.push(['Zepp', zeppCfg.last_sync ? 'Last synced ' + fmtWhen(zeppCfg.last_sync) : 'Waiting for the first sync']);
             }
-            el.innerHTML = rows.map((r, i) => '<li><span>' + esc(r[0]) + '</span><span' + (zbad && r[0] === 'Zepp' ? ' class="is-bad"' : '') + '>' + esc(r[1]) + '</span></li>').join('');
+            el.innerHTML = rows.map(r => '<li><span>' + esc(r[0]) + '</span><span' + (zbad && r[0] === 'Zepp' ? ' class="is-bad"' : '') + '>' + esc(r[1]) + '</span></li>').join('');
             $('lxh-zsync').hidden = !(zeppCfg && zeppCfg.configured && zeppCfg.enabled);
             $('lxh-zsync').disabled = !!(zeppCfg && zeppCfg.running);
         }
         function loadZepp() {
-            return fetch('/api/health/zepp/').then(r => r.ok ? r.json() : null).then(c => {
+            return fetch('/api/health/zepp/', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : null).then(c => {
                 if (c) { zeppCfg = c; renderStatus(null); }
                 return c;
             }).catch(() => null);
@@ -577,7 +661,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
                         loadZepp().then(c => {
                             tries++;
                             if (c && c.running && tries < 12) { setTimeout(poll, 3000); return; }
-                            loadStatus().then(s => { if (s && s.connected) { loadDaily(); loadHeatmap(); loadWorkouts(); } }).catch(() => {});
+                            loadStatus().then(s => { if (s && s.connected) { loadDaily(); loadHeatmap(); loadWorkouts(true); } }).catch(() => {});
                         });
                     };
                     setTimeout(poll, 2000);
@@ -604,74 +688,134 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
                 body: JSON.stringify({ preferred_source: value }),
             }).then(r => { if (!r.ok) throw new Error('save'); return r.json(); }).then(() => {
                 toast('Data source updated');
-                loadDaily(); loadHeatmap();
+                loadDaily(); loadHeatmap(); loadWorkouts(true);
                 if (dayData && dayData.date) openDay(dayData.date, true);
             }).catch(() => toast('Could not save that preference', 'error'));
         }
 
-        // ── Totals + the range chart + the day log ────────────────────
+        // ── Totals, the metric tiles and the range chart ──────────────
         function loadDaily() {
-            fetch('/api/health/daily/?' + rangeParams().toString()).then(r => { if (!r.ok) throw new Error('daily'); return r.json(); }).then(data => {
+            const seq = ++dailySeq;
+            swr('/api/health/daily/?' + rangeParams().toString(), data => {
+                if (seq !== dailySeq) return;
                 healthData = data;
-                renderStats(data);
+                renderTiles();
                 renderMain();
-                renderLog();
-            }).catch(() => {
-                ['lxh-st-steps', 'lxh-st-dist', 'lxh-st-cal', 'lxh-st-avg'].forEach(id => { $(id).textContent = '—'; });
-                $('lxh-stats').removeAttribute('aria-busy');
-                $('lxh-log').removeAttribute('aria-busy');
-                $('lxh-log').innerHTML = '<div class="lx-ch-h-empty lx-ch-h-err">The days didn’t load. <button type="button" class="lx-ch-h-link" data-act="retry-daily">Try again</button></div>';
+            }, () => {
+                if (seq !== dailySeq) return;
+                $('lxh-tiles').removeAttribute('aria-busy');
+                $('lxh-tiles').innerHTML = '<div class="lx-ch-h-empty lx-ch-h-err" role="alert" style="grid-column:1 / -1;">The totals didn’t load. <button type="button" class="lx-ch-h-link" data-act="retry-daily">Try again</button></div>';
+                $('lxh-note').textContent = '';
                 toast('Could not load health data', 'error');
             });
         }
-        $('lxh-log').addEventListener('click', e => {
-            const t = e.target;
-            const act = t.closest ? t.closest('[data-act]') : null;
-            if (act) {
-                const a = act.getAttribute('data-act');
-                if (a === 'retry-daily') loadDaily();
-                else if (a === 'more') { logShown += LOG_STEP; renderLog(); }
-                return;
-            }
-            const row = t.closest ? t.closest('[data-day]') : null;
-            if (row) openDay(row.getAttribute('data-day'));
-        });
-        function renderStats(data) {
-            const t = data.totals || {};
-            $('lxh-stats').removeAttribute('aria-busy');
-            $('lxh-st-steps').textContent = fmtInt(t.steps);
-            $('lxh-st-dist').textContent = formatDistanceM(t.distance_m);
-            $('lxh-st-cal').textContent = fmtInt(t.calories_active) + ' kcal';
-            $('lxh-st-avg').textContent = fmtInt(t.avg_steps);
+
+        function bucketValues(key) {
+            return ((healthData && healthData.buckets) || []).map(b => b[key] || 0);
         }
-        function renderLog() {
-            if (!healthData) return;      // the first load hasn't landed: keep the skeleton, not a false "no records"
-            const el = $('lxh-log');
-            el.removeAttribute('aria-busy');
+        function sparkSvg(vals) {
+            const head = '<svg class="lx-ch-h-spark" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true" focusable="false">';
+            const max = vals.reduce((a, b) => b > a ? b : a, 0);
+            if (vals.length < 2 || !(max > 0)) return head + '<path class="base" d="M0 27H100"/></svg>';
+            const d = 'M' + vals.map((v, i) => ((i / (vals.length - 1)) * 100).toFixed(1) + ' ' + (26 - (v / max) * 24).toFixed(1)).join('L');
+            return head + '<path class="area" d="' + d + 'L100 28L0 28Z"/><path d="' + d + '"/></svg>';
+        }
+        // Each active day's average, so a month with ten recorded days isn't divided by thirty.
+        function perDay(key, total) {
+            const arr = (healthData && healthData[key]) || [];
+            const n = arr.filter(v => v > 0).length;
+            return n ? total / n : 0;
+        }
+        function metricTile(id, valHtml, sub, vals) {
+            const m = METRICS[id];
+            const pressed = metric === id;
+            return '<button type="button" class="lx-ch-h-tile" data-metric="' + id + '" aria-pressed="' + pressed + '" style="--tc:var(' + m.tok + ');">'
+                + '<span class="lx-ch-h-tile-top"><span>' + esc(m.label) + '</span>' + icon(m.icon, 16) + '</span>'
+                + '<span class="lx-ch-h-tile-val' + (valHtml ? '' : ' is-none') + '">' + (valHtml || 'No data') + '</span>'
+                + '<span class="lx-ch-h-tile-sub">' + esc(sub) + '</span>'
+                + sparkSvg(vals) + '</button>';
+        }
+        function renderTiles() {
+            const host = $('lxh-tiles');
+            host.removeAttribute('aria-busy');
             const d = healthData || {};
-            const days = d.days || [], steps = d.steps || [], dist = d.distance || [], cal = d.calories_active || [];
-            const rows = [];
-            for (let i = 0; i < days.length; i++) {
-                if ((steps[i] || 0) > 0 || (dist[i] || 0) > 0 || (cal[i] || 0) > 0) rows.push({ day: days[i], steps: steps[i] || 0, dist: dist[i] || 0, cal: cal[i] || 0 });
+            const t = d.totals || {};
+            const out = [];
+            const hasSteps = (t.steps || 0) > 0, hasDist = (t.distance_m || 0) > 0;
+            const hasActive = (t.calories_active || 0) > 0, hasTotal = (t.calories_total || 0) > 0;
+            // The charted metric must still have a tile after a range change.
+            if (metric === 'calories_total' && !hasTotal) metric = 'calories';
+            if (metric === 'calories' && !hasActive && hasTotal) metric = 'calories_total';
+            if (metric === 'distance' && !hasDist && hasSteps) metric = 'steps';
+            if (metric === 'calories' && !hasActive && !hasTotal && hasSteps) metric = 'steps';
+
+            out.push(metricTile('steps', hasSteps ? esc(fmtInt(t.steps)) : '', hasSteps ? fmtInt(t.avg_steps) + ' a day' : 'Nothing recorded in this range', bucketValues('steps')));
+            if (hasDist || !hasSteps) {
+                const p = distParts(t.distance_m);
+                out.push(metricTile('distance', hasDist ? esc(p.n) + '<small>' + p.unit + '</small>' : '', hasDist ? formatDistanceM(perDay('distance', t.distance_m)) + ' a day' : 'Nothing recorded in this range', bucketValues('distance')));
             }
-            rows.sort((a, b) => a.day < b.day ? 1 : a.day > b.day ? -1 : 0);
-            $('lxh-log-meta').textContent = rows.length ? rows.length + (rows.length === 1 ? ' day' : ' days') + ' with records' : '';
-            if (!rows.length) {
-                el.innerHTML = '<div class="lx-ch-h-empty">No records in this range. Try a longer one, or open a day from the year above.</div>';
+            if (hasActive || (!hasActive && !hasTotal)) {
+                out.push(metricTile('calories', hasActive ? esc(fmtInt(t.calories_active)) + '<small>kcal</small>' : '', hasActive ? fmtInt(perDay('calories_active', t.calories_active)) + ' kcal a day' : 'Nothing recorded in this range', bucketValues('calories_active')));
+            }
+            if (hasTotal) {
+                out.push(metricTile('calories_total', esc(fmtInt(t.calories_total)) + '<small>kcal</small>', fmtInt(perDay('calories_total', t.calories_total)) + ' kcal a day', bucketValues('calories_total')));
+            }
+
+            // Best day: a shortcut into the day view, from the per-day arrays (every day with a record).
+            const days = d.days || [], steps = d.steps || [];
+            let bi = -1;
+            for (let i = 0; i < steps.length; i++) { if ((steps[i] || 0) > 0 && (bi < 0 || steps[i] > steps[bi])) bi = i; }
+            if (bi >= 0) {
+                out.push('<button type="button" class="lx-ch-h-tile" data-bestday="' + esc(days[bi]) + '" style="--tc:var(--clay-mint);">'
+                    + '<span class="lx-ch-h-tile-top"><span>Best day</span>' + icon('trophy', 16) + '</span>'
+                    + '<span class="lx-ch-h-tile-val">' + esc(fmtInt(steps[bi])) + '<small>steps</small></span>'
+                    + '<span class="lx-ch-h-tile-sub">' + esc(parseDay(days[bi]).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })) + '</span></button>');
+            }
+            host.innerHTML = out.join('');
+            renderWorkoutTiles();
+        }
+        // Workouts and heart rate come from the workouts fetch, so they join the grid when it lands.
+        function renderWorkoutTiles() {
+            const host = $('lxh-tiles');
+            host.querySelectorAll('[data-wotile]').forEach(n => n.remove());
+            if (host.querySelector('.is-skel') || host.querySelector('.lx-ch-h-err')) return;
+            let html = '';
+            if (woTotal > 0) {
+                const sub = [woCounts.recorded ? woCounts.recorded + ' recorded in Roamly' : '', woCounts.imported ? woCounts.imported + ' imported' : ''].filter(Boolean).join(', ');
+                html += '<button type="button" class="lx-ch-h-tile" data-wotile="1" data-goto="timeline" style="--tc:var(--clay-lavender);">'
+                    + '<span class="lx-ch-h-tile-top"><span>Workouts</span>' + icon('dumbbell', 16) + '</span>'
+                    + '<span class="lx-ch-h-tile-val">' + esc(fmtInt(woTotal)) + '</span>'
+                    + '<span class="lx-ch-h-tile-sub">' + esc(sub) + '</span></button>';
+            }
+            const hr = woRows.filter(w => w.avg_heart_rate > 0);
+            if (hr.length) {
+                const avg = hr.reduce((a, w) => a + w.avg_heart_rate, 0) / hr.length;
+                html += '<div class="lx-ch-h-tile" data-wotile="1" style="--tc:var(--clay-coral);">'
+                    + '<span class="lx-ch-h-tile-top"><span>Heart rate in workouts</span>' + icon('pulse', 16) + '</span>'
+                    + '<span class="lx-ch-h-tile-val">' + esc(fmtInt(avg)) + '<small>bpm</small></span>'
+                    + '<span class="lx-ch-h-tile-sub">average over ' + esc(hr.length + (hr.length === 1 ? ' workout' : ' workouts')) + '</span></div>';
+            }
+            if (html) host.insertAdjacentHTML('beforeend', html);
+        }
+        $('lxh-tiles').addEventListener('click', e => {
+            const t = e.target;
+            const retry = t.closest ? t.closest('[data-act="retry-daily"]') : null;
+            if (retry) { loadDaily(); return; }
+            const m = t.closest ? t.closest('[data-metric]') : null;
+            if (m) {
+                metric = m.getAttribute('data-metric');
+                $('lxh-tiles').querySelectorAll('[data-metric]').forEach(x => x.setAttribute('aria-pressed', x === m ? 'true' : 'false'));
+                renderMain();
                 return;
             }
-            const max = Math.max.apply(null, rows.map(r => r.steps)) || 1;
-            const open = dayData && dayData.date;
-            el.innerHTML = rows.slice(0, logShown).map(r => {
-                const w = Math.max(2, Math.round(r.steps / max * 100));
-                return '<button type="button" class="lx-ch-row lx-ch-h-logrow' + (r.day === open ? ' is-sel' : '') + '" data-day="' + esc(r.day) + '">'
-                    + '<span class="lx-ch-h-logdate">' + esc(parseDay(r.day).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })) + '</span>'
-                    + '<span class="lx-ch-h-logbar" aria-hidden="true"><i style="width:' + w + '%"></i></span>'
-                    + '<span class="lx-ch-h-logmeta"><b>' + esc(fmtInt(r.steps)) + '</b> steps' + (r.dist ? ' · ' + esc(formatDistanceM(r.dist)) : '') + '</span>'
-                    + '</button>';
-            }).join('')
-                + (rows.length > logShown ? '<button type="button" class="lx-ch-btn lx-ch-h-more" data-act="more">Show earlier days</button>' : '');
-        }
+            const best = t.closest ? t.closest('[data-bestday]') : null;
+            if (best) { openDay(best.getAttribute('data-bestday')); return; }
+            const go = t.closest ? t.closest('[data-goto="timeline"]') : null;
+            if (go) {
+                try { $('lxh-timeline').scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' }); } catch (err) {}
+            }
+        });
+
 
         // ── Canvas charts (hand-rolled, as everywhere else in this app) ──
         function monotoneSpline(ctx, pts) {
@@ -805,30 +949,25 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
             const buckets = healthData.buckets || [];
             const note = GRAN_NOTE[gran] || GRAN_NOTE.day;
             const mode = gran === 'day' ? 'line' : 'bar';
+            const m = METRICS[metric] || METRICS.steps;
             let o;
             if (metric === 'distance') {
-                o = { items: buckets.map(b => chartItem(b, gran, 'distance', v => formatDistanceM(v))), colour: tok('--clay-sky', [100, 160, 200]), fmtAxis: fmtDistanceAxis,
+                o = { items: buckets.map(b => chartItem(b, gran, 'distance', v => formatDistanceM(v))), fmtAxis: fmtDistanceAxis,
                       emptyText: 'No distance recorded in this range', sub: distanceUnitLabel() };
-            } else if (metric === 'calories') {
-                // Active calories where the phone recorded them; otherwise total, rather than an empty chart over a full range.
-                const key = buckets.some(b => b.calories_active > 0) || !buckets.some(b => b.calories_total > 0) ? 'calories_active' : 'calories_total';
-                o = { items: buckets.map(b => chartItem(b, gran, key, v => fmtInt(v) + ' kcal')), colour: tok('--clay-amber', [224, 160, 48]), fmtAxis: fmtCompact,
-                      emptyText: 'No calories recorded in this range', sub: (key === 'calories_active' ? 'active' : 'total') + ' kcal' };
+            } else if (metric === 'calories' || metric === 'calories_total') {
+                const key = metric === 'calories' ? 'calories_active' : 'calories_total';
+                o = { items: buckets.map(b => chartItem(b, gran, key, v => fmtInt(v) + ' kcal')), fmtAxis: fmtCompact,
+                      emptyText: 'No energy recorded in this range', sub: 'kcal' };
             } else {
-                o = { items: buckets.map(b => chartItem(b, gran, 'steps', v => fmtInt(v) + ' steps')), colour: tok('--primary', [232, 118, 61]), fmtAxis: fmtCompact,
+                o = { items: buckets.map(b => chartItem(b, gran, 'steps', v => fmtInt(v) + ' steps')), fmtAxis: fmtCompact,
                       emptyText: 'No steps recorded in this range', sub: gran === 'day' ? 'click a day for detail' : 'click a bar to zoom in' };
             }
+            o.colour = tok(m.tok, m.fb);
             o.mode = mode; o.onPick = pickBucket;
+            $('lxh-over-title').textContent = m.title;
             $('lxh-note').textContent = buckets.length ? note + ' · ' + o.sub : '';
             drawChart('lxh-main', o);
         }
-        $('lxh-metric').addEventListener('click', e => {
-            const b = e.target.closest ? e.target.closest('[data-metric]') : null;
-            if (!b) return;
-            metric = b.getAttribute('data-metric');
-            $('lxh-metric').querySelectorAll('[data-metric]').forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
-            renderMain();
-        });
         // A day opens its detail; a week or month bar narrows the range to itself.
         function pickBucket(item) {
             if (item.gran === 'day') { openDay(item.key); return; }
@@ -839,6 +978,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
         }
 
         // ── Heatmap: one calendar year, Jan 1 to Dec 31 ───────────────
+        let heatDrawn = false;
         const DOW_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
         // Quartiles of the active days: daily activity is skewed, so a linear ramp would flatten almost everything to level 1.
         function makeHeatLevel(values) {
@@ -854,7 +994,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
             return v => !(v > 0) ? 0 : v <= t[0] ? 1 : v <= t[1] ? 2 : v <= t[2] ? 3 : 4;
         }
         function loadHeatmap() {
-            fetch('/api/health/daily/?all=1&granularity=day&tz_offset=' + TZ_OFFSET).then(r => { if (!r.ok) throw new Error('heatmap'); return r.json(); }).then(data => {
+            swr('/api/health/daily/?all=1&granularity=day&tz_offset=' + TZ_OFFSET, data => {
                 const days = data.days || [], steps = data.steps || [];
                 const thisYear = parseInt(localToday().slice(0, 4), 10);
                 const years = new Set([thisYear]);
@@ -864,8 +1004,14 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
                 const sel = $('lxh-year');
                 sel.innerHTML = heatData.years.map(y => '<option value="' + y + '">' + y + '</option>').join('');
                 sel.value = String(heatYear);
-                drawHeatmap(true);
-            }).catch(() => { $('lxh-heat-summary').textContent = 'Could not load'; });
+                drawHeatmap(!heatDrawn);
+                heatDrawn = true;
+            }, () => {
+                $('lxh-grid').innerHTML = '<div class="lx-ch-h-empty lx-ch-h-err" style="grid-column:1 / -1;" role="alert">The year didn’t load. <button type="button" class="lx-ch-h-link" id="lxh-heatretry">Try again</button></div>';
+                const rb = $('lxh-heatretry');
+                if (rb) rb.addEventListener('click', loadHeatmap);
+                $('lxh-heat-summary').textContent = '';
+            });
         }
         function drawHeatmap(scrollEnd) {
             if (!heatData) return;
@@ -947,51 +1093,148 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
             });
         })();
 
-        // ── Workouts ──────────────────────────────────────────────────
+        // ── Workouts and activities, as a timeline ────────────────────
         const WORKOUT_ICONS = { running: 'run', walking: 'walk', hiking: 'hike', biking: 'bike', cycling: 'bike', swimming: 'swim', strength_training: 'dumbbell', workout: 'dumbbell', yoga: 'yoga', rowing: 'row', elliptical: 'pulse', dancing: 'pulse', climbing: 'mountain' };
-        function workoutGlyph(slug) {
+        function workoutGlyph(w) {
             let name = 'dumbbell';
-            if (slug) { for (const key in WORKOUT_ICONS) { if (slug.indexOf(key) !== -1) { name = WORKOUT_ICONS[key]; break; } } }
-            return window.RoamlyIcons ? window.RoamlyIcons.svg(name, 20) : '';
+            const slug = w.exercise_slug || '';
+            if (w.recorded && w.kind === 'other') name = 'pin';
+            else if (slug) { for (const key in WORKOUT_ICONS) { if (slug.indexOf(key) !== -1) { name = WORKOUT_ICONS[key]; break; } } }
+            return icon(name, 18);
         }
         function workoutTitle(w) {
             const raw = w.title || (w.exercise_slug || 'workout').replace(/_/g, ' ');
             return raw.charAt(0).toUpperCase() + raw.slice(1);
         }
-        // Used by the Workouts list and by a day's detail. Activities recorded in
-        // Roamly link to their page and cannot be removed here; imported sessions can.
+        const TRASH = '<svg class="lx-ch-h-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+        // Used by the timeline and by a day's detail. Activities recorded in Roamly
+        // link to their page and cannot be removed here; imported sessions can.
         function workoutRowHtml(w, deletable) {
-            const bits = [fmtWhen(w.start), fmtDuration(w.duration_s)];
-            if (w.distance_m) bits.push(formatDistanceM(w.distance_m));
-            if (w.steps) bits.push(fmtInt(w.steps) + ' steps');
-            if (w.calories_kcal) bits.push(fmtInt(w.calories_kcal) + ' kcal');
-            const tag = w.recorded ? '<span class="lx-ch-badge lx-ch-h-wo-tag">Recorded</span>' : '';
-            const name = esc(workoutTitle(w)) + tag;
-            const head = w.recorded && w.url ? '<a class="lx-ch-h-wo-t" href="' + esc(w.url) + '">' + name + '</a>' : '<div class="lx-ch-h-wo-t">' + name + '</div>';
-            return '<div class="lx-ch-h-wo"><div class="lx-ch-h-wo-ic">' + workoutGlyph(w.exercise_slug) + '</div>'
-                + '<div class="lx-ch-h-wo-main">' + head + '<div class="lx-ch-h-wo-sub">' + esc(bits.filter(Boolean).join(' · ')) + '</div></div>'
-                + (deletable && !w.recorded ? '<button type="button" class="lx-ch-h-iconbtn" data-del="' + esc(w.id) + '" aria-label="Remove ' + esc(workoutTitle(w)) + ' from Roamly" title="Remove from Roamly"><svg class="lx-ch-h-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' : '')
+            const bits = [];
+            const t0 = fmtClock(w.start);
+            if (t0) bits.push(t0);
+            if (w.duration_s) bits.push('<b>' + esc(fmtDuration(w.duration_s)) + '</b>');
+            if (w.distance_m) bits.push('<b>' + esc(formatDistanceM(w.distance_m)) + '</b>');
+            if (w.steps) bits.push(esc(fmtInt(w.steps)) + ' steps');
+            if (w.calories_kcal) bits.push(esc(fmtInt(w.calories_kcal)) + ' kcal');
+            if (w.avg_heart_rate) bits.push(esc(fmtInt(w.avg_heart_rate)) + ' bpm');
+            const tag = w.recorded ? '<span class="lx-ch-badge">Recorded in Roamly</span>' : '';
+            const name = '<span class="lx-ch-h-wo-name">' + esc(workoutTitle(w)) + '</span>' + tag;
+            const head = w.recorded && w.url
+                ? '<a class="lx-ch-h-wo-t" href="' + esc(w.url) + '">' + name + '</a>'
+                : '<div class="lx-ch-h-wo-t">' + name + '</div>';
+            return '<div class="lx-ch-h-wo"><div class="lx-ch-h-wo-ic" aria-hidden="true">' + workoutGlyph(w) + '</div>'
+                + '<div class="lx-ch-h-wo-main">' + head + '<div class="lx-ch-h-wo-sub">' + bits.map(b => '<span>' + b + '</span>').join('') + '</div></div>'
+                + (deletable && !w.recorded ? '<button type="button" class="lx-ch-h-iconbtn" data-del="' + esc(w.id) + '" aria-label="Remove ' + esc(workoutTitle(w)) + ' from Roamly" title="Remove from Roamly">' + TRASH + '</button>' : '')
                 + '</div>';
         }
-        function loadWorkouts() {
+        function woVisible() {
+            return woRows.filter(w => woFilter === 'all' || (woFilter === 'recorded' ? w.recorded : !w.recorded));
+        }
+        function renderTimeline() {
             const el = $('lxh-workouts');
-            el.setAttribute('aria-busy', 'true');
-            fetch('/api/health/workouts/?' + rangeParams().toString()).then(r => { if (!r.ok) throw new Error('workouts'); return r.json(); }).then(data => {
-                el.removeAttribute('aria-busy');
-                const rows = data.workouts || [];
-                const parts = [];
-                if (data.imported_count) parts.push(data.imported_count + ' imported');
-                if (data.recorded_count) parts.push(data.recorded_count + ' recorded');
-                $('lxh-wo-count').textContent = parts.join(' · ');
-                if (!rows.length) {
-                    el.innerHTML = '<div class="lx-ch-h-empty">No workouts in this range. Activities you record in Roamly show up here automatically; import exercise sessions from the Roamly app to add the rest.</div>';
-                    return;
-                }
-                el.innerHTML = rows.map(w => workoutRowHtml(w, true)).join('');
-            }).catch(() => {
-                el.removeAttribute('aria-busy');
-                el.innerHTML = '<div class="lx-ch-h-empty lx-ch-h-err">Workouts didn’t load. <button type="button" class="lx-ch-h-link" data-act="retry-wo">Try again</button></div>';
+            el.removeAttribute('aria-busy');
+            const parts = [];
+            if (woCounts.recorded) parts.push(woCounts.recorded + ' recorded');
+            if (woCounts.imported) parts.push(woCounts.imported + ' imported');
+            $('lxh-wo-count').textContent = parts.join(' · ');
+            $('lxh-tlbar').hidden = !(woCounts.recorded && woCounts.imported);
+            if (!(woCounts.recorded && woCounts.imported) && woFilter !== 'all') {
+                woFilter = 'all';
+                syncFilterUi();
+            }
+            const rows = woVisible();
+            if (!rows.length) {
+                el.innerHTML = '<div class="lx-ch-h-empty">' + (woRows.length
+                    ? 'Nothing matches that filter in this range.'
+                    : 'No workouts in this range. Activities you record in Roamly show up here automatically; import exercise sessions from the Roamly app to add the rest.') + '</div>';
+                return;
+            }
+            // Month, then day: rows arrive newest first.
+            const months = [];
+            let curM = null, curD = null;
+            rows.forEach(w => {
+                const day = localDayOf(w.start);
+                if (!day) return;
+                const mk = day.slice(0, 7);
+                if (!curM || curM.key !== mk) { curM = { key: mk, day: day, days: [], n: 0, dist: 0 }; months.push(curM); curD = null; }
+                if (!curD || curD.day !== day) { curD = { day: day, items: [] }; curM.days.push(curD); }
+                curD.items.push(w);
+                curM.n++;
+                curM.dist += w.distance_m || 0;
             });
+            const thisYear = new Date().getFullYear();
+            el.innerHTML = months.map(m => {
+                const d0 = parseDay(m.day);
+                const title = d0.toLocaleDateString([], d0.getFullYear() === thisYear ? { month: 'long' } : { month: 'long', year: 'numeric' });
+                const meta = m.n + (m.n === 1 ? ' session' : ' sessions') + (m.dist ? ' · ' + formatDistanceM(m.dist) : '');
+                return '<section class="lx-ch-h-tlmonth" aria-label="' + esc(title) + '">'
+                    + '<div class="lx-ch-h-tlmonth-head"><h3 class="lx-ch-h-tlmonth-title">' + esc(title) + '</h3><span class="lx-ch-h-tlmonth-meta">' + esc(meta) + '</span></div>'
+                    + m.days.map(d => {
+                        const dd = parseDay(d.day);
+                        const longLabel = dd.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
+                        return '<div class="lx-ch-h-tlday">'
+                            + (connected
+                                ? '<button type="button" class="lx-ch-h-tldate" data-day="' + esc(d.day) + '" aria-label="Open ' + esc(longLabel) + ' in detail">'
+                                : '<div class="lx-ch-h-tldate" style="cursor:default;">')
+                            + '<span class="lx-ch-h-tlnum">' + dd.getDate() + '</span>'
+                            + '<span class="lx-ch-h-tlwd">' + esc(dd.toLocaleDateString([], { weekday: 'short' })) + '</span>'
+                            + (connected ? '</button>' : '</div>')
+                            + '<div class="lx-ch-h-tlentries">' + d.items.map(w => workoutRowHtml(w, true)).join('') + '</div></div>';
+                    }).join('')
+                    + '</section>';
+            }).join('')
+                + (woHasMore ? '<button type="button" class="lx-ch-btn lx-ch-h-more" data-act="more-wo">Show earlier workouts</button>' : '');
+        }
+        function syncFilterUi() {
+            $('lxh-wofilter').querySelectorAll('[data-f]').forEach(b => b.setAttribute('aria-pressed', b.getAttribute('data-f') === woFilter ? 'true' : 'false'));
+        }
+        $('lxh-wofilter').addEventListener('click', e => {
+            const b = e.target.closest ? e.target.closest('[data-f]') : null;
+            if (!b) return;
+            woFilter = b.getAttribute('data-f');
+            syncFilterUi();
+            renderTimeline();
+        });
+
+        function applyWorkouts(data, append) {
+            const rows = data.workouts || [];
+            woRows = append ? woRows.concat(rows) : rows;
+            woTotal = data.count != null ? data.count : woRows.length;
+            woCounts = { imported: data.imported_count || 0, recorded: data.recorded_count || 0 };
+            woHasMore = !!data.has_more;
+            renderTimeline();
+            renderWorkoutTiles();
+        }
+        function workoutsFail() {
+            const el = $('lxh-workouts');
+            el.removeAttribute('aria-busy');
+            el.innerHTML = '<div class="lx-ch-h-empty lx-ch-h-err" role="alert">Workouts didn’t load. <button type="button" class="lx-ch-h-link" data-act="retry-wo">Try again</button></div>';
+        }
+        function loadWorkouts(reset) {
+            const seq = ++woSeq;
+            const el = $('lxh-workouts');
+            if (reset && !woRows.length) el.setAttribute('aria-busy', 'true');
+            const params = rangeParams();
+            params.set('limit', String(WO_PAGE));
+            swr('/api/health/workouts/?' + params.toString(), data => {
+                if (seq !== woSeq) return;
+                applyWorkouts(data, false);
+            }, () => { if (seq === woSeq) workoutsFail(); });
+        }
+        function loadMoreWorkouts(btn) {
+            const seq = ++woSeq;
+            const params = rangeParams();
+            params.set('limit', String(WO_PAGE));
+            params.set('offset', String(woRows.length));
+            if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+            fetch('/api/health/workouts/?' + params.toString(), { credentials: 'same-origin' })
+                .then(r => { if (!r.ok) throw new Error('workouts'); return r.json(); })
+                .then(data => { if (seq === woSeq) applyWorkouts(data, true); })
+                .catch(() => {
+                    if (btn) { btn.disabled = false; btn.textContent = 'Show earlier workouts'; }
+                    toast('Could not load more workouts', 'error');
+                });
         }
         async function removeWorkout(id) {
             const ok = window.roamlyConfirm
@@ -1000,15 +1243,22 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
             if (!ok) return;
             fetch('/api/health/workouts/' + encodeURIComponent(id) + '/delete/', { method: 'POST', headers: { 'X-CSRFToken': csrfToken } })
                 .then(r => { if (!r.ok) throw new Error('delete'); return r.json(); })
-                .then(() => { toast('Workout removed'); loadWorkouts(); if (dayData && dayData.date) openDay(dayData.date, true); })
+                .then(() => { toast('Workout removed'); loadWorkouts(true); if (dayData && dayData.date) openDay(dayData.date, true); })
                 .catch(() => toast('Could not remove that workout', 'error'));
         }
         function workoutClicks(e) {
             const t = e.target;
             const del = t.closest ? t.closest('[data-del]') : null;
             if (del) { removeWorkout(del.getAttribute('data-del')); return; }
-            const act = t.closest ? t.closest('[data-act="retry-wo"]') : null;
-            if (act) loadWorkouts();
+            const act = t.closest ? t.closest('[data-act]') : null;
+            if (act) {
+                const a = act.getAttribute('data-act');
+                if (a === 'retry-wo') loadWorkouts(true);
+                else if (a === 'more-wo') loadMoreWorkouts(act);
+                return;
+            }
+            const day = t.closest ? t.closest('[data-day]') : null;
+            if (day) openDay(day.getAttribute('data-day'));
         }
         $('lxh-workouts').addEventListener('click', workoutClicks);
 
@@ -1026,7 +1276,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
             $('lxh-daynext').disabled = day >= localToday();
         }
         function openDay(day, quiet) {
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) return;
+            if (!connected || !/^\d{4}-\d{2}-\d{2}$/.test(day || '')) return;
             const card = $('lxh-day');
             const token = ++dayToken;
             const wasOpen = !card.hidden;
@@ -1040,8 +1290,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
             dayData.date = day;
             if (!quiet) dayCentre();
             markHeatSelected(day);
-            renderLog();
-            fetch('/api/health/day/' + day + '/?tz_offset=' + TZ_OFFSET).then(r => { if (!r.ok) throw new Error('day'); return r.json(); }).then(data => {
+            fetch('/api/health/day/' + day + '/?tz_offset=' + TZ_OFFSET, { credentials: 'same-origin' }).then(r => { if (!r.ok) throw new Error('day'); return r.json(); }).then(data => {
                 if (token === dayToken) renderDay(day, data, quiet);
             }).catch(() => {
                 if (token !== dayToken) return;
@@ -1053,11 +1302,9 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
         }
         function closeDay() {
             markHeatSelected(null);
-            const had = !$('lxh-day').hidden;
             $('lxh-day').hidden = true;
             dayData = null;
             dayToken++;
-            if (had) renderLog();
         }
         function renderDay(day, data, quiet) {
             data.date = day;
@@ -1077,7 +1324,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
             $('lxh-daytowns').innerHTML = cities.length
                 ? '<h3 class="lx-ch-h-subhead">Where you were</h3><div class="lx-ch-h-towns">' + cities.map(c => '<span class="lx-ch-h-town">' + esc(c.label) + '<small>' + (c.seconds ? esc(fmtDuration(c.seconds)) : 'passing through') + '</small></span>').join('') + '</div>' : '';
             const wl = $('lxh-dayworkouts');
-            wl.innerHTML = workouts.length ? '<h3 class="lx-ch-h-subhead">Workouts</h3>' + workouts.map(w => workoutRowHtml(w, false)).join('') : '';
+            wl.innerHTML = workouts.length ? '<h3 class="lx-ch-h-subhead">Workouts</h3>' + workouts.map(w => '<div style="padding:10px 0;border-bottom:1px solid var(--border);">' + workoutRowHtml(w, false) + '</div>').join('') : '';
             $('lxh-daylinks').innerHTML =
                 '<a class="lx-ch-btn" href="/map/?start=' + day + '&end=' + day + '">See the map for this day</a>'
                 + '<a class="lx-ch-btn" href="/journals/?date=' + day + '">Open the journal</a>'
@@ -1110,15 +1357,23 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
         document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('lxh-day').hidden) closeDay(); });
         $('lxh-dayworkouts').addEventListener('click', workoutClicks);
 
-        // One frame's debounce: a resize event stream would otherwise repaint every canvas per pixel dragged.
+        // The sidebar collapsing changes the content width without a window resize,
+        // so watch the chart boxes themselves. One frame's debounce.
         let rz = 0;
-        window.addEventListener('resize', () => {
+        function redrawCharts() {
             cancelAnimationFrame(rz);
             rz = requestAnimationFrame(() => {
-                if (healthData) renderMain();
-                if (dayData && dayData.hourly) drawDayChart(dayData);
+                if (healthData && !$('lxh-content').hidden) renderMain();
+                if (dayData && dayData.hourly && !$('lxh-day').hidden) drawDayChart(dayData);
             });
-        });
+        }
+        if (window.ResizeObserver) {
+            const ro = new ResizeObserver(redrawCharts);
+            ro.observe($('lxh-main-chart-wrap'));
+            ro.observe($('lxh-day-chart-wrap'));
+        } else {
+            window.addEventListener('resize', redrawCharts);
+        }
 
         // ── Start ─────────────────────────────────────────────────────
         // ?start=YYYY-MM-DD&end=YYYY-MM-DD sets the range before the first load.
@@ -1134,16 +1389,18 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-h * { transition: none 
 
         function start() {
             $('lxh-loaderr').hidden = true;
+            // The timeline needs no health data: activities recorded in Roamly show even before Health Connect is set up.
+            loadWorkouts(true);
             loadStatus().then(s => {
                 if (!s || !s.connected) return;
                 loadDaily();
                 loadHeatmap();
-                loadWorkouts();
                 // ?day=YYYY-MM-DD opens that day (Achievements links its best day here).
                 const d = qs.get('day');
                 if (/^\d{4}-\d{2}-\d{2}$/.test(d || '')) { heatYear = parseInt(d.slice(0, 4), 10); openDay(d); }
             }).catch(() => {
                 $('lxh-status').removeAttribute('aria-busy');
+                $('lxh-content').hidden = true;
                 $('lxh-loaderr').hidden = false;
                 toast('Could not reach the server', 'error');
             });
