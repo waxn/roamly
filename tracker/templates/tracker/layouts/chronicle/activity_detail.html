@@ -1,0 +1,81 @@
+{% extends "tracker/activity_detail.html" %}
+{% comment %} Chronicle's activity page. The classic template's markup, ids and script are
+   kept as they are (rename, delete, GPX, the speed and elevation charts, the map and its
+   hover link); only the look changes: flat figures on hairlines instead of boxes.
+
+   The CSS goes BEFORE {{ block.super }} on purpose. base.html wraps `extra_css` in its own
+   <style>, and the classic template puts a literal <style>...</style> inside that block, so
+   its closing tag ends base's style element. CSS placed after block.super would then render
+   as visible page text. {% endcomment %}
+{% block extra_css %}
+html[data-layout="chronicle"] main#main-content > .container { max-width: 1040px; padding: 32px 24px 64px; }
+html[data-layout="chronicle"] .ad-back {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 8px 0 0; margin: 0 0 12px;
+    background: none !important; border: 0 !important; box-shadow: none !important; border-radius: var(--r-2, 0px);
+    font-family: var(--font-body); font-size: 14px; font-weight: 500; text-transform: none; letter-spacing: 0;
+    color: var(--text-muted); text-decoration: none;
+    transition: color 120ms ease-out;
+}
+html[data-layout="chronicle"] .ad-back:hover { color: var(--text); }
+html[data-layout="chronicle"] .ad-back:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+
+html[data-layout="chronicle"] .page-toolbar { align-items: flex-start; gap: 16px; margin-bottom: 24px; }
+html[data-layout="chronicle"] .page-toolbar h1 {
+    margin: 0; font-family: var(--font-display); font-size: 34px; line-height: 1.12; font-weight: 500; letter-spacing: -0.015em; color: var(--text);
+    overflow-wrap: anywhere;
+}
+/* JS puts an emoji here; the title and the kind in it are enough. */
+html[data-layout="chronicle"] .ad-glyph { display: none; }
+html[data-layout="chronicle"] .ad-when { margin-top: 8px; font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .toolbar-actions { gap: 8px; }
+html[data-layout="chronicle"] .toolbar-actions .btn {
+    display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 14px;
+    background: transparent !important; border: 1px solid var(--border-strong) !important; border-radius: var(--r-2, 0px); box-shadow: none !important;
+    font-family: var(--font-body); font-size: 14px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text); text-decoration: none;
+    transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .toolbar-actions .btn:hover { background: var(--lx-ch-tint) !important; }
+html[data-layout="chronicle"] .toolbar-actions .btn:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+html[data-layout="chronicle"] .toolbar-actions .btn-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent) !important; }
+html[data-layout="chronicle"] .toolbar-actions .btn-danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent) !important; }
+
+/* The figures: no boxes, a hairline above and below. */
+html[data-layout="chronicle"] .ad-stats {
+    grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: 20px 32px;
+    margin: 0 0 8px; padding: 18px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+html[data-layout="chronicle"] .ad-stat { padding: 0; background: none !important; border: 0 !important; box-shadow: none !important; border-radius: 0; }
+html[data-layout="chronicle"] .ad-stat .v { font-family: var(--font-mono); font-size: 22px; line-height: 1.15; font-weight: 400; font-variant-numeric: tabular-nums; color: var(--text); }
+html[data-layout="chronicle"] .ad-stat .l { margin-top: 4px; font-family: var(--font-body); font-size: 13px; color: var(--text-muted); }
+html[data-layout="chronicle"] .ad-pending { grid-column: 1 / -1; font-size: 13px; line-height: 1.5; }
+
+/* The route and the charts: section heads on a hairline, no card behind them. */
+html[data-layout="chronicle"] main#main-content .container > .card,
+html[data-layout="chronicle"] main#main-content .container > .card:hover {
+    margin: 36px 0 0; padding: 0; background: none !important; border: 0 !important; box-shadow: none !important; border-radius: 0; backdrop-filter: none;
+}
+html[data-layout="chronicle"] main#main-content .container > .card > .card-header {
+    margin: 0 0 12px; padding: 0 0 8px; border-bottom: 1px solid var(--border);
+    font-family: var(--font-display); font-size: 22px; line-height: 1.2; font-weight: 500; color: var(--text);
+}
+html[data-layout="chronicle"] #ad-map { height: clamp(260px, 54vh, 460px); border: 1px solid var(--border); border-radius: var(--r-3, 0px); overflow: hidden; }
+html[data-layout="chronicle"] .ad-legend { margin-top: 10px; }
+html[data-layout="chronicle"] .ad-note { margin-top: 8px; }
+html[data-layout="chronicle"] .ad-chart { height: 200px; }
+html[data-layout="chronicle"] .ad-tip { background: var(--bg-elevated); border-color: var(--border-strong); color: var(--text); }
+
+@media (max-width: 768px) {
+    html[data-layout="chronicle"] main#main-content > .container { padding: 20px 16px 48px; }
+    html[data-layout="chronicle"] .page-toolbar h1 { font-size: 28px; }
+    html[data-layout="chronicle"] .ad-back { min-height: 44px; }
+    html[data-layout="chronicle"] .toolbar-actions { width: 100%; }
+    html[data-layout="chronicle"] .toolbar-actions .btn { flex: 1 1 0; min-height: 44px; }
+    html[data-layout="chronicle"] .ad-stats { gap: 16px 20px; }
+    html[data-layout="chronicle"] .ad-stat .v { font-size: 20px; }
+    html[data-layout="chronicle"] #ad-map { height: 300px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    html[data-layout="chronicle"] .ad-back, html[data-layout="chronicle"] .toolbar-actions .btn { transition: none; }
+}
+{{ block.super }}
+{% endblock %}

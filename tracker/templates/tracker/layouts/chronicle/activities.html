@@ -1,0 +1,509 @@
+{% extends 'tracker/base.html' %}
+{% load static %}
+{% block title %}Activities - Roamly{% endblock %}
+{# No map library on this page: the thumbnails are a few raster <img>s and an SVG line each, composed client-side. #}
+{% block map_css %}{% endblock %}
+{% block map_js %}{% endblock %}
+{% comment %} Chronicle activities: the recorded rides, runs and walks as a flat timeline,
+   grouped by month and day. Same data (/api/activities/), same filter, same sessionStorage
+   list cache and ids as the classic page (activity_detail.html clears the `roamly_act_list:`
+   cache on rename/delete, so the prefix must stay). The thumbnails follow the basemap picked
+   on /map/ (the `basemaps` context, tracker/basemaps.py). {% endcomment %}
+
+{% block extra_css %}
+html[data-layout="chronicle"] .lx-ch-page.lx-ch-act { max-width: 960px; }
+html[data-layout="chronicle"] .lx-ch-act [hidden] { display: none !important; }
+
+/* The shared Health / Activities tabs, as quiet text tabs with an underline. */
+html[data-layout="chronicle"] .lx-ch-act .pill-tabs {
+    display: flex; gap: 22px; padding: 0; margin: 0 0 20px; overflow: visible;
+    background: none; border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
+}
+html[data-layout="chronicle"] .lx-ch-act .pill-tabs .tab-btn,
+html[data-layout="chronicle"] .lx-ch-act .pill-tabs a.tab-btn {
+    position: relative; display: inline-flex; align-items: center; min-height: 40px; padding: 0; margin-bottom: -1px;
+    background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+    font-family: var(--font-body); font-size: 14px; font-weight: 500; letter-spacing: 0; text-transform: none;
+    color: var(--text-muted); text-decoration: none;
+    transition: color 150ms ease-out, border-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-act .pill-tabs .tab-btn:hover { background: none; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-act .pill-tabs .tab-btn.active { background: none; color: var(--text); border-bottom-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-act .pill-tabs .tab-btn:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+
+html[data-layout="chronicle"] .lx-ch-act-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 20px 0 8px; }
+
+/* Month, then day: a date spine on the left, the day's activities beside it. */
+html[data-layout="chronicle"] .lx-ch-act-month { content-visibility: auto; contain-intrinsic-size: auto 320px; margin-top: 32px; }
+html[data-layout="chronicle"] .lx-ch-act-month-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border-strong); }
+html[data-layout="chronicle"] .lx-ch-act-month-title { margin: 0; font-family: var(--font-display); font-size: 26px; line-height: 1.15; font-weight: 500; letter-spacing: -0.01em; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-act-month-meta { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; text-align: right; }
+html[data-layout="chronicle"] .lx-ch-act-day { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 0 20px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-act-date { display: flex; flex-direction: column; gap: 2px; padding-top: 2px; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-act-num { font-family: var(--font-display); font-size: 30px; line-height: 1; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: lining-nums tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-act-wd { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.3; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-act-entries { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+html[data-layout="chronicle"] a.lx-ch-act-item {
+    display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 16px; align-items: center;
+    padding: 8px; margin: 0 -8px; min-width: 0;
+    color: inherit; text-decoration: none; border-radius: var(--r-2, 0px);
+    transition: background-color 120ms ease-out;
+}
+html[data-layout="chronicle"] a.lx-ch-act-item:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] a.lx-ch-act-item:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 0; }
+html[data-layout="chronicle"] .lx-ch-act-body { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+html[data-layout="chronicle"] .lx-ch-act-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-act-ic { flex: none; display: inline-flex; color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-act-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-display); font-size: 18px; line-height: 1.25; font-weight: 500; color: var(--text); }
+html[data-layout="chronicle"] a.lx-ch-act-item:hover .lx-ch-act-name { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+html[data-layout="chronicle"] .lx-ch-act-when { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-act-nums { display: flex; flex-wrap: wrap; gap: 4px 24px; }
+html[data-layout="chronicle"] .lx-ch-act-n { display: inline-flex; flex-direction: column; gap: 1px; }
+html[data-layout="chronicle"] .lx-ch-act-n b { font-family: var(--font-mono); font-size: 15px; line-height: 1.3; font-weight: 400; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-act-n span { font-size: 12px; line-height: 1.3; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-act-pending { font-family: var(--font-mono); font-size: 12px; color: var(--clay-amber); }
+
+/* The thumbnail: a 2:1 frame. Tile <img>s and the SVG line are placed in percentages of it, so it scales without measuring. */
+html[data-layout="chronicle"] .lx-ch-am {
+    position: relative; aspect-ratio: 2 / 1; overflow: hidden;
+    background-color: var(--bg-elevated);
+    background-image: radial-gradient(var(--border) 1px, transparent 1px);
+    background-size: 14px 14px;
+    border: 1px solid var(--border); border-radius: var(--r-2, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-am img { position: absolute; max-width: none; display: block; opacity: 0; transition: opacity 250ms ease-out; pointer-events: none; user-select: none; -webkit-user-select: none; }
+html[data-layout="chronicle"] .lx-ch-am img.ld { opacity: 1; }
+html[data-layout="chronicle"] .lx-ch-am svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+html[data-layout="chronicle"] .lx-ch-am .cas, html[data-layout="chronicle"] .lx-ch-am .ln { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+html[data-layout="chronicle"] .lx-ch-am .cas { stroke: var(--bg); stroke-opacity: 0.75; stroke-width: 5; }
+html[data-layout="chronicle"] .lx-ch-am .ln { stroke: var(--primary); stroke-width: 2.5; }
+html[data-layout="chronicle"] .lx-ch-am.is-empty { display: grid; place-items: center; }
+html[data-layout="chronicle"] .lx-ch-am.is-empty span { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
+html[data-layout="chronicle"] .lx-ch-act-skel { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 20px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-act-skel .skeleton { display: block; }
+html[data-layout="chronicle"] .lx-ch-act-attrib { margin-top: 24px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); text-align: right; }
+html[data-layout="chronicle"] .lx-ch-act-more { margin-top: 20px; }
+
+@media (max-width: 768px) {
+    html[data-layout="chronicle"] .lx-ch-act .pill-tabs .tab-btn { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-act-day, html[data-layout="chronicle"] .lx-ch-act-skel { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    html[data-layout="chronicle"] .lx-ch-act-date { flex-direction: row; align-items: baseline; gap: 8px; padding-top: 0; }
+    html[data-layout="chronicle"] .lx-ch-act-num { font-size: 24px; }
+    html[data-layout="chronicle"] .lx-ch-act-month-title { font-size: 22px; }
+    html[data-layout="chronicle"] a.lx-ch-act-item { grid-template-columns: 112px minmax(0, 1fr); gap: 12px; min-height: 64px; }
+    html[data-layout="chronicle"] .lx-ch-act-name { font-size: 16px; }
+    html[data-layout="chronicle"] .lx-ch-act-nums { gap: 2px 16px; }
+    html[data-layout="chronicle"] .lx-ch-act-n b { font-size: 14px; }
+}
+@media (max-width: 380px) {
+    html[data-layout="chronicle"] a.lx-ch-act-item { grid-template-columns: 92px minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+    html[data-layout="chronicle"] .lx-ch-act * { transition: none !important; }
+}
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-act * { transition: none !important; }
+{% endblock %}
+
+{% block content %}
+<div class="lx-ch-page lx-ch-act">
+    {% include 'tracker/_health_tabs.html' with active='activities' %}
+
+    <span class="lx-ch-kicker" id="act-kicker">&nbsp;</span>
+    <h1 class="lx-ch-title">Activities</h1>
+
+    <div class="lx-ch-act-filters" id="act-filters" role="group" aria-label="Kind of activity"></div>
+
+    <div id="act-list" aria-busy="true">
+        {% for i in "123" %}
+        <div class="lx-ch-act-skel" aria-hidden="true">
+            <span class="skeleton" style="width:44px;height:30px;"></span>
+            <div style="display:grid;grid-template-columns:168px minmax(0,1fr);gap:16px;">
+                <span class="skeleton" style="aspect-ratio:2/1;"></span>
+                <div><div class="skeleton lx-ch-skel-line is-short" style="margin-bottom:10px;"></div><div class="skeleton lx-ch-skel-line is-mid"></div></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    <div class="lx-ch-act-attrib" id="act-attrib" hidden></div>
+</div>
+{{ basemaps|json_script:"roamly-basemaps" }}
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'tracker/icons.js' %}"></script>
+<script>
+(function () {
+'use strict';
+const KINDS = [
+    ['',      'All'],
+    ['ride',  'Ride'],
+    ['run',   'Run'],
+    ['walk',  'Walk'],
+    ['hike',  'Hike'],
+    ['row',   'Row'],
+    ['other', 'Other'],
+];
+const ICON = { ride: 'bike', run: 'run', walk: 'walk', hike: 'hike', row: 'row', other: 'pin' };
+const CARTO_QS = '{{ CARTO_TILE_QS|escapejs }}';
+// sessionStorage cache of the list response, per user and filter. Coming back
+// from an activity renders this synchronously (no skeleton, scroll position
+// restored) and revalidates in the background. activity_detail.html clears it
+// on rename/delete, so it shares the prefix.
+const CACHE_PREFIX = 'roamly_act_list:';
+const CACHE_KEY = kind => `${CACHE_PREFIX}v1:{{ request.user.id }}:${kind}`;
+const KIND_KEY = 'roamly_act_kind';
+
+function ssGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
+function ssSet(k, v) {
+    try { sessionStorage.setItem(k, v); } catch (e) {
+        // Quota: drop the other filters' copies and try once more.
+        try {
+            for (let i = sessionStorage.length - 1; i >= 0; i--) {
+                const key = sessionStorage.key(i);
+                if (key && key.startsWith(CACHE_PREFIX) && key !== k) sessionStorage.removeItem(key);
+            }
+            sessionStorage.setItem(k, v);
+        } catch (e2) { /* storage unavailable: the page still works uncached */ }
+    }
+}
+
+let activeKind = ssGet(KIND_KEY) || '';
+if (!KINDS.some(k => k[0] === activeKind)) activeKind = '';
+
+function isImperial() {
+    try { return (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph'; } catch (e) { return false; }
+}
+function fmtDistance(km) {
+    if (km == null) return '—';
+    return isImperial() ? (km * 0.621371).toFixed(2) + ' mi' : km.toFixed(2) + ' km';
+}
+function fmtDistanceShort(km) {
+    return isImperial() ? (km * 0.621371).toFixed(1) + ' mi' : km.toFixed(1) + ' km';
+}
+function fmtSpeed(kmh) {
+    if (kmh == null) return '—';
+    return (isImperial() ? kmh * 0.621371 : kmh).toFixed(1);
+}
+function fmtDuration(s) {
+    if (!s) return '—';
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+        ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+function icon(name, size) {
+    try { return window.RoamlyIcons && window.RoamlyIcons.svg ? window.RoamlyIcons.svg(name, size || 18) : ''; } catch (e) { return ''; }
+}
+
+// ── Thumbnail background ────────────────────────────────────────────────────
+// The tiles follow the basemap picked on /map/ (roamly_map_tile_style), read
+// from the same catalog the map renders (tracker/basemaps.py). A vector-only
+// style (OpenFreeMap) has no raster tiles to borrow, so it falls back to the
+// closest CARTO raster the app already uses everywhere else.
+function rasterSource(style) {
+    if (!style || typeof style !== 'object' || !style.sources) return null;
+    for (const id of Object.keys(style.sources)) {
+        const s = style.sources[id];
+        if (s && s.type === 'raster' && Array.isArray(s.tiles) && s.tiles.length) {
+            return { tiles: s.tiles, size: s.tileSize || 256, maxzoom: s.maxzoom || 19,
+                     attribution: s.attribution || '' };
+        }
+    }
+    return null;
+}
+const TILE_SRC = (function () {
+    let list = [];
+    try { list = JSON.parse(document.getElementById('roamly-basemaps').textContent) || []; } catch (e) {}
+    let saved = 'Streets';
+    try { saved = localStorage.getItem('roamly_map_tile_style') || 'Streets'; } catch (e) {}
+    const entry = list.find(b => b.id === saved) || list[0];
+    const src = entry && rasterSource(entry.style);
+    if (src) return src;
+    const dark = entry ? /dark/i.test(entry.id)
+                       : document.documentElement.getAttribute('data-theme') !== 'light';
+    return {
+        tiles: [`https://basemaps.cartocdn.com/${dark ? 'dark_all' : 'rastertiles/voyager'}/{z}/{x}/{y}.png${CARTO_QS}`],
+        size: 256, maxzoom: 19, attribution: '© OpenStreetMap contributors © CARTO',
+    };
+})();
+const ATTRIB_TEXT = (function () {
+    // Attribution strings carry links; show them as plain text, once, under the list.
+    // DOMParser builds an inert document: nothing in it loads or runs.
+    let text = '';
+    try {
+        const doc = new DOMParser().parseFromString(String(TILE_SRC.attribution || ''), 'text/html');
+        text = (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
+    } catch (e) { /* no attribution line */ }
+    return text ? 'Map tiles ' + text : '';
+})();
+
+/** Google encoded polyline (precision 5) → [[lat, lon], …]. */
+function decodePolyline(enc) {
+    const out = [];
+    let i = 0, lat = 0, lon = 0;
+    while (i < enc.length) {
+        for (let k = 0; k < 2; k++) {
+            let shift = 0, result = 0, b;
+            do {
+                b = enc.charCodeAt(i++) - 63;
+                result |= (b & 0x1f) << shift;
+                shift += 5;
+            } while (b >= 0x20 && i < enc.length);
+            const d = (result & 1) ? ~(result >> 1) : (result >> 1);
+            if (k === 0) lat += d; else lon += d;
+        }
+        out.push([lat / 1e5, lon / 1e5]);
+    }
+    return out;
+}
+
+// Nominal frame: the thumbnail's 2:1 box, in "pixels" that only exist to do
+// the web-mercator arithmetic. Everything is emitted as percentages of it.
+const MW = 360, MH = 180, PAD = 18;
+const mercX = lon => (lon + 180) / 360;
+const mercY = lat => {
+    const s = Math.sin(Math.max(-85.0511, Math.min(85.0511, lat)) * Math.PI / 180);
+    return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
+};
+const pct = (v, of) => (v / of * 100).toFixed(3) + '%';
+
+function miniMapHtml(thumb, emptyLabel) {
+    const segs = (Array.isArray(thumb) ? thumb : [])
+        .map(e => typeof e === 'string' ? decodePolyline(e) : [])
+        .filter(s => s.length >= 2)
+        .map(s => s.map(([la, lo]) => [mercX(lo), mercY(la)]));
+    if (!segs.length) {
+        return `<div class="lx-ch-am is-empty" aria-hidden="true"><span>${escapeHtml(emptyLabel)}</span></div>`;
+    }
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    segs.forEach(s => s.forEach(([x, y]) => {
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }));
+    const src = TILE_SRC, ts = src.size;
+    // Fractional zoom that fits the bbox inside the padded frame, capped so a
+    // short stroll isn't blown up past street level.
+    const cap = Math.min(src.maxzoom, ts >= 512 ? 15 : 16);
+    const fit = Math.min((MW - 2 * PAD) / (Math.max(x1 - x0, 1e-12) * ts),
+                         (MH - 2 * PAD) / (Math.max(y1 - y0, 1e-12) * ts));
+    const zf = Math.max(1, Math.min(cap, Math.log2(fit)));
+    let z = Math.floor(zf);
+    // Sharper tiles on high-DPI screens: one zoom deeper, each drawn half size.
+    // @2x and 512px sources are already high-resolution.
+    const hd = ts >= 512 || src.tiles[0].indexOf('@2x') !== -1;
+    if (!hd && (window.devicePixelRatio || 1) >= 1.5 && z + 1 <= src.maxzoom) z += 1;
+    const world = ts * Math.pow(2, zf);
+    const tilePx = ts * Math.pow(2, zf - z);
+    const ox = (x0 + x1) / 2 * world - MW / 2;
+    const oy = (y0 + y1) / 2 * world - MH / 2;
+    const n = Math.pow(2, z);
+    const imgs = [];
+    for (let ty = Math.floor(oy / tilePx); ty * tilePx < oy + MH; ty++) {
+        if (ty < 0 || ty >= n) continue;
+        for (let tx = Math.floor(ox / tilePx); tx * tilePx < ox + MW; tx++) {
+            const wx = ((tx % n) + n) % n;
+            // Deterministic subdomain + URL, so the same tile is the same
+            // request every time and the browser's HTTP cache serves it.
+            const tpl = src.tiles[(wx + ty) % src.tiles.length];
+            const url = tpl.replace(/\{z\}/g, z).replace(/\{x\}/g, wx).replace(/\{y\}/g, ty)
+                           .replace(/\{s\}/g, 'a').replace(/\{r\}/g, '');
+            // +1px hides hairline seams from sub-pixel rounding between tiles.
+            imgs.push(`<img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async"
+                style="left:${pct(tx * tilePx - ox, MW)};top:${pct(ty * tilePx - oy, MH)};width:calc(${pct(tilePx, MW)} + 1px);height:calc(${pct(tilePx, MH)} + 1px)">`);
+        }
+    }
+    const d = segs.map(s => 'M' + s.map(([x, y]) =>
+        `${(x * world - ox).toFixed(1)} ${(y * world - oy).toFixed(1)}`).join('L')).join('');
+    return `<div class="lx-ch-am" aria-hidden="true">${imgs.join('')}
+        <svg viewBox="0 0 ${MW} ${MH}" preserveAspectRatio="none" focusable="false">
+            <path class="cas" d="${d}"/><path class="ln" d="${d}"/></svg></div>`;
+}
+
+// Fade tiles in as they arrive; drop any that fail (the tint and line remain).
+(function wireTileEvents() {
+    const list = document.getElementById('act-list');
+    list.addEventListener('load', e => {
+        if (e.target.tagName === 'IMG') e.target.classList.add('ld');
+    }, true);
+    list.addEventListener('error', e => {
+        if (e.target.tagName === 'IMG') e.target.remove();
+    }, true);
+})();
+
+// ── Rendering ───────────────────────────────────────────────────────────────
+function renderFilters() {
+    const host = document.getElementById('act-filters');
+    host.innerHTML = KINDS.map(([slug, label]) =>
+        `<button type="button" class="lx-ch-chip${slug === activeKind ? ' is-active' : ''}" data-kind="${slug}" aria-pressed="${slug === activeKind}">${label}</button>`
+    ).join('');
+}
+document.getElementById('act-filters').addEventListener('click', e => {
+    const btn = e.target.closest ? e.target.closest('[data-kind]') : null;
+    if (!btn || btn.dataset.kind === activeKind) return;
+    activeKind = btn.dataset.kind;
+    ssSet(KIND_KEY, activeKind);
+    renderFilters();
+    load();
+    const again = document.querySelector('#act-filters [data-kind="' + activeKind + '"]');
+    if (again) again.focus();         // the chips were rebuilt: keep the keyboard where it was
+});
+
+function showSkeleton() {
+    const el = document.getElementById('act-list');
+    el.setAttribute('aria-busy', 'true');
+    el.innerHTML = '<div class="lx-ch-act-skel" aria-hidden="true"><span class="skeleton" style="width:44px;height:30px;"></span>'
+        + '<div style="display:grid;grid-template-columns:168px minmax(0,1fr);gap:16px;"><span class="skeleton" style="aspect-ratio:2/1;"></span>'
+        + '<div><div class="skeleton lx-ch-skel-line is-short" style="margin-bottom:10px;"></div><div class="skeleton lx-ch-skel-line is-mid"></div></div></div></div>'.repeat(3);
+    document.getElementById('act-attrib').hidden = true;
+}
+
+function localDay(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function dayDate(day) {
+    const p = day.split('-').map(Number);
+    return new Date(p[0], p[1] - 1, p[2]);
+}
+
+function itemHtml(a) {
+    const when = new Date(a.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const pending = a.computed_at === null;
+    // computed_at is null until the server has seen the points. Saying so beats
+    // showing a confident 0.00 km for a ride still uploading from a tunnel.
+    const nums = pending
+        ? `<div class="lx-ch-act-pending">Waiting for points…</div>`
+        : `<div class="lx-ch-act-nums">
+             <span class="lx-ch-act-n"><b>${fmtDistance(a.distance_km)}</b><span>distance</span></span>
+             <span class="lx-ch-act-n"><b>${fmtDuration(a.moving_seconds)}</b><span>moving</span></span>
+             <span class="lx-ch-act-n"><b>${fmtSpeed(a.avg_speed_kmh)}</b><span>${isImperial() ? 'mph' : 'km/h'}</span></span>
+           </div>`;
+    const label = (KINDS.find(k => k[0] === a.kind) || ['', 'Activity'])[1];
+    // thumb === null on a scored activity means "not built yet" (the server
+    // ran out of its per-request budget); [] means there is no line to draw.
+    const emptyLabel = pending ? 'uploading' : (a.thumb == null ? 'map pending' : 'no GPS line');
+    return `<a class="lx-ch-act-item" href="/activities/${Number(a.id)}/">
+        ${miniMapHtml(a.thumb, emptyLabel)}
+        <div class="lx-ch-act-body">
+            <div class="lx-ch-act-head">
+                <span class="lx-ch-act-ic" aria-hidden="true">${icon(ICON[a.kind] || ICON.other, 18)}</span>
+                <span class="lx-ch-act-name">${escapeHtml(a.title || label)}</span>
+            </div>
+            <div class="lx-ch-act-when">${escapeHtml(label)} at ${escapeHtml(when)}</div>
+            ${nums}
+        </div>
+    </a>`;
+}
+
+function render(rows) {
+    const el = document.getElementById('act-list');
+    const attrib = document.getElementById('act-attrib');
+    const kicker = document.getElementById('act-kicker');
+    el.setAttribute('aria-busy', 'false');
+    if (!rows.length) {
+        attrib.hidden = true;
+        kicker.textContent = activeKind ? 'None of this kind yet' : 'Nothing recorded yet';
+        el.innerHTML = activeKind
+            ? `<div class="lx-ch-empty"><div class="lx-ch-empty-title">No activities of this kind yet</div>
+                <p>Try another kind, or show everything you have recorded.</p>
+                <button type="button" class="lx-ch-btn" id="act-showall">Show all</button></div>`
+            : `<div class="lx-ch-empty"><div class="lx-ch-empty-title">No activities recorded yet</div>
+                <p>Start one from the record button on the map in the Roamly app. Rides, runs, walks and hikes land here with their route.</p></div>`;
+        const all = document.getElementById('act-showall');
+        if (all) all.addEventListener('click', () => {
+            activeKind = ''; ssSet(KIND_KEY, ''); renderFilters(); load();
+        });
+        return;
+    }
+    // Month, then day: the API returns newest first.
+    const months = [];
+    let curM = null, curD = null;
+    rows.forEach(a => {
+        const day = localDay(a.start);
+        if (!day) return;
+        const mk = day.slice(0, 7);
+        if (!curM || curM.key !== mk) { curM = { key: mk, day: day, days: [], n: 0, km: 0 }; months.push(curM); curD = null; }
+        if (!curD || curD.day !== day) { curD = { day: day, items: [] }; curM.days.push(curD); }
+        curD.items.push(a);
+        curM.n++;
+        curM.km += Number(a.distance_km) || 0;
+    });
+    const thisYear = new Date().getFullYear();
+    const totalKm = rows.reduce((s, a) => s + (Number(a.distance_km) || 0), 0);
+    kicker.textContent = rows.length + (rows.length === 1 ? ' activity' : ' activities') + (totalKm > 0 ? ', ' + fmtDistanceShort(totalKm) + ' in all' : '');
+    el.innerHTML = months.map(m => {
+        const d0 = dayDate(m.day);
+        const title = d0.toLocaleDateString([], d0.getFullYear() === thisYear ? { month: 'long' } : { month: 'long', year: 'numeric' });
+        const meta = m.n + (m.n === 1 ? ' activity' : ' activities') + (m.km > 0 ? ', ' + fmtDistanceShort(m.km) : '');
+        return `<section class="lx-ch-act-month" aria-label="${escapeHtml(title)}">
+            <div class="lx-ch-act-month-head"><h2 class="lx-ch-act-month-title">${escapeHtml(title)}</h2><span class="lx-ch-act-month-meta">${escapeHtml(meta)}</span></div>
+            ${m.days.map(d => {
+                const dd = dayDate(d.day);
+                return `<div class="lx-ch-act-day">
+                    <div class="lx-ch-act-date"><span class="lx-ch-act-num">${dd.getDate()}</span><span class="lx-ch-act-wd">${escapeHtml(dd.toLocaleDateString([], { weekday: 'short' }))}</span></div>
+                    <div class="lx-ch-act-entries">${d.items.map(itemHtml).join('')}</div>
+                </div>`;
+            }).join('')}
+        </section>`;
+    }).join('');
+    attrib.textContent = ATTRIB_TEXT;
+    attrib.hidden = !ATTRIB_TEXT;
+    // Tiles already in the memory cache are complete at once: show them
+    // without the fade so a cached re-render doesn't flicker.
+    el.querySelectorAll('.lx-ch-am img').forEach(img => {
+        if (img.complete && img.naturalWidth) img.classList.add('ld');
+    });
+}
+
+let loadSeq = 0;
+/** Stale-while-revalidate: paint the cached copy for this filter at once, then
+ *  fetch and re-render only if the response differs. */
+function load() {
+    const seq = ++loadSeq;
+    const kind = activeKind;
+    const key = CACHE_KEY(kind);
+    const cachedText = ssGet(key);
+    let shown = false;
+    if (cachedText) {
+        try { render(JSON.parse(cachedText).activities || []); shown = true; } catch (e) { /* corrupt copy */ }
+    }
+    if (!shown) showSkeleton();
+
+    const qs = kind ? `?kind=${encodeURIComponent(kind)}` : '';
+    // Check r.ok before reading the body: an error response is still JSON, so
+    // `d.activities || []` quietly rendered "no activities yet" for a 403 or a
+    // 500, and a failing request looked exactly like an empty account.
+    fetch(`/api/activities/${qs}`, { credentials: 'same-origin' })
+        .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.text();
+        })
+        .then(text => {
+            if (seq !== loadSeq) return;        // a newer filter click won
+            const d = JSON.parse(text);
+            ssSet(key, text);
+            if (text !== cachedText || !shown) render(d.activities || []);
+        })
+        .catch(() => {
+            if (seq !== loadSeq || shown) return;   // keep showing the cached copy
+            const el = document.getElementById('act-list');
+            el.setAttribute('aria-busy', 'false');
+            document.getElementById('act-kicker').textContent = 'Not loaded';
+            el.innerHTML = `<div class="lx-ch-empty" role="alert"><div class="lx-ch-empty-title">Activities didn’t load</div>
+                <p>Roamly couldn’t reach the server. Your activities are untouched.</p>
+                <button type="button" class="lx-ch-btn" id="act-retry">Try again</button></div>`;
+            document.getElementById('act-retry').addEventListener('click', load);
+        });
+}
+
+renderFilters();
+load();
+// Restored from the back/forward cache: the DOM is already there, just revalidate.
+window.addEventListener('pageshow', e => { if (e.persisted) load(); });
+})();
+</script>
+{% endblock %}
