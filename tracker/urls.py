@@ -2,6 +2,9 @@ from django.urls import path
 from . import views
 from . import trip_blog_views as tbv
 from . import ask_views
+from . import layout_views
+from . import layout_timeline
+from . import layout_home
 
 app_name = 'tracker'
 
@@ -23,6 +26,11 @@ urlpatterns = [
     path('terms/', views.terms_view, name='terms'),
     path('privacy/', views.privacy_view, name='privacy'),
     path('map/', views.map_view, name='map'),
+    # UI layouts: pages that exist only inside one (tracker/layouts.py)
+    path('home/', layout_views.home_view, name='layout_home'),
+    path('timeline/', layout_views.timeline_view, name='layout_timeline'),
+    path('api/layout/timeline/', layout_timeline.timeline_api, name='layout_timeline_api'),
+    path('api/layout/home/', layout_home.home_api, name='layout_home_api'),
     path('data/', views.data_table, name='data'),
     path('api/data/sources/', views.raw_data_sources_api, name='raw_data_sources'),
     path('api/data/source/<str:key>/', views.raw_data_source_api, name='raw_data_source'),

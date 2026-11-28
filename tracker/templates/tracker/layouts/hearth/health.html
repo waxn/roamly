@@ -1,0 +1,1050 @@
+{% extends "tracker/base.html" %}
+{% load static %}
+{% block title %}Health · Roamly{% endblock %}
+{# No map on this page: skip MapLibre (~1MB JS + 70KB CSS). #}
+{% block map_css %}{% endblock %}
+{% block map_js %}{% endblock %}
+
+{% block extra_css %}
+/* Hearth Health: cards on the 12-column grid. Scoped to html[data-layout="hearth"],
+   classes prefixed lx-he-hl-. Charts are the classic hand-rolled canvas helpers. */
+html[data-layout="hearth"] {
+    .lx-he-hl [hidden] { display: none !important; }
+    .lx-he-hl-i { display: block; flex: none; }
+
+    /* Section tabs: two pages of the fitness section (Health / Activities). */
+    .lx-he-hl-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--lx-he-hair); }
+    .lx-he-hl-tab {
+        position: relative; display: inline-flex; align-items: center; height: 40px; padding: 0 12px; margin-bottom: -1px;
+        color: var(--text-muted); text-decoration: none; font-size: 14px; font-weight: 500; border-bottom: 2px solid transparent;
+        transition: color var(--lx-he-t) ease-out;
+        &:hover { color: var(--text); }
+        &[aria-current="page"] { color: var(--text); border-bottom-color: var(--primary); }
+        &:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: var(--r-2); }
+    }
+
+    /* Range controls */
+    .lx-he-hl-range { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; margin-bottom: 16px; }
+    .lx-he-hl-seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+    .lx-he-hl-seg::-webkit-scrollbar { display: none; }
+    .lx-he-hl-dates { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .lx-he-hl-dates label { display: flex; align-items: center; gap: 8px; }
+    .lx-he-hl-input {
+        height: 32px; padding: 0 10px; box-sizing: border-box;
+        background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-2);
+        font-family: var(--font-mono); font-size: 12px;
+        &:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+    }
+    select.lx-he-hl-input { padding-right: 6px; }
+
+    .lx-he-hl-note { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+    .lx-he-hl-cardtitle { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+    /* Today */
+    .lx-he-hl-hours { display: flex; flex-direction: column; gap: 6px; }
+    .lx-he-hl-axis { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
+    /* Charts */
+    .lx-he-hl-chart { position: relative; width: 100%; height: 240px; }
+    .lx-he-hl-chart.is-short { height: 200px; }
+    .lx-he-hl-chart canvas { display: block; width: 100%; height: 100%; }
+    .lx-he-hl-chart.is-clickable canvas { cursor: pointer; }
+    .lx-he-hl-tip {
+        position: absolute; pointer-events: none; z-index: 5; opacity: 0; white-space: nowrap;
+        padding: 6px 10px; background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--r-2);
+        font-size: 12px; line-height: 1.4; font-variant-numeric: tabular-nums;
+        box-shadow: 0 4px 12px color-mix(in srgb, #000 22%, transparent); transition: opacity 120ms ease-out;
+    }
+    .lx-he-hl-hline { position: absolute; width: 1px; background: var(--border-strong); opacity: 0; pointer-events: none; transition: opacity 120ms ease-out; }
+    .lx-he-hl-hdot {
+        position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--primary); border: 2px solid var(--bg-card);
+        transform: translate(-50%, -50%); opacity: 0; pointer-events: none; transition: opacity 120ms ease-out;
+    }
+
+    /* Heatmap: one grid holds the month row, weekday column and every square. */
+    .lx-he-hl-heatscroll { overflow-x: auto; overflow-y: hidden; padding: 2px 0 6px; }
+    .lx-he-hl-heat { --heat-gap: 3px; --heat-cols: 53; display: grid; grid-template-columns: 28px repeat(var(--heat-cols), minmax(11px, 1fr)); gap: var(--heat-gap); }
+    .lx-he-hl-heat-month { grid-row: 1; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); line-height: 1; white-space: nowrap; align-self: end; padding-bottom: 2px; }
+    .lx-he-hl-heat-dow { grid-column: 1; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); line-height: 1; text-align: right; align-self: center; padding-right: 4px; }
+    .lx-he-hl-cell { aspect-ratio: 1 / 1; min-width: 0; border-radius: calc(3px * var(--rk, 1)); border: 1px solid var(--lx-he-hair); background: var(--bg-input); }
+    .lx-he-hl-cell[data-day] { cursor: pointer; }
+    .lx-he-hl-cell[data-day]:hover { outline: 1px solid var(--border-strong); outline-offset: 1px; }
+    .lx-he-hl-cell.is-future { background: transparent; border-style: dashed; opacity: 0.5; }
+    .lx-he-hl-cell.is-sel { outline: 2px solid var(--primary); outline-offset: 1px; }
+    .lx-he-hl-legend { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+    .lx-he-hl-legend .lx-he-hl-cell { width: 12px; height: 12px; aspect-ratio: auto; }
+
+    /* Day detail */
+    .lx-he-hl-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 16px 0; }
+    .lx-he-hl-tiles > .lx-he-stat { padding: 0 16px; border-left: 1px solid var(--lx-he-hair); }
+    .lx-he-hl-tiles > .lx-he-stat:first-child { padding-left: 0; border-left: 0; }
+    .lx-he-hl-sub { margin: 4px 0 0; }
+    .lx-he-hl-towns { display: flex; flex-wrap: wrap; gap: 6px; }
+    .lx-he-hl-town { display: inline-flex; align-items: baseline; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--r-2); font-size: 13px; }
+    .lx-he-hl-town span:last-child { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
+    /* Workouts */
+    .lx-he-hl-wrow .lx-he-row-title { display: flex; align-items: center; gap: 8px; }
+    .lx-he-hl-wrow .lx-he-chip { height: 20px; font-size: 11px; }
+    .lx-he-hl-wrow .lx-he-row-meta { white-space: normal; }
+    .lx-he-iconbtn.lx-he-hl-wdel:hover { color: var(--danger); }
+    .lx-he-hl-more { align-self: flex-start; }
+
+    /* Right column: sources, connections, import */
+    .lx-he-hl-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+    .lx-he-hl-grid.is-empty .lx-he-hl-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    .lx-he-hl-grid.is-empty > .lx-he-hl-col { --span: 12 !important; --span-md: 2 !important; }
+    .lx-he-hl-sources.lx-he-card { display: block; }
+    .lx-he-hl-sources > summary {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; user-select: none;
+        &::-webkit-details-marker { display: none; }
+        &:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: var(--r-2); }
+    }
+    .lx-he-hl-sources[open] > summary { margin-bottom: 16px; }
+    .lx-he-hl-sources summary [data-caret] { transition: transform var(--lx-he-t) ease-out; color: var(--text-muted); }
+    .lx-he-hl-sources[open] summary [data-caret] { transform: rotate(180deg); }
+    .lx-he-hl-sumright { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .lx-he-hl-source { display: flex; align-items: center; gap: 12px; min-height: 36px; font-size: 14px; border-top: 1px solid var(--lx-he-hair); }
+    .lx-he-hl-source:first-of-type { border-top: 0; }
+    .lx-he-hl-source input { accent-color: var(--primary); width: 18px; height: 18px; margin: 0; flex: none; }
+    .lx-he-hl-source label { flex: 1 1 auto; min-width: 0; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+    .lx-he-hl-source .lx-he-row-aside { flex: none; }
+    .lx-he-hl-help { margin: 0 0 12px; font-size: 13px; line-height: 1.5; color: var(--text-muted); max-width: 60ch; }
+    .lx-he-hl-conn { display: flex; flex-direction: column; gap: 0; }
+    .lx-he-hl-conn > .lx-he-row { align-items: flex-start; }
+    .lx-he-hl-err { color: var(--danger); font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+    .lx-he-hl-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .lx-he-hl-import { display: flex; flex-direction: column; gap: 10px; }
+    .lx-he-hl-import input[type="file"] { max-width: 100%; font-size: 13px; color: var(--text-muted); }
+    .lx-he-hl-import input[type="text"] { width: 100%; height: 36px; box-sizing: border-box; padding: 0 12px; font-family: var(--font-body); font-size: 14px; }
+    .lx-he-hl-import label > span { display: block; margin-bottom: 4px; }
+    .lx-he-hl-import-msg { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); min-height: 16px; }
+    .lx-he-hl-import-msg.is-error { color: var(--danger); }
+
+    .lx-he-hl-skelrow { display: flex; gap: 12px; align-items: center; padding: 10px 0; }
+    .lx-he-hl-skelrow > .skeleton:first-child { flex: none; width: 32px; height: 32px; border-radius: var(--r-2); }
+
+    @media (max-width: 768px) {
+        .lx-he-hl-chart { height: 200px; }
+        .lx-he-hl-input { height: 44px; }
+        .lx-he-hl-import input[type="text"] { height: 44px; }
+        .lx-he-hl-tab { height: 44px; }
+        .lx-he-hl-dates label { flex: 1 1 140px; }
+        .lx-he-hl-dates .lx-he-hl-input { flex: 1; min-width: 0; }
+        .lx-he-hl-source { min-height: 44px; }
+        .lx-he-hl-tiles > .lx-he-stat { padding: 0 12px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .lx-he-hl-tip, .lx-he-hl-hline, .lx-he-hl-hdot { transition: none; }
+    }
+}
+{% endblock %}
+
+{% block content %}
+<div class="lx-he-page is-wide lx-he-hl">
+    <nav class="lx-he-hl-tabs" aria-label="Fitness">
+        <a class="lx-he-hl-tab" href="{% url 'tracker:health' %}" aria-current="page">Health</a>
+        <a class="lx-he-hl-tab" href="{% url 'tracker:activities' %}">Activities</a>
+    </nav>
+
+    <header class="lx-he-pagehead">
+        <div>
+            <span class="lx-he-pagehead-kicker">Life</span>
+            <h1 class="lx-he-pagehead-title">Health</h1>
+            <div class="lx-he-pagehead-sub" id="hl-sub" role="status">&nbsp;</div>
+        </div>
+    </header>
+
+    <div class="lx-he-hl-range" id="hl-range" hidden>
+        <div class="lx-he-seg lx-he-hl-seg" role="group" aria-label="Time range" id="hl-seg">
+            <button type="button" data-range="24" aria-pressed="false">24h</button>
+            <button type="button" data-range="72" aria-pressed="false">3d</button>
+            <button type="button" data-range="168" aria-pressed="false">7d</button>
+            <button type="button" data-range="720" aria-pressed="true">30d</button>
+            <button type="button" data-range="2160" aria-pressed="false">90d</button>
+            <button type="button" data-range="8760" aria-pressed="false">1y</button>
+            <button type="button" data-range="all" aria-pressed="false">All</button>
+        </div>
+        <div class="lx-he-hl-dates">
+            <label><span class="lx-he-kicker">From</span><input type="date" class="rly-native lx-he-hl-input" id="h-start" title="Start date"></label>
+            <label><span class="lx-he-kicker">To</span><input type="date" class="rly-native lx-he-hl-input" id="h-end" title="End date"></label>
+        </div>
+    </div>
+
+    <div class="lx-he-grid lx-he-hl-grid" id="hl-grid" aria-busy="true">
+        <!-- Shown instead of the data cards when the account has no health data yet. -->
+        <section class="lx-he-card" id="hl-empty" style="--span:12" hidden aria-labelledby="hl-empty-k">
+            <div class="lx-he-card-head"><h2 class="lx-he-kicker" id="hl-empty-k">Connect Health Connect</h2></div>
+            <div class="lx-he-empty">
+                <div class="lx-he-empty-title">No health data yet</div>
+                <div class="lx-he-empty-text">Roamly reads steps, distance and calories from Health Connect on Android. Open the Roamly app, go to Settings, then Health, grant permission and turn on syncing. Your data stays between your phone and this server.</div>
+                <div class="lx-he-empty-text">Workouts are separate and stay under your control: browse your exercise sessions in the app and import only the ones you want. If your data lives in Zepp, use the Zepp sync or a file import below.</div>
+            </div>
+        </section>
+
+        <section class="lx-he-card hl-data" id="hl-today" style="--span:4;--span-md:1" aria-labelledby="hl-today-k" aria-busy="true">
+            <div class="lx-he-card-head"><h2 class="lx-he-kicker" id="hl-today-k">Today</h2></div>
+            <div class="lx-he-card-body" id="hl-today-body">
+                <div class="lx-he-skel-stack"><span class="skeleton lx-he-skel-stat"></span><span class="skeleton lx-he-skel-line is-sm"></span><span class="skeleton lx-he-skel-box"></span></div>
+            </div>
+        </section>
+
+        <section class="lx-he-card hl-data" style="--span:8;--span-md:2" aria-labelledby="hl-range-k">
+            <div class="lx-he-card-head"><h2 class="lx-he-kicker" id="hl-range-k">Last 30 days</h2></div>
+            <div class="lx-he-card-body">
+                <div class="lx-he-stats" id="hl-totals">
+                    <div class="lx-he-stat"><div class="lx-he-stat-value" id="h-stat-steps"><span class="skeleton lx-he-skel-stat"></span></div><div class="lx-he-stat-label">Total steps</div></div>
+                    <div class="lx-he-stat"><div class="lx-he-stat-value" id="h-stat-distance"><span class="skeleton lx-he-skel-stat"></span></div><div class="lx-he-stat-label">Distance</div></div>
+                    <div class="lx-he-stat"><div class="lx-he-stat-value" id="h-stat-calories"><span class="skeleton lx-he-skel-stat"></span></div><div class="lx-he-stat-label">Active calories</div></div>
+                    <div class="lx-he-stat"><div class="lx-he-stat-value" id="h-stat-avg"><span class="skeleton lx-he-skel-stat"></span></div><div class="lx-he-stat-label">Daily average</div></div>
+                </div>
+                <div>
+                    <div class="lx-he-hl-cardtitle" style="margin-bottom:8px"><span class="lx-he-subhead" style="margin:0">Steps over time</span><span class="lx-he-hl-note" id="h-steps-note"></span></div>
+                    <div class="lx-he-hl-chart" id="h-steps-chart-wrap">
+                        <canvas id="h-steps-chart" role="img" aria-label="Steps over time"></canvas>
+                        <div class="lx-he-hl-hline" id="h-steps-line"></div><div class="lx-he-hl-hdot" id="h-steps-dot"></div><div class="lx-he-hl-tip" id="h-steps-tip"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="lx-he-card hl-data" style="--span:6;--span-md:1" aria-labelledby="hl-dist-k">
+            <div class="lx-he-card-head"><h2 class="lx-he-kicker" id="hl-dist-k">Distance over time</h2><span class="lx-he-hl-note" id="h-dist-note"></span></div>
+            <div class="lx-he-hl-chart" id="h-dist-chart-wrap">
+                <canvas id="h-dist-chart" role="img" aria-label="Distance over time"></canvas>
+                <div class="lx-he-hl-hline" id="h-dist-line"></div><div class="lx-he-hl-hdot" id="h-dist-dot"></div><div class="lx-he-hl-tip" id="h-dist-tip"></div>
+            </div>
+        </section>
+
+        <section class="lx-he-card hl-data" style="--span:6;--span-md:1" aria-labelledby="hl-cal-k">
+            <div class="lx-he-card-head"><h2 class="lx-he-kicker" id="hl-cal-k">Calories over time</h2><span class="lx-he-hl-note" id="h-cal-note"></span></div>
+            <div class="lx-he-hl-chart" id="h-cal-chart-wrap">
+                <canvas id="h-cal-chart" role="img" aria-label="Calories over time"></canvas>
+                <div class="lx-he-hl-hline" id="h-cal-line"></div><div class="lx-he-hl-hdot" id="h-cal-dot"></div><div class="lx-he-hl-tip" id="h-cal-tip"></div>
+            </div>
+        </section>
+
+        <section class="lx-he-card hl-data" id="hl-heat-card" style="--span:12;--span-md:2" aria-labelledby="hl-heat-k">
+            <div class="lx-he-card-head">
+                <h2 class="lx-he-kicker" id="hl-heat-k">Daily steps</h2>
+                <span class="lx-he-hl-sumright"><span class="lx-he-hl-note" id="heat-summary"></span><select id="heat-year" class="rly-native lx-he-hl-input" aria-label="Year"></select></span>
+            </div>
+            <div class="lx-he-hl-heatscroll"><div class="lx-he-hl-heat" id="heat-grid" role="group" aria-label="Steps per day, click a day for detail"></div></div>
+            <div class="lx-he-hl-legend" id="heat-legend"></div>
+            <div class="lx-he-hl-tip" id="heat-tooltip"></div>
+        </section>
+
+        <!-- Opened by clicking a day on a chart, the heatmap or the Today card. -->
+        <section class="lx-he-card" id="h-day-card" style="--span:12;--span-md:2" hidden aria-labelledby="h-day-title">
+            <div class="lx-he-card-head">
+                <h2 class="lx-he-kicker" id="h-day-title">&nbsp;</h2>
+                <button type="button" class="lx-he-btn is-quiet" id="h-day-close">Close</button>
+            </div>
+            <div class="lx-he-empty" id="h-day-loading" role="status">Loading…</div>
+            <div class="lx-he-card-body" id="h-day-content" hidden>
+                <div class="lx-he-hl-tiles" id="h-day-stats"></div>
+                <div>
+                    <div class="lx-he-subhead" style="margin:0 0 8px">Steps by hour</div>
+                    <div class="lx-he-hl-chart is-short" id="h-day-chart-wrap">
+                        <canvas id="h-day-chart" role="img" aria-label="Steps by hour"></canvas>
+                        <div class="lx-he-hl-hline" id="h-day-line"></div><div class="lx-he-hl-hdot" id="h-day-dot"></div><div class="lx-he-hl-tip" id="h-day-tip"></div>
+                    </div>
+                </div>
+                <div id="h-day-towns"></div>
+                <div id="h-day-workouts"></div>
+                <div class="lx-he-hl-actions" id="h-day-links"></div>
+            </div>
+        </section>
+
+        <section class="lx-he-card hl-data" style="--span:7;--span-md:2" aria-labelledby="hl-work-k">
+            <div class="lx-he-card-head"><h2 class="lx-he-kicker" id="hl-work-k">Workouts</h2><span class="lx-he-hl-note" id="h-workouts-count"></span></div>
+            <div class="lx-he-card-body" id="h-workouts" aria-busy="true">
+                {% for i in "1234" %}
+                <div class="lx-he-hl-skelrow" aria-hidden="true"><span class="skeleton"></span><div style="flex:1"><span class="skeleton lx-he-skel-line is-sm" style="margin-bottom:8px"></span><span class="skeleton lx-he-skel-line"></span></div></div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <div class="lx-he-hl-col" style="--span:5;--span-md:2">
+            <details class="lx-he-card lx-he-hl-sources hl-data" id="h-sources-card">
+                <summary>
+                    <h2 class="lx-he-kicker" style="margin:0">Data sources</h2>
+                    <span class="lx-he-hl-sumright"><span class="lx-he-hl-note" id="h-sources-summary"></span><span data-caret></span></span>
+                </summary>
+                <p class="lx-he-hl-help">Several apps can record the same walk. Roamly counts one app per day and metric so your steps aren’t double counted. Pick which one to trust, or leave it on automatic and the most complete record for each day wins.</p>
+                <div id="h-sources"></div>
+            </details>
+
+            <section class="lx-he-card" aria-labelledby="hl-conn-k">
+                <div class="lx-he-card-head"><h2 class="lx-he-kicker" id="hl-conn-k">Sync status</h2><a class="lx-he-card-link" href="{% url 'tracker:settings' %}#data">Settings</a></div>
+                <div class="lx-he-hl-conn" id="hl-conn" aria-busy="true"><div class="lx-he-skel-stack"><span class="skeleton lx-he-skel-line is-lg"></span><span class="skeleton lx-he-skel-line"></span></div></div>
+            </section>
+
+            <section class="lx-he-card" aria-labelledby="hl-imp-k">
+                <div class="lx-he-card-head"><h2 class="lx-he-kicker" id="hl-imp-k">Import a file</h2></div>
+                <form class="lx-he-hl-import" id="hl-import" novalidate>
+                    <p class="lx-he-hl-help" style="margin:0">Upload a CSV (or .csv.gz) with a date column and at least one of steps, distance or calories, such as a Zepp export. Importing an overlapping file corrects those days instead of duplicating them.</p>
+                    <label><span class="lx-he-kicker">File</span><input type="file" id="hl-import-file" accept=".csv,.gz,text/csv"></label>
+                    <label><span class="lx-he-kicker">Source name (optional)</span><input type="text" class="rly-native lx-he-hl-input" id="hl-import-source" maxlength="128" placeholder="import" autocomplete="off"></label>
+                    <div class="lx-he-hl-actions"><button type="submit" class="lx-he-btn is-primary" id="hl-import-btn">Import file</button><span class="lx-he-hl-import-msg" id="hl-import-msg" role="status"></span></div>
+                </form>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'tracker/icons.js' %}"></script>
+<script>
+(function () {
+    'use strict';
+    var CSRF = '{{ csrf_token }}';
+    var MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var TZ_OFFSET = new Date().getTimezoneOffset();
+    var SETTINGS_URL = "{% url 'tracker:settings' %}";
+    var MAP_URL = "{% url 'tracker:map' %}";
+    var JOURNALS_URL = "{% url 'tracker:journals' %}";
+
+    function $(id) { return document.getElementById(id); }
+    function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+    function clear(n) { while (n && n.firstChild) n.removeChild(n.firstChild); }
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+    function toast(msg, type) { if (window.roamlyToast) window.roamlyToast(msg, type ? { type: type } : undefined); }
+    function reduced() { try { return !!(window.RoamlyStyle && window.RoamlyStyle.reducedMotion && window.RoamlyStyle.reducedMotion()); } catch (e) { return false; } }
+    function svgIcon(name, size) { return window.RoamlyIcons && window.RoamlyIcons.svg ? window.RoamlyIcons.svg(name, size || 18) : ''; }
+
+    /* ── Shared formatting ── */
+    function isImperial() { var v = null; try { v = localStorage.getItem('roamly_speed_unit'); } catch (e) {} return (v || 'kmh') === 'mph'; }
+    function formatDistanceM(metres) {
+        var km = (metres || 0) / 1000;
+        return isImperial() ? (km * 0.621371).toFixed(1) + ' mi' : km.toFixed(1) + ' km';
+    }
+    function fmtInt(n) { return Math.round(n || 0).toLocaleString(); }
+    function use12h() { return isImperial(); }          // miles means a 12-hour clock, as everywhere else
+    function pad2(n) { return String(n).padStart(2, '0'); }
+    function hourLabel(h) { return use12h() ? (h % 12 || 12) + (h < 12 ? 'a' : 'p') : pad2(h); }
+    function hourRange(h) {
+        if (!use12h()) return pad2(h) + ':00 – ' + pad2(h) + ':59';
+        var ap = h < 12 ? 'AM' : 'PM', hh = h % 12 || 12;
+        return hh + ':00 ' + ap + ' – ' + hh + ':59 ' + ap;
+    }
+    function fmtWhen(iso) {
+        return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: use12h() ? 'numeric' : '2-digit', minute: '2-digit', hour12: use12h() });
+    }
+    function fmtDuration(seconds) {
+        var s = Math.max(0, Math.round(seconds || 0)), h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+        return h ? h + 'h ' + m + 'm' : m + 'm';
+    }
+    function ago(iso) {
+        var d = iso ? new Date(iso) : null;
+        if (!d || isNaN(d.getTime())) return '';
+        var s = Math.max(0, (Date.now() - d.getTime()) / 1000);
+        if (s < 60) return 'just now';
+        if (s < 3600) return Math.floor(s / 60) + ' min ago';
+        if (s < 86400) return Math.floor(s / 3600) + ' h ago';
+        if (s < 2 * 86400) return 'yesterday';
+        if (s < 14 * 86400) return Math.floor(s / 86400) + ' days ago';
+        return d.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+    function addDays(dateStr, n) {
+        var p = dateStr.split('-').map(Number);
+        return new Date(Date.UTC(p[0], p[1] - 1, p[2] + n)).toISOString().slice(0, 10);
+    }
+    function dowIndex(dateStr) {
+        var p = dateStr.split('-').map(Number);
+        return (new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay() + 6) % 7;
+    }
+    function parseDay(s) { var p = (s || '').split('-').map(Number); return new Date(p[0], (p[1] || 1) - 1, p[2] || 1); }
+    function fmtDayLong(s) { return parseDay(s).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }); }
+    function localToday() { var n = new Date(); return n.getFullYear() + '-' + pad2(n.getMonth() + 1) + '-' + pad2(n.getDate()); }
+    function isLeapYear(y) { return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0; }
+    function cssVar(name, fallback) { var v = ''; try { v = getComputedStyle(document.documentElement).getPropertyValue(name); } catch (e) {} return (v || fallback).trim(); }
+    // Canvas colour with alpha: hex and rgb() are parsed; anything else (oklch,
+    // color-mix) goes through color-mix, which canvas accepts in current browsers.
+    function withAlpha(c, a) {
+        c = (c || '').trim();
+        var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c);
+        if (m) {
+            var h = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1];
+            return 'rgba(' + parseInt(h.slice(0, 2), 16) + ',' + parseInt(h.slice(2, 4), 16) + ',' + parseInt(h.slice(4, 6), 16) + ',' + a + ')';
+        }
+        var r = /^rgba?\(\s*(\d+)[ ,]+(\d+)[ ,]+(\d+)/i.exec(c);
+        if (r) return 'rgba(' + r[1] + ',' + r[2] + ',' + r[3] + ',' + a + ')';
+        return 'color-mix(in srgb, ' + c + ' ' + Math.round(a * 100) + '%, transparent)';
+    }
+    function jget(url) {
+        return fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        });
+    }
+    function errorNode(msg, retry) {
+        var w = el('div', 'lx-he-error'); w.appendChild(el('div', '', msg));
+        if (retry) { var b = el('button', 'lx-he-btn', 'Retry'); b.type = 'button'; b.addEventListener('click', retry); w.appendChild(b); }
+        return w;
+    }
+
+    /* ── Range ── */
+    var seg = $('hl-seg'), startIn = $('h-start'), endIn = $('h-end');
+    var rangeHours = '720';
+    function datesSet() { return !!(startIn.value && endIn.value); }
+    function rangeParams() {
+        var params = new URLSearchParams();
+        if (datesSet()) { params.set('start_date', startIn.value); params.set('end_date', endIn.value); }
+        else if (rangeHours === 'all') params.set('all', '1');
+        else params.set('hours', rangeHours);
+        params.set('tz_offset', String(TZ_OFFSET));
+        return params;
+    }
+    var RANGE_LABEL = { '24': 'Last 24 hours', '72': 'Last 3 days', '168': 'Last 7 days', '720': 'Last 30 days', '2160': 'Last 90 days', '8760': 'Last year', all: 'All time' };
+    function syncRangeUi() {
+        var custom = datesSet();
+        Array.prototype.forEach.call(seg.querySelectorAll('button'), function (b) {
+            b.setAttribute('aria-pressed', !custom && b.getAttribute('data-range') === rangeHours ? 'true' : 'false');
+        });
+        $('hl-range-k').textContent = custom ? fmtDayLong(startIn.value) + ' to ' + fmtDayLong(endIn.value) : (RANGE_LABEL[rangeHours] || 'Range');
+    }
+    function rangeChanged() {
+        syncRangeUi();
+        closeDay();          // the open day may not be in the new range
+        loadDaily();
+        loadWorkouts();
+    }
+    seg.addEventListener('click', function (e) {
+        var b = e.target.closest ? e.target.closest('button[data-range]') : null;
+        if (!b) return;
+        rangeHours = b.getAttribute('data-range');
+        startIn.value = ''; endIn.value = '';        // a preset replaces a custom span
+        rangeChanged();
+    });
+    [startIn, endIn].forEach(function (i) { i.addEventListener('change', function () { if (datesSet() || (!startIn.value && !endIn.value)) rangeChanged(); }); });
+
+    /* ── Status ── */
+    var statusData = null, dayData = null, healthData = null;
+    function setConnected(connected) {
+        $('hl-empty').hidden = connected;
+        Array.prototype.forEach.call(document.querySelectorAll('.hl-data'), function (n) { n.hidden = !connected; });
+        $('hl-range').hidden = !connected;
+        $('hl-grid').classList.toggle('is-empty', !connected);
+        $('hl-grid').removeAttribute('aria-busy');
+        if (!connected) closeDay();
+    }
+    function loadStatus() {
+        return jget('/api/health/status/').then(function (s) {
+            statusData = s;
+            setConnected(!!s.connected);
+            $('hl-sub').textContent = s.connected
+                ? fmtInt(s.sample_count) + ' records' + (s.latest ? ', latest ' + ago(s.latest) : '')
+                : 'Not connected yet';
+            if (s.connected) renderSources(s);
+            renderConn();
+            return s;
+        });
+    }
+
+    /* ── Sources ── */
+    function renderSources(status) {
+        var box = $('h-sources'); clear(box);
+        var byApp = {};
+        (status.sources || []).forEach(function (row) { byApp[row.source] = (byApp[row.source] || 0) + row.count; });
+        var names = Object.keys(byApp);
+        if (!names.length) { $('h-sources-card').hidden = true; return; }
+        $('h-sources-card').hidden = false;
+        var preferred = status.preferred_source || '';
+        names.sort(function (a, b) { return byApp[b] - byApp[a]; });
+        $('h-sources-summary').textContent = (preferred || 'Automatic') + ', ' + names.length + (names.length === 1 ? ' app' : ' apps');
+        function addRow(value, id, label, count) {
+            var row = el('div', 'lx-he-hl-source');
+            var r = document.createElement('input'); r.type = 'radio'; r.name = 'h-source'; r.value = value; r.id = id; r.checked = preferred === value;
+            r.addEventListener('change', function () { savePreferredSource(r.value); });
+            var l = el('label', '', label); l.htmlFor = id;
+            row.appendChild(r); row.appendChild(l);
+            if (count != null) row.appendChild(el('span', 'lx-he-row-aside', fmtInt(count) + ' records'));
+            box.appendChild(row);
+        }
+        addRow('', 'h-src-auto', 'Automatic (most complete each day)', null);
+        names.forEach(function (n, i) { addRow(n, 'h-src-' + i, n || 'Unknown', byApp[n]); });
+    }
+    function savePreferredSource(value) {
+        fetch('/api/health/source/', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF }, body: JSON.stringify({ preferred_source: value }) })
+            .then(function (r) { if (!r.ok) throw new Error('save failed'); return r.json(); })
+            .then(function () {
+                toast('Data source updated', 'success');
+                loadDaily(); loadHeatmap(); loadToday();
+                if (dayData && dayData.date) openDay(dayData.date);
+                loadStatus().catch(function () {});
+            })
+            .catch(function () { toast('Couldn’t save that preference', 'error'); });
+    }
+
+    /* ── Sync status: Health Connect + Zepp ── */
+    var zeppData = null, zeppPoll = null, zeppPolls = 0;
+    function loadZepp() {
+        return jget('/api/health/zepp/').then(function (z) { zeppData = z; renderConn(); return z; })
+            .catch(function () { zeppData = { error: true }; renderConn(); });
+    }
+    function connRow(dotLive, title, meta, err, extra) {
+        var r = el('div', 'lx-he-row');
+        var d = el('span', 'lx-he-dot' + (dotLive ? ' is-live' : '')); d.setAttribute('aria-hidden', 'true'); d.style.marginTop = '6px';
+        var main = el('span', 'lx-he-row-main'); main.appendChild(el('span', 'lx-he-row-title', title));
+        var m = el('span', 'lx-he-row-meta', meta); m.style.whiteSpace = 'normal'; main.appendChild(m);
+        if (err) main.appendChild(el('span', 'lx-he-hl-err', err));
+        r.appendChild(d); r.appendChild(main);
+        if (extra) r.appendChild(extra);
+        return r;
+    }
+    function renderConn() {
+        var box = $('hl-conn'); if (!box) return;
+        box.removeAttribute('aria-busy'); clear(box);
+        var s = statusData;
+        if (!s) { box.appendChild(errorNode('Sync status didn’t load.', function () { loadStatus().catch(function () {}); loadZepp(); })); return; }
+        var live = s.latest && (Date.now() - new Date(s.latest).getTime()) < 36 * 3600 * 1000;
+        box.appendChild(connRow(!!(s.connected && live), 'Health Connect',
+            s.connected ? 'Last record ' + ago(s.latest) + '. The Android app syncs every 6 hours.' : 'Nothing received yet. Turn on syncing in the Roamly app under Settings, then Health.', ''));
+        var z = zeppData;
+        if (!z) { box.appendChild(connRow(false, 'Zepp cloud sync', 'Checking…', '')); return; }
+        if (z.error) { box.appendChild(connRow(false, 'Zepp cloud sync', 'Status unavailable.', '')); return; }
+        var extra = null;
+        if (z.configured) {
+            var b = el('button', 'lx-he-btn', z.running ? 'Syncing…' : 'Sync now'); b.type = 'button'; b.disabled = !!z.running;
+            b.addEventListener('click', syncZepp);
+            extra = b;
+        }
+        var meta = !z.configured ? 'Not set up. Add your Zepp token in Settings.' : !z.enabled ? 'Set up but switched off.' : z.running ? 'Syncing now…' : z.last_sync ? 'Last sync ' + ago(z.last_sync) : 'Hasn’t synced yet.';
+        var row = connRow(!!(z.configured && z.enabled && !z.last_error && z.last_sync), 'Zepp cloud sync', meta, z.last_error || '', extra);
+        box.appendChild(row);
+        if (z.running) pollZepp();
+    }
+    function syncZepp() {
+        fetch('/api/health/zepp/sync/', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF }, body: '{}' })
+            .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (x) {
+                if (!x.ok) { toast(x.d.error || 'Couldn’t start the Zepp sync.', 'error'); return; }
+                toast(x.d.started ? 'Zepp sync started' : 'A Zepp sync is already running');
+                if (zeppData) zeppData.running = true;
+                renderConn();
+            })
+            .catch(function () { toast('Couldn’t reach the server.', 'error'); });
+    }
+    function pollZepp() {
+        if (zeppPoll) return;
+        zeppPolls = 0;
+        zeppPoll = setInterval(function () {
+            zeppPolls++;
+            jget('/api/health/zepp/').then(function (z) {
+                zeppData = z;
+                if (!z.running || zeppPolls > 30) {
+                    clearInterval(zeppPoll); zeppPoll = null;
+                    renderConn();
+                    if (!z.running) { toast(z.last_error ? 'Zepp sync finished with an error' : 'Zepp sync finished', z.last_error ? 'error' : 'success'); refreshAll(); }
+                }
+            }).catch(function () { clearInterval(zeppPoll); zeppPoll = null; });
+        }, 3000);
+    }
+
+    /* ── File import ── */
+    $('hl-import').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var f = $('hl-import-file'), msg = $('hl-import-msg'), btn = $('hl-import-btn');
+        function say(t, err) { msg.textContent = t; msg.className = 'lx-he-hl-import-msg' + (err ? ' is-error' : ''); }
+        if (!f.files || !f.files.length) { say('Choose a CSV file first.', true); return; }
+        var fd = new FormData(); fd.append('file', f.files[0]);
+        var src = $('hl-import-source').value.trim(); if (src) fd.append('source', src);
+        btn.disabled = true; say('Importing…');
+        fetch('/api/health/import/', { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRFToken': CSRF }, body: fd })
+            .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (x) {
+                if (!x.ok) { say(x.d.error || 'The import failed.', true); return; }
+                var d = x.d;
+                say(fmtInt(d.created) + ' new, ' + fmtInt(d.updated) + ' updated' + (d.skipped ? ', ' + fmtInt(d.skipped) + ' skipped' : ''));
+                toast('Imported ' + fmtInt(d.rows) + ' rows', 'success');
+                f.value = '';
+                refreshAll();
+            })
+            .catch(function () { say('Couldn’t reach the server.', true); })
+            .then(function () { btn.disabled = false; });
+    });
+
+    /* ── Today ── */
+    function loadToday() {
+        var body = $('hl-today-body'), card = $('hl-today'), day = localToday();
+        card.setAttribute('aria-busy', 'true');
+        jget('/api/health/day/' + day + '/?tz_offset=' + TZ_OFFSET).then(function (d) {
+            clear(body);
+            var t = d.totals || {}, ws = d.workouts || [];
+            var steps = t.steps || 0;
+            var any = steps > 0 || (t.distance || 0) > 0 || (t.calories_active || 0) > 0 || ws.length;
+            if (!any) {
+                var emp = el('div', 'lx-he-empty');
+                emp.appendChild(el('div', 'lx-he-empty-title', 'Nothing recorded today yet'));
+                emp.appendChild(el('div', 'lx-he-empty-text', 'Steps arrive from your phone every few hours, so today may fill in later.'));
+                body.appendChild(emp);
+            } else {
+                var big = el('div', 'lx-he-stat is-lg');
+                big.appendChild(el('div', 'lx-he-stat-value', fmtInt(steps)));
+                big.appendChild(el('div', 'lx-he-stat-label', 'Steps today'));
+                var row = el('div', 'lx-he-stats');
+                [[formatDistanceM(t.distance), 'Distance'], [fmtInt(t.calories_active) + ' kcal', 'Active'], [String(ws.length), ws.length === 1 ? 'Workout' : 'Workouts']].forEach(function (c) {
+                    var s = el('div', 'lx-he-stat is-sm'); s.appendChild(el('div', 'lx-he-stat-value', c[0])); s.appendChild(el('div', 'lx-he-stat-label', c[1])); row.appendChild(s);
+                });
+                var hourly = (d.hourly && d.hourly.steps) || [];
+                var max = 0; hourly.forEach(function (v) { if (v > max) max = v; });
+                var wrap = el('div', 'lx-he-hl-hours');
+                if (hourly.length && max > 0) {
+                    var bars = el('div', 'lx-he-bars is-short'); bars.setAttribute('role', 'img'); bars.setAttribute('aria-label', 'Steps by hour today');
+                    hourly.forEach(function (v, h) {
+                        var b = el('span', v > 0 ? '' : 'is-zero'); b.style.height = Math.max(3, Math.round(v / max * 100)) + '%';
+                        b.title = hourRange(h) + ': ' + fmtInt(v) + ' steps'; bars.appendChild(b);
+                    });
+                    var axis = el('div', 'lx-he-hl-axis'); axis.setAttribute('aria-hidden', 'true');
+                    [0, 6, 12, 18].forEach(function (h) { axis.appendChild(el('span', '', hourLabel(h))); });
+                    wrap.appendChild(bars); wrap.appendChild(axis);
+                }
+                body.appendChild(big); body.appendChild(row); if (wrap.firstChild) body.appendChild(wrap);
+                var more = el('button', 'lx-he-btn is-quiet', 'Open today in detail'); more.type = 'button'; more.style.alignSelf = 'flex-start';
+                more.addEventListener('click', function () { openDay(day); });
+                body.appendChild(more);
+            }
+            card.removeAttribute('aria-busy');
+        }).catch(function () {
+            clear(body); body.appendChild(errorNode('Today didn’t load.', loadToday)); card.removeAttribute('aria-busy');
+        });
+    }
+
+    /* ── Daily series: totals + charts ── */
+    function loadDaily() {
+        jget('/api/health/daily/?' + rangeParams().toString()).then(function (data) {
+            healthData = data;
+            renderStats(data);
+            renderCharts(data);
+        }).catch(function () {
+            ['h-stat-steps', 'h-stat-distance', 'h-stat-calories', 'h-stat-avg'].forEach(function (id) { $(id).textContent = '—'; });
+            toast('Couldn’t load health data', 'error');
+        });
+    }
+    function renderStats(data) {
+        var t = data.totals || {};
+        $('h-stat-steps').textContent = fmtInt(t.steps);
+        $('h-stat-distance').textContent = formatDistanceM(t.distance_m);
+        $('h-stat-calories').textContent = fmtInt(t.calories_active) + ' kcal';
+        $('h-stat-avg').textContent = fmtInt(t.avg_steps);
+    }
+
+    function monotoneSpline(ctx, pts) {
+        if (pts.length < 2) return;
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (var i = 0; i < pts.length - 1; i++) {
+            var p0 = pts[i === 0 ? 0 : i - 1], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+            ctx.bezierCurveTo(p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6, p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6, p2.x, p2.y);
+        }
+    }
+    // A "nice" axis ceiling: pick a round tick step (1/2/2.5/5 x 10^n) first, then
+    // multiply, so every gridline label is a round number.
+    function niceAxis(maxValue, ticks) {
+        if (!(maxValue > 0)) return ticks;
+        var raw = maxValue / ticks, base = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / base;
+        var step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
+        return step * base * ticks;
+    }
+    function fmtCompact(n) {
+        var v = Math.abs(n || 0);
+        if (v >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+        if (v >= 10000) return Math.round(n / 1000) + 'k';
+        if (v >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+        return String(Math.round(n));
+    }
+    var CHART_TICKS = 5;
+    function fmtDistanceAxis(metres, top) {
+        function conv(m) { return ((m || 0) / 1000) * (isImperial() ? 0.621371 : 1); }
+        var step = conv(top || 0) / CHART_TICKS;
+        return conv(metres).toFixed(step >= 10 ? 0 : step >= 1 ? 1 : 2);
+    }
+    function distanceUnitLabel() { return isImperial() ? 'miles' : 'kilometres'; }
+    var chartState = {};
+
+    // One drawChart() serves the range charts and the day's hourly breakdown, so
+    // their axes, labels, hover and click behaviour can only ever agree.
+    function drawChart(prefix, opts) {
+        var canvas = $(prefix + '-chart'); if (!canvas) return;
+        var wrap = canvas.parentElement, dpr = window.devicePixelRatio || 1;
+        var W = wrap.clientWidth, H = wrap.clientHeight;
+        if (!W || !H) return;
+        canvas.width = W * dpr; canvas.height = H * dpr;
+        var ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, W, H);
+        var items = opts.items || [];
+        var muted = cssVar('--text-muted', '#888'), border = cssVar('--border', '#333');
+        var rawMax = 0; items.forEach(function (it) { if ((it.value || 0) > rawMax) rawMax = it.value; });
+        if (!items.length || !(rawMax > 0)) {
+            ctx.fillStyle = muted; ctx.font = '13px system-ui'; ctx.textAlign = 'center';
+            ctx.fillText(opts.emptyText || 'No data in this range', W / 2, H / 2);
+            chartState[prefix] = null; wrap.classList.remove('is-clickable');
+            return;
+        }
+        var fmtAxis = opts.fmtAxis || fmtCompact, TICKS = CHART_TICKS, top = niceAxis(rawMax, TICKS);
+        ctx.font = '10px ui-monospace, monospace';
+        var labelW = 0;
+        for (var g = 0; g <= TICKS; g++) labelW = Math.max(labelW, ctx.measureText(fmtAxis(top * g / TICKS, top)).width);
+        var padL = Math.ceil(labelW) + 12, padR = 10, padT = 12, padB = 26;
+        var plotW = Math.max(1, W - padL - padR), plotH = Math.max(1, H - padT - padB), baseY = padT + plotH;
+        ctx.strokeStyle = withAlpha(border, 0.8); ctx.lineWidth = 1; ctx.fillStyle = muted; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        for (g = 0; g <= TICKS; g++) {
+            var y = padT + plotH * g / TICKS;
+            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+            ctx.fillText(fmtAxis(top * (TICKS - g) / TICKS, top), padL - 6, y);
+        }
+        var bar = opts.mode === 'bar', slot = plotW / items.length;
+        var pts = items.map(function (it, i) {
+            return { x: bar ? padL + slot * (i + 0.5) : padL + (items.length === 1 ? plotW / 2 : plotW * i / (items.length - 1)),
+                     y: baseY - plotH * Math.min(1, (it.value || 0) / top), item: it, index: i };
+        });
+        if (bar) {
+            var w = Math.max(1, Math.min(slot - 2, slot * 0.74));
+            ctx.fillStyle = withAlpha(opts.colour, 0.85);
+            pts.forEach(function (p) { if (p.item.value > 0) ctx.fillRect(p.x - w / 2, p.y, w, Math.max(1, baseY - p.y)); });
+        } else if (pts.length === 1) {
+            ctx.fillStyle = opts.colour; ctx.beginPath(); ctx.arc(pts[0].x, pts[0].y, 3.5, 0, Math.PI * 2); ctx.fill();
+        } else {
+            ctx.beginPath(); monotoneSpline(ctx, pts);
+            ctx.lineTo(pts[pts.length - 1].x, baseY); ctx.lineTo(pts[0].x, baseY); ctx.closePath();
+            ctx.fillStyle = withAlpha(opts.colour, 0.14); ctx.fill();
+            ctx.beginPath(); monotoneSpline(ctx, pts);
+            ctx.strokeStyle = opts.colour; ctx.lineWidth = 2; ctx.stroke();
+        }
+        // X labels, thinned to whatever fits.
+        ctx.fillStyle = muted; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+        var stepX = items.length > 1 ? (pts[1].x - pts[0].x) : plotW, widest = 1;
+        items.forEach(function (it) { widest = Math.max(widest, ctx.measureText(it.label || '').width); });
+        var every = Math.max(1, Math.ceil((widest + 12) / Math.max(1, stepX)));
+        for (var i = 0; i < items.length; i += every) { if (items[i].label) ctx.fillText(items[i].label, pts[i].x, H - 8); }
+        chartState[prefix] = { pts: pts, opts: opts, bar: bar };
+        wrap.classList.toggle('is-clickable', !!opts.onPick);
+    }
+    function attachChartHover(prefix) {
+        var wrap = $(prefix + '-chart-wrap'); if (!wrap) return;
+        var line = $(prefix + '-line'), dot = $(prefix + '-dot'), tip = $(prefix + '-tip');
+        function nearest(e) {
+            var st = chartState[prefix]; if (!st || !st.pts.length) return null;
+            var r = wrap.getBoundingClientRect(), x = e.clientX - r.left, best = st.pts[0], bestD = Infinity;
+            st.pts.forEach(function (p) { var d = Math.abs(p.x - x); if (d < bestD) { bestD = d; best = p; } });
+            return { st: st, r: r, best: best };
+        }
+        wrap.addEventListener('mousemove', function (e) {
+            var hit = nearest(e); if (!hit) return;
+            line.style.left = hit.best.x + 'px'; line.style.top = '0'; line.style.height = hit.r.height + 'px'; line.style.opacity = '1';
+            dot.style.left = hit.best.x + 'px'; dot.style.top = hit.best.y + 'px'; dot.style.opacity = '1';
+            tip.innerHTML = hit.best.item.tip; tip.style.opacity = '1';
+            tip.style.left = Math.max(70, Math.min(hit.r.width - 70, hit.best.x)) + 'px';
+            tip.style.top = Math.max(0, hit.best.y - 54) + 'px'; tip.style.transform = 'translateX(-50%)';
+        });
+        wrap.addEventListener('mouseleave', function () { line.style.opacity = '0'; dot.style.opacity = '0'; tip.style.opacity = '0'; });
+        wrap.addEventListener('click', function (e) { var hit = nearest(e); if (hit && hit.st.opts.onPick) hit.st.opts.onPick(hit.best.item); });
+    }
+
+    // The server buckets the series to day / week / month for the range asked for
+    // and fills the axis continuously, so this only labels and paints it.
+    var GRAN_NOTE = { day: 'daily totals', week: 'weekly totals', month: 'monthly totals' };
+    function bucketLabel(b, gran) {
+        var d = parseDay(b.start);
+        if (gran === 'month') return d.getMonth() === 0 ? MONTH_NAMES[0] + ' ’' + String(d.getFullYear()).slice(2) : MONTH_NAMES[d.getMonth()];
+        return d.getDate() + ' ' + MONTH_NAMES[d.getMonth()];
+    }
+    function bucketRange(b, gran) {
+        var s = parseDay(b.start), e = parseDay(b.end);
+        if (gran === 'day') return fmtDayLong(b.start);
+        if (gran === 'month') return s.toLocaleDateString([], { month: 'long', year: 'numeric' });
+        return s.getDate() + ' ' + MONTH_NAMES[s.getMonth()] + ' – ' + e.getDate() + ' ' + MONTH_NAMES[e.getMonth()] + ' ' + e.getFullYear();
+    }
+    function chartItem(b, gran, key, fmt) {
+        var value = b[key] || 0, recorded = b.recorded_days || 0;
+        var extra = gran === 'day' ? '' : '<br><span style="color:var(--text-muted)">' + esc(recorded) + ' of ' + esc(b.days) + ' days recorded</span>';
+        return { key: b.key, start: b.start, end: b.end, gran: gran, value: value, label: bucketLabel(b, gran), tip: esc(bucketRange(b, gran)) + '<br>' + esc(fmt(value)) + extra };
+    }
+    function renderCharts(data) {
+        var gran = data.granularity || 'day', buckets = data.buckets || [], note = GRAN_NOTE[gran] || GRAN_NOTE.day;
+        var hint = gran === 'day' ? 'click a day for detail' : 'click a bar to zoom in';
+        $('h-steps-note').textContent = buckets.length ? note + ', ' + hint : '';
+        $('h-dist-note').textContent = buckets.length ? note + ', ' + distanceUnitLabel() : '';
+        // Active calories where the phone recorded them; otherwise total calories.
+        var calKey = buckets.some(function (b) { return b.calories_active > 0; }) || !buckets.some(function (b) { return b.calories_total > 0; }) ? 'calories_active' : 'calories_total';
+        $('h-cal-note').textContent = buckets.length ? note + ', ' + (calKey === 'calories_active' ? 'active' : 'total') + ' kcal' : '';
+        var mode = gran === 'day' ? 'line' : 'bar';
+        drawChart('h-steps', { items: buckets.map(function (b) { return chartItem(b, gran, 'steps', function (v) { return fmtInt(v) + ' steps'; }); }),
+            colour: cssVar('--primary', '#e8763d'), mode: mode, fmtAxis: fmtCompact, onPick: pickBucket, emptyText: 'No steps recorded in this range' });
+        drawChart('h-dist', { items: buckets.map(function (b) { return chartItem(b, gran, 'distance', formatDistanceM); }),
+            colour: cssVar('--clay-sky', '#4fc3d9'), mode: mode, fmtAxis: fmtDistanceAxis, onPick: pickBucket, emptyText: 'No distance recorded in this range' });
+        drawChart('h-cal', { items: buckets.map(function (b) { return chartItem(b, gran, calKey, function (v) { return fmtInt(v) + ' kcal'; }); }),
+            colour: cssVar('--clay-amber', '#e0a030'), mode: mode, fmtAxis: fmtCompact, onPick: pickBucket, emptyText: 'No calories recorded in this range' });
+    }
+    // A day opens its detail; a week or month bar narrows the range to itself,
+    // which redraws per-day: the only route from an aggregated bar to one day.
+    function pickBucket(item) {
+        if (item.gran === 'day') { openDay(item.key); return; }
+        startIn.value = item.start; endIn.value = item.end;
+        rangeChanged();
+        toast('Showing ' + bucketRange(item, item.gran), 'success');
+    }
+
+    /* ── Steps heatmap (one calendar year, independent of the range) ── */
+    var HEAT_PCT = [0, 22, 45, 70, 100];
+    var DOW_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
+    var heatData = null, heatYear = null;
+    function heatStyle(level) {
+        if (!level) return '';
+        return 'background:color-mix(in srgb, var(--primary) ' + HEAT_PCT[level] + '%, transparent);border-color:color-mix(in srgb, var(--primary) ' + Math.min(100, HEAT_PCT[level] + 15) + '%, transparent);';
+    }
+    // Quartile buckets of the active days: daily activity is skewed, and a linear
+    // ramp would flatten nearly everything to level 1.
+    function makeHeatLevel(values) {
+        var nz = values.filter(function (v) { return v > 0; }).sort(function (a, b) { return a - b; });
+        if (!nz.length) return null;
+        function q(p) { return nz[Math.min(nz.length - 1, Math.floor(p * nz.length))]; }
+        var t = [q(0.25), q(0.5), q(0.75)];
+        if (!(t[0] < t[1] && t[1] < t[2])) {
+            var lo = nz[0], hi = nz[nz.length - 1];
+            if (hi <= lo) return function (v) { return v > 0 ? 4 : 0; };
+            t = [1, 2, 3].map(function (i) { return lo + (hi - lo) * i / 4; });
+        }
+        return function (v) { if (!(v > 0)) return 0; if (v <= t[0]) return 1; if (v <= t[1]) return 2; if (v <= t[2]) return 3; return 4; };
+    }
+    function loadHeatmap() {
+        jget('/api/health/daily/?all=1&granularity=day&tz_offset=' + TZ_OFFSET).then(function (data) {
+            var days = data.days || [], steps = data.steps || [];
+            var thisYear = parseInt(localToday().slice(0, 4), 10), years = {}; years[thisYear] = true;
+            days.forEach(function (d) { years[parseInt(d.slice(0, 4), 10)] = true; });
+            var byDay = {}; days.forEach(function (d, i) { byDay[d] = steps[i]; });
+            heatData = { byDay: byDay, years: Object.keys(years).map(Number).sort(function (a, b) { return b - a; }) };
+            if (heatYear == null || !years[heatYear]) heatYear = thisYear;
+            var sel = $('heat-year'); clear(sel);
+            heatData.years.forEach(function (y) { var o = el('option', '', String(y)); o.value = String(y); sel.appendChild(o); });
+            sel.value = String(heatYear);
+            drawHeatmap();
+        }).catch(function () { $('heat-summary').textContent = 'Couldn’t load'; });
+    }
+    function drawHeatmap() {
+        if (!heatData) return;
+        var grid = $('heat-grid'), year = heatYear, jan1 = year + '-01-01', total = isLeapYear(year) ? 366 : 365;
+        var lead = dowIndex(jan1), cols = Math.ceil((lead + total) / 7), today = localToday();
+        grid.style.setProperty('--heat-cols', cols);
+        var cells = [], vals = [];
+        for (var i = 0; i < total; i++) {
+            var day = addDays(jan1, i), future = day > today, n = future ? 0 : (heatData.byDay[day] || 0);
+            cells.push({ day: day, n: n, future: future, col: Math.floor((lead + i) / 7) + 2, row: (lead + i) % 7 + 2 });
+            if (!future) vals.push(n);
+        }
+        var levelOf = makeHeatLevel(vals), activeDays = vals.filter(function (v) { return v > 0; }).length;
+        var totalSteps = vals.reduce(function (a, b) { return a + b; }, 0), html = '';
+        for (var m = 1; m <= 12; m++) {
+            var idx = Math.round((Date.UTC(year, m - 1, 1) - Date.UTC(year, 0, 1)) / 86400000), col = Math.floor((lead + idx) / 7) + 2;
+            html += '<div class="lx-he-hl-heat-month" style="grid-column:' + col + ' / span ' + Math.max(1, Math.min(4, cols + 2 - col)) + ';">' + MONTH_NAMES[m - 1] + '</div>';
+        }
+        DOW_LABELS.forEach(function (l, r) { html += '<div class="lx-he-hl-heat-dow" style="grid-row:' + (r + 2) + ';">' + l + '</div>'; });
+        cells.forEach(function (c) {
+            var pos = 'grid-column:' + c.col + ';grid-row:' + c.row + ';';
+            if (c.future) { html += '<div class="lx-he-hl-cell is-future" style="' + pos + '"></div>'; return; }
+            var tip = esc(fmtDayLong(c.day)) + '<br>' + (c.n > 0 ? fmtInt(c.n) + ' steps' : 'no steps');
+            html += '<div class="lx-he-hl-cell" style="' + pos + heatStyle(levelOf ? levelOf(c.n) : 0) + '" data-day="' + c.day + '" data-tip="' + esc(tip) + '"></div>';
+        });
+        grid.innerHTML = html;
+        $('heat-summary').textContent = activeDays ? fmtInt(totalSteps) + ' steps over ' + activeDays + ' active day' + (activeDays !== 1 ? 's' : '') + ' in ' + year : 'No step data in ' + year;
+        var lg = $('heat-legend'); clear(lg); lg.appendChild(document.createTextNode('Less'));
+        [0, 1, 2, 3, 4].forEach(function (l) { var c = el('div', 'lx-he-hl-cell'); c.setAttribute('style', heatStyle(l)); lg.appendChild(c); });
+        lg.appendChild(document.createTextNode('More'));
+        markHeatSelected(dayData && dayData.date);
+    }
+    function markHeatSelected(day) {
+        Array.prototype.forEach.call(document.querySelectorAll('.lx-he-hl-cell.is-sel'), function (n) { n.classList.remove('is-sel'); });
+        if (!day) return;
+        var n = document.querySelector('.lx-he-hl-cell[data-day="' + day + '"]');
+        if (n) n.classList.add('is-sel');
+    }
+    $('heat-year').addEventListener('change', function (e) { heatYear = parseInt(e.target.value, 10); drawHeatmap(); });
+    (function () {
+        var card = $('hl-heat-card'), grid = $('heat-grid'), tooltip = $('heat-tooltip');
+        grid.addEventListener('mouseover', function (e) {
+            var cell = e.target.closest ? e.target.closest('.lx-he-hl-cell[data-day]') : null; if (!cell) return;
+            tooltip.innerHTML = cell.getAttribute('data-tip'); tooltip.style.opacity = '1';
+            var cr = card.getBoundingClientRect(), r = cell.getBoundingClientRect();
+            tooltip.style.left = Math.max(70, Math.min(cr.width - 70, r.left - cr.left + r.width / 2)) + 'px';
+            tooltip.style.top = (r.top - cr.top - 48) + 'px'; tooltip.style.transform = 'translateX(-50%)';
+        });
+        grid.addEventListener('mouseleave', function () { tooltip.style.opacity = '0'; });
+        grid.addEventListener('click', function (e) { var cell = e.target.closest ? e.target.closest('.lx-he-hl-cell[data-day]') : null; if (cell) openDay(cell.getAttribute('data-day')); });
+    })();
+
+    /* ── Workouts ── */
+    var WORKOUT_ICONS = { running: 'run', walking: 'walk', hiking: 'hike', biking: 'bike', cycling: 'bike', swimming: 'swim', strength_training: 'dumbbell',
+        workout: 'dumbbell', yoga: 'yoga', rowing: 'row', elliptical: 'pulse', dancing: 'pulse', climbing: 'mountain' };
+    function workoutGlyph(slug) {
+        var name = 'dumbbell';
+        if (slug) for (var k in WORKOUT_ICONS) { if (slug.indexOf(k) !== -1) { name = WORKOUT_ICONS[k]; break; } }
+        return svgIcon(name, 16);
+    }
+    function workoutTitle(w) { var raw = w.title || (w.exercise_slug || 'workout').replace(/_/g, ' '); return raw.charAt(0).toUpperCase() + raw.slice(1); }
+    // One row, used by the Workouts card and a day's detail. Recorded activities
+    // link to their page and cannot be removed here; imported sessions can.
+    function workoutRow(w, deletable) {
+        var bits = [fmtWhen(w.start), fmtDuration(w.duration_s)];
+        if (w.distance_m) bits.push(formatDistanceM(w.distance_m));
+        if (w.steps) bits.push(fmtInt(w.steps) + ' steps');
+        if (w.calories_kcal) bits.push(fmtInt(w.calories_kcal) + ' kcal');
+        var link = w.recorded && w.url;
+        var row = document.createElement(link ? 'a' : 'div'); row.className = 'lx-he-row lx-he-hl-wrow';
+        if (link) row.href = w.url;
+        var ico = el('span', 'lx-he-row-ico'); ico.setAttribute('aria-hidden', 'true'); ico.innerHTML = workoutGlyph(w.exercise_slug);
+        var main = el('span', 'lx-he-row-main'), title = el('span', 'lx-he-row-title'); title.appendChild(el('span', '', workoutTitle(w)));
+        if (w.recorded) title.appendChild(el('span', 'lx-he-chip', 'recorded'));
+        main.appendChild(title); main.appendChild(el('span', 'lx-he-row-meta', bits.join('  ·  ')));
+        row.appendChild(ico); row.appendChild(main);
+        if (deletable && !w.recorded) {
+            var del = el('button', 'lx-he-iconbtn lx-he-hl-wdel'); del.type = 'button'; del.setAttribute('aria-label', 'Remove workout from Roamly'); del.title = 'Remove from Roamly';
+            del.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+            del.addEventListener('click', function () { removeWorkout(w.id); });
+            row.appendChild(del);
+        }
+        return row;
+    }
+    var workoutRows = [], workoutShown = 8;
+    function renderWorkouts() {
+        var box = $('h-workouts'); clear(box);
+        workoutRows.slice(0, workoutShown).forEach(function (w) { box.appendChild(workoutRow(w, true)); });
+        if (workoutRows.length > workoutShown) {
+            var more = el('button', 'lx-he-btn lx-he-hl-more', 'Show ' + Math.min(20, workoutRows.length - workoutShown) + ' more'); more.type = 'button';
+            more.addEventListener('click', function () { workoutShown += 20; renderWorkouts(); });
+            box.appendChild(more);
+        }
+    }
+    function loadWorkouts() {
+        var box = $('h-workouts');
+        jget('/api/health/workouts/?' + rangeParams().toString()).then(function (data) {
+            box.removeAttribute('aria-busy');
+            workoutRows = data.workouts || []; workoutShown = 8;
+            var parts = [];
+            if (data.imported_count) parts.push(data.imported_count + ' imported');
+            if (data.recorded_count) parts.push(data.recorded_count + ' recorded');
+            $('h-workouts-count').textContent = parts.join(', ');
+            if (!workoutRows.length) {
+                clear(box);
+                var emp = el('div', 'lx-he-empty');
+                emp.appendChild(el('div', 'lx-he-empty-title', 'No workouts in this range'));
+                emp.appendChild(el('div', 'lx-he-empty-text', 'Activities you record in Roamly show up here automatically. Import exercise sessions from the Roamly app to add the rest.'));
+                box.appendChild(emp);
+                return;
+            }
+            renderWorkouts();
+        }).catch(function () { box.removeAttribute('aria-busy'); clear(box); box.appendChild(errorNode('Workouts didn’t load.', loadWorkouts)); });
+    }
+    function removeWorkout(id) {
+        var ask = window.roamlyConfirm ? window.roamlyConfirm('Remove this workout from Roamly? It stays in Health Connect on your phone, and you can import it again.', { danger: true, confirmText: 'Remove' }) : Promise.resolve(window.confirm('Remove this workout from Roamly?'));
+        ask.then(function (ok) {
+            if (!ok) return;
+            fetch('/api/health/workouts/' + id + '/delete/', { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRFToken': CSRF } })
+                .then(function (r) { if (!r.ok) throw new Error('delete failed'); return r.json(); })
+                .then(function () { toast('Workout removed', 'success'); loadWorkouts(); loadToday(); })
+                .catch(function () { toast('Couldn’t remove that workout', 'error'); });
+        });
+    }
+
+    /* ── Day detail ── */
+    var dayToken = 0;
+    function openDay(day) {
+        var card = $('h-day-card'), loading = $('h-day-loading'), token = ++dayToken;
+        card.hidden = false;
+        $('h-day-title').textContent = fmtDayLong(day);
+        loading.textContent = 'Loading…'; loading.hidden = false; $('h-day-content').hidden = true;
+        centerDayCard();
+        markHeatSelected(day);
+        jget('/api/health/day/' + day + '/?tz_offset=' + TZ_OFFSET).then(function (data) { if (token === dayToken) renderDay(day, data); })
+            .catch(function () {
+                if (token !== dayToken) return;
+                clear(loading); loading.appendChild(errorNode('Couldn’t load that day.', function () { openDay(day); }));
+            });
+    }
+    // Centre the card; one taller than the viewport aligns to the top instead.
+    function centerDayCard() {
+        var card = $('h-day-card'), tall = card.getBoundingClientRect().height > window.innerHeight * 0.92;
+        try { card.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: tall ? 'start' : 'center' }); } catch (e) { card.scrollIntoView(); }
+    }
+    function closeDay() {
+        markHeatSelected(null);
+        $('h-day-card').hidden = true;
+        dayData = null; dayToken++;
+    }
+    function renderDay(day, data) {
+        dayData = data;
+        $('h-day-loading').hidden = true; $('h-day-content').hidden = false;
+        requestAnimationFrame(centerDayCard);
+        var t = data.totals || {}, workouts = data.workouts || [];
+        var tiles = [['Steps', fmtInt(t.steps)], ['Distance', formatDistanceM(t.distance)], ['Active calories', fmtInt(t.calories_active) + ' kcal']];
+        // Only when the phone actually recorded it: an absent metric is not a zero one.
+        if (t.calories_total) tiles.push(['Total calories', fmtInt(t.calories_total) + ' kcal']);
+        if (workouts.length) tiles.push(['Workouts', String(workouts.length)]);
+        var ts = $('h-day-stats'); clear(ts);
+        tiles.forEach(function (c) { var s = el('div', 'lx-he-stat is-sm'); s.appendChild(el('div', 'lx-he-stat-value', c[1])); s.appendChild(el('div', 'lx-he-stat-label', c[0])); ts.appendChild(s); });
+        drawDayChart(data);
+        var cities = data.cities || [], tw = $('h-day-towns'); clear(tw);
+        if (cities.length) {
+            tw.appendChild(el('div', 'lx-he-subhead lx-he-hl-sub', 'Where you were'));
+            var wrap = el('div', 'lx-he-hl-towns'); wrap.style.marginTop = '8px';
+            cities.forEach(function (c) { var t1 = el('div', 'lx-he-hl-town'); t1.appendChild(el('span', '', c.label)); t1.appendChild(el('span', '', c.seconds ? fmtDuration(c.seconds) : 'passing through')); wrap.appendChild(t1); });
+            tw.appendChild(wrap);
+        }
+        var dw = $('h-day-workouts'); clear(dw);
+        if (workouts.length) { dw.appendChild(el('div', 'lx-he-subhead lx-he-hl-sub', 'Workouts')); var wl = el('div'); wl.style.marginTop = '8px'; workouts.forEach(function (w) { wl.appendChild(workoutRow(w, false)); }); dw.appendChild(wl); }
+        var links = $('h-day-links'); clear(links);
+        var a1 = el('a', 'lx-he-btn', 'See the map for this day'); a1.href = MAP_URL + '?start=' + day + '&end=' + day;
+        var a2 = el('a', 'lx-he-btn', 'Open journal'); a2.href = JOURNALS_URL + '?date=' + day;
+        links.appendChild(a1); links.appendChild(a2);
+    }
+    function drawDayChart(data) {
+        var hourly = data.hourly || {}, steps = hourly.steps || [], cals = hourly.calories_active || [];
+        drawChart('h-day', { items: steps.map(function (v, h) {
+            return { value: v, label: hourLabel(h), tip: esc(hourRange(h)) + '<br>' + fmtInt(v) + ' steps' + (cals[h] ? '<br><span style="color:var(--text-muted)">' + fmtInt(cals[h]) + ' kcal</span>' : '') };
+        }), colour: cssVar('--primary', '#e8763d'), mode: 'bar', fmtAxis: fmtCompact, emptyText: 'No hourly step data for this day' });
+    }
+    $('h-day-close').addEventListener('click', closeDay);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('h-day-card').hidden) closeDay(); });
+
+    // One frame's debounce: a resize stream would otherwise repaint every canvas per pixel dragged.
+    var resizeTimer = null;
+    window.addEventListener('resize', function () {
+        if (resizeTimer) cancelAnimationFrame(resizeTimer);
+        resizeTimer = requestAnimationFrame(function () {
+            if (healthData) renderCharts(healthData);
+            if (dayData) drawDayChart(dayData);
+        });
+    });
+
+    /* ── Init ── */
+    function refreshAll() {
+        loadStatus().then(function (s) {
+            if (!s || !s.connected) return;
+            loadToday(); loadDaily(); loadHeatmap(); loadWorkouts();
+        }).catch(function () { toast('Couldn’t reach the server', 'error'); });
+        loadZepp();
+    }
+    (function init() {
+        // ?start=YYYY-MM-DD&end=YYYY-MM-DD initialises the range before the first load.
+        var q = new URLSearchParams(window.location.search);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(q.get('start') || '') && /^\d{4}-\d{2}-\d{2}$/.test(q.get('end') || '')) { startIn.value = q.get('start'); endIn.value = q.get('end'); }
+        syncRangeUi();
+        ['h-steps', 'h-dist', 'h-cal', 'h-day'].forEach(attachChartHover);
+        loadStatus().then(function (s) {
+            if (!s || !s.connected) return;
+            loadToday(); loadDaily(); loadHeatmap(); loadWorkouts();
+            // ?day=YYYY-MM-DD opens that day (Achievements links its best day here).
+            var d = q.get('day');
+            if (/^\d{4}-\d{2}-\d{2}$/.test(d || '')) { heatYear = parseInt(d.slice(0, 4), 10); openDay(d); }
+        }).catch(function () {
+            $('hl-grid').removeAttribute('aria-busy');
+            $('hl-sub').textContent = 'Couldn’t load';
+            statusData = null; renderConn();
+            toast('Couldn’t reach the server', 'error');
+        });
+        loadZepp();
+    })();
+})();
+</script>
+{% endblock %}

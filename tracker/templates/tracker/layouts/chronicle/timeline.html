@@ -1,0 +1,906 @@
+{% extends "tracker/base.html" %}
+{% block title %}Timeline · Roamly{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% comment %} Chronicle's home: a day feed (left) with a companion map (right; a
+   collapsible strip on phones). Data: GET /api/layout/timeline/ (see
+   tracker/layout_timeline.py for the JSON shape); a day's geometry comes from
+   /api/track/?start_date=D&end_date=D. MapLibre loads through base.html's
+   default map_css/map_js blocks. The page fills the viewport, so the version
+   footer is dropped like map.html does. {% endcomment %}
+{% block version_footer %}{% endblock %}
+{% block content %}
+<div class="lx-ch-tl" id="lx-ch-tl" data-tile-qs="{{ CARTO_TILE_QS }}">
+    <section class="lx-ch-tl-feedcol" aria-label="Your days">
+        <div class="lx-ch-tl-head">
+            <h1 class="lx-ch-tl-title">Timeline</h1>
+            <button type="button" class="lx-ch-btn lx-ch-tl-latest" id="lx-ch-latest" hidden>Back to latest</button>
+        </div>
+        <div class="lx-ch-strip" id="lx-ch-strip" aria-label="The last two years, one mark per day">
+            <div class="skeleton lx-ch-strip-skel" id="lx-ch-strip-skel" aria-hidden="true"></div>
+            <div class="lx-ch-strip-scroll" id="lx-ch-strip-scroll" hidden>
+                <div class="lx-ch-strip-track" id="lx-ch-strip-track"></div>
+            </div>
+        </div>
+        <div class="lx-ch-feed" id="lx-ch-feed" role="feed" aria-busy="true" aria-label="Days, newest first. Use the up and down arrow keys to move between days." tabindex="0">
+            <div class="lx-ch-day-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div><div class="skeleton lx-ch-skel-line"></div></div>
+            <div class="lx-ch-day-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div></div>
+            <div class="lx-ch-day-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line"></div></div>
+        </div>
+    </section>
+    <button type="button" class="lx-ch-maphandle" id="lx-ch-maphandle" aria-controls="lx-ch-mapcol" aria-expanded="true"><span id="lx-ch-maphandle-text">Hide map</span></button>
+    <section class="lx-ch-tl-mapcol" id="lx-ch-mapcol" aria-label="Map of the selected day">
+        <div class="lx-ch-map" id="lx-ch-map"></div>
+        <div class="lx-ch-map-cap" id="lx-ch-map-cap" hidden>
+            <span class="lx-ch-map-date" id="lx-ch-map-date"></span>
+            <a class="lx-ch-map-open" id="lx-ch-map-open" href="{% url 'tracker:map' %}">Open on the map</a>
+        </div>
+        <div class="lx-ch-map-note" id="lx-ch-map-note" role="status" hidden></div>
+    </section>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    const API = '/api/layout/timeline/';
+    const PAGE = 30;
+    const MAX_EMPTY_HOPS = 4;          // empty pages followed automatically before asking
+    const TRACK_GAP_S = 20 * 60;       // split a drawn track across a tracking hole
+    const TRACK_CACHE = 40;
+
+    function init() {
+        const root = document.getElementById('lx-ch-tl');
+        if (!root) return;
+        const feed = document.getElementById('lx-ch-feed');
+        const latestBtn = document.getElementById('lx-ch-latest');
+
+        // ── Helpers ───────────────────────────────────────────────────
+        const pad = n => String(n).padStart(2, '0');
+        const isoOf = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+        function parse(iso) {
+            if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+            const p = iso.split('-');
+            const d = new Date(+p[0], +p[1] - 1, +p[2], 12, 0, 0);
+            return isNaN(d.getTime()) ? null : d;
+        }
+        function utc(iso) { const p = iso.split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]); }
+        function dayDiff(a, b) { return Math.round((utc(a) - utc(b)) / 86400000); }
+        function addDays(iso, n) {
+            const d = new Date(utc(iso) + n * 86400000);
+            return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
+        }
+        function fmt(iso, opts) {
+            const d = parse(iso);
+            if (!d) return '';
+            try { return d.toLocaleDateString(undefined, opts); } catch (e) { return iso; }
+        }
+        function esc(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+        function reduced() {
+            try {
+                if (window.RoamlyStyle && typeof window.RoamlyStyle.reducedMotion === 'function') return !!window.RoamlyStyle.reducedMotion();
+            } catch (e) {}
+            return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+        }
+        const CH = window.RoamlyChronicle || {
+            selectedDate: null, setDate: function () {}, onDate: function () { return function () {}; },
+        };
+        let miles = false;
+        try { miles = localStorage.getItem('roamly_speed_unit') === 'mph'; } catch (e) {}
+        function fmtDist(km) {
+            const v = miles ? km * 0.621371 : km;
+            return (v < 10 ? v.toFixed(1) : Math.round(v).toLocaleString()) + (miles ? ' mi' : ' km');
+        }
+        function fmtDur(s) {
+            s = Math.round(s || 0);
+            if (s < 60) return '';
+            const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+            if (!h) return m + 'm';
+            return m ? h + 'h ' + m + 'm' : h + 'h';
+        }
+        function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+        const ICON = {
+            pin: '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>',
+            feet: '<path d="M7.5 14c-1.5 0-2.5-1.6-2.5-4s1-5 2.7-5S10 7.4 10 9.6 9 14 7.5 14zM6 17.5c0-1 .8-1.5 1.7-1.5s1.8.5 1.8 1.5S8.7 20 7.6 20 6 18.5 6 17.5zM16.5 10c1.5 0 2.5-1.6 2.5-4s-1-4-2.7-4S14 3.4 14 5.6 15 10 16.5 10zM18 13.5c0-1-.8-1.5-1.7-1.5s-1.8.5-1.8 1.5.8 2.5 1.9 2.5 1.6-1.5 1.6-2.5z"/>',
+            pulse: '<path d="M3 12h4l2.5-6 4 12 2.5-6H21"/>',
+            plane: '<path d="M10.5 13.5L4 11l1.2-1.6 7 .6 4.6-4.6a1.8 1.8 0 0 1 2.6 2.6l-4.6 4.6.6 7L13.8 21l-2.5-6.5L8 17.8V20l-1.2 1.2-1.4-3.4L2 16.4 3.2 15.2H5.4z"/>',
+            pen: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+            flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+        };
+        const svg = name => '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">' + (ICON[name] || '') + '</svg>';
+        const MODE_LABEL = { walk: 'On foot', cycle: 'Cycling', vehicle: 'Vehicle', plane: 'Flying' };
+        const WORKOUT_LABEL = {
+            running: 'Run', walking: 'Walk', biking: 'Ride', hiking: 'Hike', rowing: 'Row', swimming: 'Swim', workout: 'Workout',
+        };
+        function workoutName(w) {
+            if (w.title) return w.title;
+            const t = String(w.type || 'workout');
+            return WORKOUT_LABEL[t] || (t.charAt(0).toUpperCase() + t.slice(1).replace(/_/g, ' '));
+        }
+
+        // ── State ─────────────────────────────────────────────────────
+        let days = [];                 // rendered day objects, newest first
+        const byDate = new Map();      // iso -> {day, el}
+        let nextBefore = null;
+        let loading = false;
+        let ended = false;
+        let fromLatest = true;         // the feed starts at the newest day
+        let lastIso = null;            // oldest rendered day (for quiet gaps)
+        let lastMonth = '';
+        let emptyHops = 0;
+        let generation = 0;            // bumps on reset so stale responses are dropped
+        let todayIso = isoOf(new Date());
+        let selected = null;
+        let suppressScrollUntil = 0;
+        let pinned = false;            // selection came from a click/key, not scrolling
+        let failed = false;            // the last older-page load failed: wait for Try again
+        let stripReady = false;
+
+        // ── Rendering ─────────────────────────────────────────────────
+        function quietHtml(newer, older) {
+            const n = dayDiff(newer, older) - 1;
+            if (n <= 0) return '';
+            let list;
+            if (n <= 14) {
+                list = '';
+                for (let i = 1; i <= n; i++) {
+                    list += '<div class="lx-ch-quiet-day">' + esc(fmt(addDays(newer, -i), { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })) + '</div>';
+                }
+            } else {
+                const opts = { day: 'numeric', month: 'short', year: 'numeric' };
+                list = '<div class="lx-ch-quiet-day">' + esc(fmt(addDays(older, 1), opts)) + ' to ' + esc(fmt(addDays(newer, -1), opts)) + ', nothing recorded</div>';
+            }
+            return '<div class="lx-ch-rail lx-ch-quiet">'
+                + '<button type="button" class="lx-ch-quiet-row" aria-expanded="false">' + esc(plural(n, 'quiet day', 'quiet days')) + '</button>'
+                + '<div class="lx-ch-quiet-list" hidden>' + list + '</div></div>';
+        }
+
+        function dayHtml(d, index) {
+            const iso = d.date;
+            const dt = parse(iso);
+            const thisYear = new Date().getFullYear();
+            let kicker = '';
+            if (iso === todayIso) kicker = 'Today';
+            else if (iso === addDays(todayIso, -1)) kicker = 'Yesterday';
+            else if (dt && dt.getFullYear() !== thisYear) kicker = String(dt.getFullYear());
+
+            const meta = [];
+            const places = Array.isArray(d.places) ? d.places : [];
+            if (places.length) meta.push(plural(places.length, 'place', 'places'));
+            if (d.distance_km >= 0.05) meta.push(fmtDist(d.distance_km));
+            const mv = fmtDur(d.moving_seconds);
+            if (mv) meta.push(mv + ' moving');
+
+            let h = '<article class="lx-ch-rail lx-ch-day is-new' + (iso === todayIso ? ' is-today' : '') + '" data-date="' + esc(iso) + '"'
+                + ' aria-labelledby="lx-ch-d-' + esc(iso) + '" aria-posinset="' + (index + 1) + '" aria-setsize="-1">'
+                + '<span class="lx-ch-day-node" aria-hidden="true"></span><div class="lx-ch-day-body">'
+                + '<div class="lx-ch-kicker lx-ch-day-kicker">' + esc(kicker) + '</div>'
+                + '<h2 class="lx-ch-day-title" id="lx-ch-d-' + esc(iso) + '"><span>' + esc(fmt(iso, { weekday: 'long' })) + '</span>'
+                + '<span class="lx-ch-day-date">' + esc(fmt(iso, { day: 'numeric', month: 'long' })) + '</span></h2>'
+                + '<div class="lx-ch-day-meta">' + esc(meta.join(' · ')) + '</div>';
+
+            if (places.length) {
+                h += '<div class="lx-ch-day-places">';
+                places.forEach(p => {
+                    const href = p.kind === 'place' ? '/places/' : '/visits/';
+                    h += '<a class="lx-ch-chip" href="' + href + '" title="' + esc(p.name) + '">' + svg('pin') + '<span>' + esc(p.name) + '</span></a>';
+                });
+                if ((d.visit_count || 0) > places.length && places.length >= 8) {
+                    h += '<span class="lx-ch-day-more">and more</span>';
+                }
+                h += '</div>';
+            }
+
+            const modes = Object.entries(d.transport || {}).filter(e => MODE_LABEL[e[0]] && e[1] > 0);
+            const modeTotal = modes.reduce((a, e) => a + e[1], 0);
+            if (modeTotal >= 60) {
+                h += '<div class="lx-ch-mix"><div class="lx-ch-mix-bar" role="img" aria-label="'
+                    + esc('How you moved: ' + modes.map(e => MODE_LABEL[e[0]] + ' ' + (fmtDur(e[1]) || 'under a minute')).join(', ')) + '">';
+                modes.forEach(e => { h += '<span class="lx-ch-mix-seg" data-mode="' + esc(e[0]) + '" style="flex:' + (e[1] / modeTotal).toFixed(4) + ' 1 0"></span>'; });
+                h += '</div><div class="lx-ch-mix-legend" aria-hidden="true">';
+                modes.forEach(e => {
+                    const t = fmtDur(e[1]);
+                    if (t) h += '<span class="lx-ch-mix-key" data-mode="' + esc(e[0]) + '">' + esc(MODE_LABEL[e[0]]) + ' ' + esc(t) + '</span>';
+                });
+                h += '</div></div>';
+            }
+
+            const j = d.journal;
+            if (j) {
+                h += '<div class="lx-ch-journal">';
+                if (j.title) h += '<div class="lx-ch-journal-title">' + esc(j.title) + '</div>';
+                if (j.excerpt) h += '<p class="lx-ch-journal-text">' + esc(j.excerpt) + '</p>';
+                const foot = [];
+                if (j.mood) foot.push('<span>Mood: ' + esc(j.mood) + '</span>');
+                if (j.weather) foot.push('<span>' + esc(j.weather) + '</span>');
+                if (j.photo_count) foot.push('<span>' + esc(plural(j.photo_count, 'photo', 'photos')) + '</span>');
+                if (j.favorite) foot.push('<span>Favourite</span>');
+                foot.push('<a href="/journals/?date=' + encodeURIComponent(iso) + '">Open journal</a>');
+                h += '<div class="lx-ch-journal-foot">' + foot.join('') + '</div></div>';
+            }
+
+            const facts = [];
+            const notes = Array.isArray(d.notes) ? d.notes : [];
+            notes.forEach(n => { facts.push('<div class="lx-ch-fact lx-ch-fact--note">' + svg('pen') + '<span class="lx-ch-fact-text">' + esc(n) + '</span></div>'); });
+            const hl = d.health;
+            if (hl && hl.steps) {
+                facts.push('<div class="lx-ch-fact">' + svg('feet') + '<span class="lx-ch-fact-text"><a href="/health/?day=' + encodeURIComponent(iso) + '">'
+                    + esc(Number(hl.steps).toLocaleString()) + ' steps</a></span></div>');
+            }
+            if (hl && Array.isArray(hl.workouts)) {
+                hl.workouts.slice(0, 4).forEach(w => {
+                    const dur = fmtDur(w.duration_s);
+                    const name = esc(workoutName(w));
+                    const label = w.url ? '<a href="' + esc(w.url) + '">' + name + '</a>' : name;
+                    facts.push('<div class="lx-ch-fact">' + svg('pulse') + '<span class="lx-ch-fact-text">' + label
+                        + (dur ? ' <span class="lx-ch-fact-num">' + esc(dur) + '</span>' : '') + '</span></div>');
+                });
+            }
+            (Array.isArray(d.flights) ? d.flights : []).forEach(f => {
+                const route = [f.from, f.to].filter(Boolean).join(' → ');
+                const text = [f.number, route].filter(Boolean).join(' ') || 'Flight';
+                facts.push('<div class="lx-ch-fact">' + svg('plane') + '<span class="lx-ch-fact-text"><a href="/flights/">' + esc(text) + '</a></span></div>');
+            });
+            if (facts.length) h += '<div class="lx-ch-facts">' + facts.join('') + '</div>';
+
+            if (d.adventure && d.adventure.id) {
+                h += '<div class="lx-ch-day-badges"><a class="lx-ch-badge" href="/adventures/' + encodeURIComponent(d.adventure.id) + '/edit/">'
+                    + svg('flag') + '<span>' + esc(d.adventure.name || 'Adventure') + '</span></a></div>';
+            }
+            return h + '</div></article>';
+        }
+
+        function monthHtml(iso) {
+            return '<div class="lx-ch-rail lx-ch-month">' + esc(fmt(iso, { month: 'long', year: 'numeric' })) + '</div>';
+        }
+
+        let sentinel = null;
+        function ensureSentinel() {
+            if (!sentinel) { sentinel = document.createElement('div'); sentinel.className = 'lx-ch-sentinel'; sentinel.setAttribute('aria-hidden', 'true'); }
+            feed.appendChild(sentinel);
+            if (sentinelObserver) { sentinelObserver.unobserve(sentinel); sentinelObserver.observe(sentinel); }
+        }
+        function clearTransient() {
+            feed.querySelectorAll('.lx-ch-day-skel, .lx-ch-feed-end, .lx-ch-feed-error').forEach(el => el.remove());
+        }
+        function showSkeleton() {
+            clearTransient();
+            const s = '<div class="lx-ch-day-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div></div>';
+            feed.insertAdjacentHTML('beforeend', s + s);
+            ensureSentinel();
+        }
+
+        function appendDays(list) {
+            let html = '';
+            const startIndex = days.length;
+            list.forEach((d, i) => {
+                if (!d || !parse(d.date) || byDate.has(d.date)) return;
+                if (lastIso) html += quietHtml(lastIso, d.date);
+                else if (fromLatest && d.date < todayIso) html += quietHtml(addDays(todayIso, 1), d.date);
+                const m = d.date.slice(0, 7);
+                if (m !== lastMonth) { html += monthHtml(d.date); lastMonth = m; }
+                html += dayHtml(d, startIndex + i);
+                lastIso = d.date;
+                days.push(d);
+                byDate.set(d.date, { day: d, el: null });
+            });
+            if (!html) return;
+            feed.insertAdjacentHTML('beforeend', html);
+            feed.querySelectorAll('.lx-ch-day.is-new').forEach(el => {
+                const rec = byDate.get(el.getAttribute('data-date'));
+                if (rec && !rec.el) {
+                    rec.el = el;
+                    if (readObserver) readObserver.observe(el);
+                    bindHover(el);
+                    markStripDay(rec.day);
+                }
+                el.addEventListener('animationend', () => el.classList.remove('is-new'), { once: true });
+                if (reduced()) el.classList.remove('is-new');
+            });
+            if (selected && byDate.get(selected) && byDate.get(selected).el) byDate.get(selected).el.classList.add('is-selected');
+            ensureSentinel();
+        }
+
+        function renderEnd() {
+            clearTransient();
+            const first = days.length ? days[days.length - 1].date : null;
+            if (!first) return;
+            feed.insertAdjacentHTML('beforeend', '<div class="lx-ch-rail lx-ch-feed-end">'
+                + esc('Your history starts on ' + fmt(first, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '.') + '</div>');
+            ensureSentinel();
+        }
+        function renderMoreButton() {
+            clearTransient();
+            feed.insertAdjacentHTML('beforeend', '<div class="lx-ch-rail lx-ch-feed-end">Nothing recorded for a long stretch before this.'
+                + '<div><button type="button" class="lx-ch-btn" data-ch-more>Look further back</button></div></div>');
+            ensureSentinel();
+        }
+        function renderEmpty() {
+            feed.innerHTML = '<div class="lx-ch-empty">'
+                + '<h2 class="lx-ch-empty-title">Your days will collect here</h2>'
+                + '<p>Nothing has been recorded on this account yet. Connect a phone or GPS logger in Settings, under Data &amp; Tracking. '
+                + 'From the first day it sends a location, each day appears here with where you went, how far you travelled and what you wrote.</p>'
+                + '<a class="lx-ch-btn lx-ch-btn--primary" href="/settings/#data">Open Data &amp; Tracking</a></div>';
+            sentinel = null;
+            document.getElementById('lx-ch-strip').hidden = true;
+        }
+        function renderError(first) {
+            clearTransient();
+            const html = '<div class="lx-ch-rail lx-ch-feed-end lx-ch-feed-error" role="alert">'
+                + (first ? 'The timeline didn’t load. Check your connection, then try again.' : 'Older days didn’t load.')
+                + '<div><button type="button" class="lx-ch-btn" data-ch-retry>Try again</button></div></div>';
+            if (first) { feed.innerHTML = html; sentinel = null; }
+            else feed.insertAdjacentHTML('beforeend', html);
+            ensureSentinel();
+        }
+
+        // ── Loading ───────────────────────────────────────────────────
+        async function fetchPage(before, withStrip) {
+            const qs = new URLSearchParams({ limit: String(PAGE) });
+            if (before) qs.set('before', before);
+            if (withStrip) qs.set('year_strip', '1');
+            const r = await fetch(API + '?' + qs.toString(), { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const data = await r.json();
+            if (!data || !Array.isArray(data.days)) throw new Error('Unexpected response');
+            return data;
+        }
+
+        async function load(first) {
+            if (loading || (ended && !first) || (failed && !first)) return;
+            loading = true;
+            const gen = generation;
+            feed.setAttribute('aria-busy', 'true');
+            if (!first) showSkeleton();
+            let data;
+            try {
+                data = await fetchPage(first ? firstBefore : nextBefore, first && !stripReady);
+            } catch (e) {
+                if (gen !== generation) return;
+                loading = false;
+                // Without this the sentinel (re-observed under the error row)
+                // would retry at once, forever, while offline.
+                failed = true;
+                feed.setAttribute('aria-busy', 'false');
+                renderError(first);
+                return;
+            }
+            if (gen !== generation) return;
+            loading = false;
+            failed = false;
+            feed.setAttribute('aria-busy', 'false');
+            if (typeof data.today === 'string' && parse(data.today)) todayIso = data.today;
+            if (data.activity && !stripReady) renderStrip(data.activity);
+
+            if (first) {
+                feed.innerHTML = '';
+                sentinel = null;
+            } else {
+                clearTransient();
+            }
+            nextBefore = (typeof data.next_before === 'string' && parse(data.next_before)) ? data.next_before : null;
+            appendDays(data.days);
+            ensureSentinel();   // an empty page appends nothing but must still be able to continue
+            emptyHops = data.days.length ? 0 : emptyHops + 1;
+
+            if (!days.length && !nextBefore) { ended = true; renderEmpty(); afterFirst(); return; }
+            if (!nextBefore) { ended = true; renderEnd(); }
+            else if (emptyHops >= MAX_EMPTY_HOPS) { renderMoreButton(); }
+            if (first) afterFirst();
+            // The sentinel observer only fires on a change, so a short page
+            // that leaves it in view has to ask again itself.
+            if (nextBefore && emptyHops < MAX_EMPTY_HOPS) {
+                requestAnimationFrame(() => { if (gen === generation && sentinelInView()) load(false); });
+            }
+        }
+
+        let firstBefore = null;
+        let pendingTarget = null;      // a day to select once the first page lands
+        function afterFirst() {
+            const target = pendingTarget;
+            pendingTarget = null;
+            if (!days.length) { updateCaption(null); return; }
+            if (target) {
+                // Older than this page reaches: start the feed at that day instead.
+                if (target < days[days.length - 1].date && nextBefore) { reset(addDays(target, 1), target); return; }
+                const hit = closestLoaded(target);
+                if (hit) { select(hit, { scroll: true, instant: true }); return; }
+            }
+            select(days[0].date, { scroll: false });
+        }
+
+        function reset(before, target) {
+            generation += 1;
+            failed = false;
+            days = []; byDate.clear();
+            nextBefore = null; loading = false; ended = false;
+            lastIso = null; lastMonth = ''; emptyHops = 0;
+            fromLatest = !before;
+            firstBefore = before || null;
+            pendingTarget = target || null;
+            if (readObserver) readObserver.disconnect();
+            visibleCards.clear();
+            latestBtn.hidden = fromLatest;
+            feed.innerHTML = '';
+            sentinel = null;
+            showSkeleton();
+            feed.scrollTop = 0;
+            load(true);
+        }
+
+        function closestLoaded(iso) {
+            // Newest loaded day on or before iso; else the oldest loaded one.
+            for (let i = 0; i < days.length; i++) if (days[i].date <= iso) return days[i].date;
+            return days.length ? days[days.length - 1].date : null;
+        }
+
+        function jumpTo(iso) {
+            if (!parse(iso)) return;
+            if (iso > todayIso) iso = todayIso;
+            if (!days.length) { reset(addDays(iso, 1), iso); return; }
+            const newest = days[0].date, oldest = days[days.length - 1].date;
+            const aboveLoaded = iso > newest && !fromLatest;
+            const belowLoaded = iso < oldest && nextBefore;
+            if (aboveLoaded || belowLoaded) {
+                if (aboveLoaded && dayDiff(todayIso, iso) < 45) reset(null, iso);
+                else reset(addDays(iso, 1), iso);
+                return;
+            }
+            const hit = closestLoaded(iso);
+            if (hit) select(hit, { scroll: true });
+        }
+
+        // ── Infinite scroll + reading position ────────────────────────
+        function sentinelInView() {
+            if (!sentinel || !sentinel.isConnected) return false;
+            const f = feed.getBoundingClientRect(), s = sentinel.getBoundingClientRect();
+            return s.top < f.bottom + 900;
+        }
+        const sentinelObserver = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
+            if (entries.some(e => e.isIntersecting) && nextBefore && !loading && emptyHops < MAX_EMPTY_HOPS) load(false);
+        }, { root: feed, rootMargin: '0px 0px 900px 0px' }) : null;
+
+        const visibleCards = new Set();
+        let readTimer = 0;
+        const readObserver = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
+            entries.forEach(e => { if (e.isIntersecting) visibleCards.add(e.target); else visibleCards.delete(e.target); });
+            clearTimeout(readTimer);
+            readTimer = setTimeout(pickReading, 180);
+        }, { root: feed, rootMargin: '0px 0px -70% 0px', threshold: 0 }) : null;
+
+        function pickReading() {
+            if (Date.now() < suppressScrollUntil) return;
+            // A day chosen by click or key stays chosen while any of it is on
+            // screen: near the end of the feed it cannot scroll up to the top
+            // band, and reading position must not steal it back.
+            if (pinned) {
+                const rec = selected && byDate.get(selected);
+                if (rec && rec.el) {
+                    const f = feed.getBoundingClientRect(), r = rec.el.getBoundingClientRect();
+                    if (r.bottom > f.top && r.top < f.bottom) return;
+                }
+                pinned = false;
+            }
+            for (let i = 0; i < days.length; i++) {
+                const rec = byDate.get(days[i].date);
+                if (rec && rec.el && visibleCards.has(rec.el)) {
+                    if (days[i].date !== selected) select(days[i].date, { scroll: false, source: 'scroll' });
+                    return;
+                }
+            }
+        }
+
+        // ── Selection ─────────────────────────────────────────────────
+        function select(iso, opts) {
+            opts = opts || {};
+            const rec = byDate.get(iso);
+            if (!rec) return;
+            if (iso !== selected) {
+                const prev = selected && byDate.get(selected);
+                if (prev && prev.el) { prev.el.classList.remove('is-selected'); prev.el.removeAttribute('aria-current'); }
+                selected = iso;
+                if (rec.el) { rec.el.classList.add('is-selected'); rec.el.setAttribute('aria-current', 'date'); }
+                try { CH.setDate(iso, 'timeline'); } catch (e) {}
+                markStripCurrent(iso);
+                updateCaption(iso);
+                const i = days.indexOf(rec.day);
+                const ctx = [days[i - 1], days[i + 1]].filter(Boolean).map(d => d.date);
+                mapView.showDay(iso, ctx, pinsOf(rec.day));
+            }
+            pinned = opts.source !== 'scroll' && !!opts.scroll;
+            if (opts.scroll && rec.el) {
+                suppressScrollUntil = Date.now() + 800;
+                rec.el.scrollIntoView({ block: 'start', behavior: (opts.instant || reduced()) ? 'auto' : 'smooth' });
+            }
+        }
+        function pinsOf(d) {
+            return (Array.isArray(d.places) ? d.places : [])
+                .filter(p => typeof p.lat === 'number' && typeof p.lon === 'number')
+                .map(p => [p.lon, p.lat]);
+        }
+        function updateCaption(iso) {
+            const cap = document.getElementById('lx-ch-map-cap');
+            if (!iso) { cap.hidden = true; return; }
+            document.getElementById('lx-ch-map-date').textContent = fmt(iso, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+            document.getElementById('lx-ch-map-open').href = '/map/?date=' + encodeURIComponent(iso);
+            cap.hidden = false;
+        }
+
+        feed.addEventListener('click', e => {
+            const t = e.target;
+            const quiet = t.closest('.lx-ch-quiet-row');
+            if (quiet) {
+                const list = quiet.nextElementSibling;
+                const open = quiet.getAttribute('aria-expanded') === 'true';
+                quiet.setAttribute('aria-expanded', open ? 'false' : 'true');
+                if (list) list.hidden = open;
+                return;
+            }
+            if (t.closest('[data-ch-retry]')) { failed = false; if (days.length) { ended = false; load(false); } else reset(firstBefore, pendingTarget); return; }
+            if (t.closest('[data-ch-more]')) { emptyHops = 0; load(false); return; }
+            if (t.closest('a, button')) return;
+            const card = t.closest('.lx-ch-day');
+            if (card) select(card.getAttribute('data-date'), { scroll: true });
+        });
+
+        feed.addEventListener('keydown', e => {
+            if (e.target !== feed) return;
+            const down = e.key === 'ArrowDown' || e.key === 'j';
+            const up = e.key === 'ArrowUp' || e.key === 'k';
+            if (!down && !up && e.key !== 'Home' && e.key !== 'End') return;
+            if (!days.length) return;
+            e.preventDefault();
+            let i = days.findIndex(d => d.date === selected);
+            if (e.key === 'Home') i = 0;
+            else if (e.key === 'End') i = days.length - 1;
+            else i = Math.max(0, Math.min(days.length - 1, (i < 0 ? 0 : i + (down ? 1 : -1))));
+            select(days[i].date, { scroll: true });
+            if (i >= days.length - 3 && nextBefore && !loading) load(false);
+        });
+
+        latestBtn.addEventListener('click', () => reset(null, null));
+        CH.onDate((iso, source) => { if (source !== 'timeline' && iso) jumpTo(iso); });
+
+        // ── Year strip ────────────────────────────────────────────────
+        const stripEl = document.getElementById('lx-ch-strip');
+        const stripScroll = document.getElementById('lx-ch-strip-scroll');
+        const stripTrack = document.getElementById('lx-ch-strip-track');
+        const ticks = new Map();
+        let currentTick = null;
+
+        function renderStrip(activity) {
+            const months = Object.keys(activity || {}).filter(k => /^\d{4}-\d{2}$/.test(k)).sort();
+            if (!months.length) return;
+            let html = '';
+            months.forEach((m, idx) => {
+                const y = +m.slice(0, 4), mo = +m.slice(5, 7);
+                const len = new Date(y, mo, 0).getDate();
+                const scores = activity[m] || {};
+                const label = fmt(m + '-01', (mo === 1 || idx === 0) ? { month: 'short', year: 'numeric' } : { month: 'short' });
+                let ticksHtml = '';
+                for (let d = 1; d <= len; d++) {
+                    const iso = m + '-' + pad(d);
+                    if (iso > todayIso) break;
+                    const s = +scores[iso] || 0;
+                    ticksHtml += '<span class="lx-ch-tick" data-d="' + iso + '"' + (s ? ' data-s="' + Math.min(4, s) + '"' : '') + ' title="' + esc(fmt(iso, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })) + '"></span>';
+                }
+                html += '<div class="lx-ch-strip-month"><button type="button" class="lx-ch-strip-label" data-month="' + m + '" aria-label="'
+                    + esc('Jump to ' + fmt(m + '-01', { month: 'long', year: 'numeric' })) + '">' + esc(label) + '</button>'
+                    + '<div class="lx-ch-strip-days" aria-hidden="true">' + ticksHtml + '</div></div>';
+            });
+            stripTrack.innerHTML = html;
+            stripTrack.querySelectorAll('.lx-ch-tick').forEach(t => ticks.set(t.getAttribute('data-d'), t));
+            document.getElementById('lx-ch-strip-skel').hidden = true;
+            stripScroll.hidden = false;
+            stripReady = true;
+            stripScroll.scrollLeft = stripScroll.scrollWidth;
+            days.forEach(markStripDay);
+            if (selected) markStripCurrent(selected);
+        }
+        function markStripDay(d) {
+            const t = ticks.get(d.date);
+            if (t && !t.hasAttribute('data-s') && (d.distance_km > 0 || (d.places && d.places.length) || d.journal)) t.setAttribute('data-s', '1');
+        }
+        function markStripCurrent(iso) {
+            if (currentTick) currentTick.classList.remove('is-current');
+            currentTick = ticks.get(iso) || null;
+            if (!currentTick) return;
+            currentTick.classList.add('is-current');
+            const sr = stripScroll.getBoundingClientRect(), tr = currentTick.getBoundingClientRect();
+            if (tr.left < sr.left + 24 || tr.right > sr.right - 24) {
+                const left = stripScroll.scrollLeft + (tr.left - sr.left) - sr.width / 2;
+                try { stripScroll.scrollTo({ left: left, behavior: reduced() ? 'auto' : 'smooth' }); }
+                catch (e) { stripScroll.scrollLeft = left; }
+            }
+        }
+        let drag = null, dragged = false;
+        stripScroll.addEventListener('pointerdown', e => {
+            if (e.pointerType !== 'mouse' || e.button !== 0) return;
+            drag = { x: e.clientX, left: stripScroll.scrollLeft, id: e.pointerId };
+            dragged = false;
+        });
+        stripScroll.addEventListener('pointermove', e => {
+            if (!drag || e.pointerId !== drag.id) return;
+            const dx = e.clientX - drag.x;
+            if (!dragged && Math.abs(dx) > 4) {
+                dragged = true;
+                stripScroll.classList.add('is-dragging');
+                try { stripScroll.setPointerCapture(e.pointerId); } catch (err) {}
+            }
+            if (dragged) stripScroll.scrollLeft = drag.left - dx;
+        });
+        function endDrag(e) {
+            if (!drag || (e && e.pointerId !== drag.id)) return;
+            drag = null;
+            stripScroll.classList.remove('is-dragging');
+            // A click fires right after pointerup; let it see `dragged` first.
+            setTimeout(() => { dragged = false; }, 0);
+        }
+        stripScroll.addEventListener('pointerup', endDrag);
+        stripScroll.addEventListener('pointercancel', endDrag);
+        stripScroll.addEventListener('click', e => {
+            if (dragged) { e.preventDefault(); return; }
+            const label = e.target.closest('.lx-ch-strip-label');
+            if (label) {
+                const m = label.getAttribute('data-month');
+                const p = m.split('-');
+                const last = m + '-' + pad(new Date(+p[0], +p[1], 0).getDate());
+                jumpTo(last > todayIso ? todayIso : last);
+                return;
+            }
+            const tick = e.target.closest('.lx-ch-tick');
+            if (tick) jumpTo(tick.getAttribute('data-d'));
+        });
+
+        // ── Map ───────────────────────────────────────────────────────
+        const mapView = createMap();
+        bindHandle();
+
+        function bindHover(el) {
+            if (!window.matchMedia || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+            el.addEventListener('mouseenter', () => mapView.hover(el.getAttribute('data-date')));
+            el.addEventListener('mouseleave', () => mapView.hover(null));
+        }
+
+        function bindHandle() {
+            const btn = document.getElementById('lx-ch-maphandle');
+            const text = document.getElementById('lx-ch-maphandle-text');
+            let hidden = false;
+            try { hidden = localStorage.getItem('roamly_ch_map_hidden') === '1'; } catch (e) {}
+            function apply() {
+                root.classList.toggle('is-map-collapsed', hidden);
+                btn.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+                text.textContent = hidden ? 'Show map' : 'Hide map';
+            }
+            apply();
+            btn.addEventListener('click', () => {
+                hidden = !hidden;
+                try { localStorage.setItem('roamly_ch_map_hidden', hidden ? '1' : '0'); } catch (e) {}
+                apply();
+                if (!hidden) requestAnimationFrame(() => mapView.refresh());
+            });
+        }
+
+        function createMap() {
+            const holder = document.getElementById('lx-ch-map');
+            const col = document.getElementById('lx-ch-mapcol');
+            const note = document.getElementById('lx-ch-map-note');
+            const noop = { showDay() {}, hover() {}, refresh() {} };
+            function setNote(msg) { note.textContent = msg || ''; note.hidden = !msg; }
+            function fallback(msg) {
+                holder.innerHTML = '<div class="lx-ch-map-fallback">' + esc(msg) + '</div>';
+                return noop;
+            }
+            if (!window.maplibregl || !holder) return fallback('The map couldn’t load on this device.');
+
+            // MapLibre can't read CSS variables, and color-mix()/oklch() output
+            // doesn't always parse, so paint each token into a pixel and read it back.
+            const probeCanvas = document.createElement('canvas');
+            probeCanvas.width = probeCanvas.height = 1;
+            const pctx = probeCanvas.getContext('2d', { willReadFrequently: true });
+            function token(name, fb) {
+                const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+                if (!v || !pctx) return fb;
+                try {
+                    pctx.clearRect(0, 0, 1, 1);
+                    pctx.fillStyle = fb;
+                    pctx.fillStyle = v;
+                    pctx.fillRect(0, 0, 1, 1);
+                    const p = pctx.getImageData(0, 0, 1, 1).data;
+                    return 'rgb(' + p[0] + ',' + p[1] + ',' + p[2] + ')';
+                } catch (e) { return fb; }
+            }
+            const C = {
+                primary: token('--primary', '#e8763d'),
+                ink: token('--text', '#e9e5d8'),
+                bg: token('--bg', '#14160f'),
+            };
+            const light = document.documentElement.getAttribute('data-theme') === 'light';
+            const qs = root.getAttribute('data-tile-qs') || '';
+            const tiles = 'https://basemaps.cartocdn.com/' + (light ? 'light_all' : 'dark_all') + '/{z}/{x}/{y}.png' + qs;
+
+            let map;
+            try {
+                map = new maplibregl.Map({
+                    container: holder,
+                    style: {
+                        version: 8,
+                        sources: { base: { type: 'raster', tiles: [tiles], tileSize: 256, maxzoom: 19, attribution: '© OpenStreetMap contributors © CARTO' } },
+                        layers: [{ id: 'base', type: 'raster', source: 'base' }],
+                    },
+                    center: [0, 25], zoom: 1.3,
+                    attributionControl: false,
+                    dragRotate: false, pitchWithRotate: false, touchPitch: false,
+                    cooperativeGestures: false,
+                });
+            } catch (e) {
+                return fallback('The map needs WebGL, which this browser has turned off.');
+            }
+            try {
+                map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+                map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+                if (map.touchZoomRotate && map.touchZoomRotate.disableRotation) map.touchZoomRotate.disableRotation();
+            } catch (e) {}
+
+            const EMPTY = { type: 'FeatureCollection', features: [] };
+            let ready = false;
+            let pending = null;          // last showDay call before the style loaded
+            let seq = 0;
+            let current = null;          // {iso, ctx, pins}
+            let hoverIso = null, hoverTimer = 0;
+            const cache = new Map();     // iso -> FeatureCollection
+            const inflight = new Map();  // iso -> Promise
+
+            map.on('load', () => {
+                map.addSource('ctx', { type: 'geojson', data: EMPTY });
+                map.addSource('hover', { type: 'geojson', data: EMPTY });
+                map.addSource('day', { type: 'geojson', data: EMPTY });
+                map.addSource('pins', { type: 'geojson', data: EMPTY });
+                const lineLayout = { 'line-join': 'round', 'line-cap': 'round' };
+                map.addLayer({ id: 'ctx-line', type: 'line', source: 'ctx', layout: lineLayout,
+                    paint: { 'line-color': C.primary, 'line-width': 2, 'line-opacity': 0.35 } });
+                map.addLayer({ id: 'hover-line', type: 'line', source: 'hover', layout: lineLayout,
+                    paint: { 'line-color': C.ink, 'line-width': 2.5, 'line-opacity': 0.6 } });
+                map.addLayer({ id: 'day-casing', type: 'line', source: 'day', layout: lineLayout,
+                    paint: { 'line-color': C.bg, 'line-width': 6.5, 'line-opacity': 0.85 } });
+                map.addLayer({ id: 'day-line', type: 'line', source: 'day', layout: lineLayout,
+                    paint: { 'line-color': C.primary, 'line-width': 3.5 } });
+                map.addLayer({ id: 'pins', type: 'circle', source: 'pins',
+                    paint: { 'circle-radius': 5, 'circle-color': C.bg, 'circle-stroke-color': C.primary, 'circle-stroke-width': 2 } });
+                ready = true;
+                if (pending) { const p = pending; pending = null; showDay(p.iso, p.ctx, p.pins); }
+            });
+            map.on('error', () => {});  // a failed tile must not reach the page's error toast
+
+            function src(id) { return ready ? map.getSource(id) : null; }
+            function setData(id, data) { const s = src(id); if (s) s.setData(data); }
+
+            function toCollection(payload) {
+                const features = [];
+                const devices = payload && Array.isArray(payload.devices) ? payload.devices : [];
+                devices.forEach(dev => {
+                    const pts = Array.isArray(dev.points) ? dev.points : [];
+                    let line = [], lastTs = null;
+                    const flush = () => { if (line.length >= 2) features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: line } }); line = []; };
+                    pts.forEach(p => {
+                        const c = p && p.c;
+                        if (!Array.isArray(c) || typeof c[0] !== 'number' || typeof c[1] !== 'number') return;
+                        if (lastTs != null && typeof p.ts === 'number' && p.ts - lastTs > TRACK_GAP_S) flush();
+                        line.push([c[0], c[1]]);
+                        if (typeof p.ts === 'number') lastTs = p.ts;
+                    });
+                    flush();
+                });
+                return { type: 'FeatureCollection', features: features };
+            }
+            function trackFor(iso) {
+                if (cache.has(iso)) return Promise.resolve(cache.get(iso));
+                if (inflight.has(iso)) return inflight.get(iso);
+                const url = '/api/track/?start_date=' + encodeURIComponent(iso) + '&end_date=' + encodeURIComponent(iso);
+                const p = fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+                    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                    .then(json => {
+                        const fc = toCollection(json);
+                        cache.set(iso, fc);
+                        if (cache.size > TRACK_CACHE) cache.delete(cache.keys().next().value);
+                        return fc;
+                    })
+                    .finally(() => inflight.delete(iso));
+                inflight.set(iso, p);
+                return p;
+            }
+            function visible() { return col.offsetHeight > 40 && col.offsetWidth > 40; }
+            function fit(fc, pins) {
+                if (!visible()) return;
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, n = 0;
+                const add = c => { minX = Math.min(minX, c[0]); maxX = Math.max(maxX, c[0]); minY = Math.min(minY, c[1]); maxY = Math.max(maxY, c[1]); n++; };
+                fc.features.forEach(f => f.geometry.coordinates.forEach(add));
+                (pins || []).forEach(add);
+                if (!n) return false;
+                const dur = reduced() ? 0 : 600;
+                const w = col.offsetWidth, h = col.offsetHeight;
+                const phone = w < 520 || h < 360;
+                const padding = phone ? { top: 52, bottom: 20, left: 20, right: 20 } : { top: 76, bottom: 40, left: 40, right: 56 };
+                if (padding.top + padding.bottom >= h - 40 || padding.left + padding.right >= w - 40) {
+                    padding.top = padding.bottom = padding.left = padding.right = 8;
+                }
+                try {
+                    if (maxX - minX < 1e-5 && maxY - minY < 1e-5) map.easeTo({ center: [minX, minY], zoom: 14, duration: dur });
+                    else map.fitBounds([[minX, minY], [maxX, maxY]], { padding: padding, maxZoom: 15, duration: dur });
+                } catch (e) {}
+                return true;
+            }
+            function showDay(iso, ctx, pins) {
+                current = { iso: iso, ctx: ctx || [], pins: pins || [] };
+                if (!ready) { pending = current; return; }
+                const mine = ++seq;
+                setData('pins', { type: 'FeatureCollection', features: current.pins.map(c => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: c } })) });
+                setData('hover', EMPTY);
+                setNote('');
+                trackFor(iso).then(fc => {
+                    if (mine !== seq) return;
+                    setData('day', fc);
+                    const fitted = fit(fc, current.pins);
+                    if (!fc.features.length) setNote(current.pins.length ? 'No track recorded, showing where you stopped' : 'No track recorded on this day');
+                    else if (fitted === false) setNote('');
+                }).catch(() => {
+                    if (mine !== seq) return;
+                    setData('day', EMPTY);
+                    setNote('This day’s track didn’t load');
+                });
+                Promise.all(current.ctx.map(d => trackFor(d).catch(() => EMPTY))).then(list => {
+                    if (mine !== seq) return;
+                    setData('ctx', { type: 'FeatureCollection', features: [].concat.apply([], list.map(fc => fc.features)) });
+                });
+            }
+            function hover(iso) {
+                clearTimeout(hoverTimer);
+                hoverIso = iso;
+                if (!iso || (current && iso === current.iso)) { setData('hover', EMPTY); return; }
+                hoverTimer = setTimeout(() => {
+                    trackFor(iso).then(fc => { if (hoverIso === iso) setData('hover', fc); }).catch(() => {});
+                }, 150);
+            }
+            let rz = 0;
+            function refresh() {
+                cancelAnimationFrame(rz);
+                rz = requestAnimationFrame(() => {
+                    try { map.resize(); } catch (e) {}
+                    if (current && cache.has(current.iso)) fit(cache.get(current.iso), current.pins);
+                });
+            }
+            if ('ResizeObserver' in window) {
+                let was = visible();
+                new ResizeObserver(() => {
+                    const now = visible();
+                    cancelAnimationFrame(rz);
+                    rz = requestAnimationFrame(() => {
+                        try { map.resize(); } catch (e) {}
+                        // Re-fit only when the map comes back into view (phone handle).
+                        if (now && !was && current && cache.has(current.iso)) fit(cache.get(current.iso), current.pins);
+                        was = now;
+                    });
+                }).observe(col);
+            }
+            return { showDay: showDay, hover: hover, refresh: refresh };
+        }
+
+        // ── Start ─────────────────────────────────────────────────────
+        const initial = CH.selectedDate;
+        pendingTarget = initial && parse(initial) ? initial : null;
+        if (pendingTarget) {
+            // Load from the latest unless the day is far back; the first page
+            // covers the last 30 days with data, so a recent ?d= lands in it.
+            const back = dayDiff(todayIso, pendingTarget);
+            if (back > 45) { fromLatest = false; firstBefore = addDays(pendingTarget, 1); latestBtn.hidden = false; }
+        }
+        load(true);
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
+})();
+</script>
+{% endblock %}

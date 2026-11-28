@@ -1,0 +1,753 @@
+/* ════════════════════════════════════════════════════════════════════
+   CHRONICLE — your life as a feed. Time is the primary axis: every page
+   orients around days. Editorial and warm: the display serif sets dates,
+   mono sets figures, hairline rules separate entries, one accent.
+
+   Scope: every rule starts with html[data-layout="chronicle"] (a test
+   enforces the first token). Colours only from palette tokens; radii only
+   role tokens (with 0px fallbacks, since Field's square shape sets none).
+
+   ── Shell contract ──────────────────────────────────────────────────
+   --nav-h: 56px (the top bar). Phone (<=768px): the bottom tab bar is
+   exactly --bottom-nav-height (base's calc(68px + safe area)).
+   Chrome z-index: bar/dock 1000, menus 1100, sheet 8500-8600 (< 9000).
+
+   ── Primitives for Chronicle page templates ─────────────────────────
+   .lx-ch-page        Centered reading column (max 880px) with page padding.
+                      Add .lx-ch-page--wide for 1150px (tables, grids).
+   .lx-ch-kicker      Small mono line above a title (date, count, context).
+                      Sentence case; tabular numerals.
+   .lx-ch-title       Page title, display serif 34px (28px on phones). Use on h1.
+   .lx-ch-lede        One plain sentence under a title, muted, 60ch.
+   .lx-ch-section     A block with top spacing; its heading is
+                      .lx-ch-section-title (display serif 22px) and an
+                      optional .lx-ch-section-meta (mono, right-aligned).
+                      Wrap the two in .lx-ch-section-head.
+   .lx-ch-stat        Figure + label: .lx-ch-stat-value (mono, tabular,
+                      22px) and .lx-ch-stat-label (13px muted). Line several
+                      up in .lx-ch-stats (wrapping flex row, 32px gaps).
+   .lx-ch-rule        A hairline <hr>.
+   .lx-ch-row         A list row on a hairline: .lx-ch-row-main (grows,
+                      truncates) + .lx-ch-row-meta (mono, muted). As <a>
+                      or <button> it gets hover + focus states.
+   .lx-ch-chip        Pill tag/filter (28px; 44px hit area on phones).
+                      .is-active marks a chosen one. Works on a/button/span.
+   .lx-ch-seg         Segmented control: a wrapper of <button>s; mark the
+                      chosen one aria-pressed="true".
+   .lx-ch-empty       Empty / error state: .lx-ch-empty-title (serif) + <p>
+                      + an optional .lx-ch-btn. Say what to do next.
+   .lx-ch-toolbar     Wrapping row of controls under a page title.
+   .lx-ch-btn         Quiet bordered button; .lx-ch-btn--primary for the
+                      one main action. 36px (44px on phones).
+   .lx-ch-badge       Small bordered tag (adventure, status).
+   Skeletons          Combine base's .skeleton with .lx-ch-skel-title,
+                      .lx-ch-skel-line (.is-short / .is-mid) and
+                      .lx-ch-skel-block (set your own height).
+
+   ── JS (chronicle.js) ───────────────────────────────────────────────
+   window.RoamlyChronicle = { selectedDate, setDate(iso, source),
+   onDate(cb) -> unsubscribe, today(), parse(iso), format(iso, opts) }.
+   ════════════════════════════════════════════════════════════════════ */
+
+@keyframes lx-ch-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+html[data-layout="chronicle"] {
+    --nav-h: 56px;
+    --lx-ch-feed-w: 460px;
+    --lx-ch-hair: var(--border);
+    --lx-ch-tint: color-mix(in srgb, var(--text) 5%, transparent);
+    --lx-ch-tint-strong: color-mix(in srgb, var(--text) 9%, transparent);
+    --lx-ch-ring: color-mix(in srgb, var(--primary) 70%, transparent);
+    --lx-ch-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* The offline banner sits under the bar (base only does this for .navbar). */
+html[data-layout="chronicle"] .rly-banner { top: var(--nav-h); }
+
+/* ── Top bar ─────────────────────────────────────────────────────── */
+html[data-layout="chronicle"] .lx-ch-bar {
+    position: sticky; top: 0; z-index: 1000;
+    height: var(--nav-h);
+    display: flex; align-items: center; gap: 24px;
+    padding: 0 20px 0 24px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--lx-ch-hair);
+}
+html[data-layout="chronicle"] .lx-ch-brand {
+    display: inline-flex; align-items: center; gap: 10px; flex: none;
+    color: var(--text); text-decoration: none;
+    border-radius: var(--r-2, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-brand-mark { width: 26px; height: 26px; display: block; }
+html[data-layout="chronicle"] .lx-ch-brand-word {
+    font-family: var(--font-display); font-size: 19px; font-weight: 600;
+    letter-spacing: -0.01em; line-height: 1;
+}
+html[data-layout="chronicle"] .lx-ch-brand:focus-visible,
+html[data-layout="chronicle"] .lx-ch-tab:focus-visible,
+html[data-layout="chronicle"] .lx-ch-account-toggle:focus-visible,
+html[data-layout="chronicle"] .lx-ch-dock-item:focus-visible,
+html[data-layout="chronicle"] .lx-ch-sheet-link:focus-visible,
+html[data-layout="chronicle"] .lx-ch-sheet-close:focus-visible,
+html[data-layout="chronicle"] .lx-ch-menu-panel a:focus-visible {
+    outline: 2px solid var(--lx-ch-ring); outline-offset: 2px;
+}
+
+html[data-layout="chronicle"] .lx-ch-tabs {
+    display: flex; align-items: stretch; height: 100%; min-width: 0;
+}
+html[data-layout="chronicle"] .lx-ch-tab {
+    position: relative;
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 100%; padding: 0 12px;
+    background: none; border: 0; cursor: pointer;
+    font-family: var(--font-body); font-size: 14px; font-weight: 500; line-height: 1;
+    color: var(--text-muted); text-decoration: none; white-space: nowrap;
+    transition: color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-tab::after {
+    content: ''; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px;
+    background: var(--primary);
+    transform: scaleX(0); transform-origin: center;
+    transition: transform 180ms var(--lx-ch-ease);
+}
+html[data-layout="chronicle"] .lx-ch-tab:hover { color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-tab.is-active { color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-tab.is-active::after { transform: scaleX(1); }
+html[data-layout="chronicle"] .lx-ch-tab:focus-visible { outline-offset: -8px; }
+html[data-layout="chronicle"] .lx-ch-caret {
+    fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
+    transition: transform 150ms ease-out;
+}
+html[data-layout="chronicle"] [aria-expanded="true"] > .lx-ch-caret { transform: rotate(180deg); }
+
+/* Menus (More, account) */
+html[data-layout="chronicle"] .lx-ch-menu { position: relative; display: flex; align-items: stretch; }
+html[data-layout="chronicle"] .lx-ch-menu-panel {
+    position: absolute; top: calc(100% - 4px); left: 0; z-index: 1100;
+    min-width: 220px; padding: 6px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--r-3, 0px);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+}
+html[data-layout="chronicle"] .lx-ch-menu-panel[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-menu-panel--end { left: auto; right: 0; }
+html[data-layout="chronicle"] .lx-ch-menu-panel a {
+    display: block; padding: 9px 12px;
+    border-radius: var(--r-2, 0px);
+    font-family: var(--font-body); font-size: 14px; line-height: 1.3;
+    color: var(--text); text-decoration: none; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+    transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-menu-panel a:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-menu-panel a.is-active { color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-menu-panel a:focus-visible { outline-offset: -2px; }
+html[data-layout="chronicle"] .lx-ch-menu-rule { border: 0; border-top: 1px solid var(--border); margin: 6px 4px; }
+html[data-layout="chronicle"] .lx-ch-menu-head {
+    padding: 8px 12px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--border);
+    font-size: 13px; color: var(--text-muted); white-space: nowrap;
+}
+html[data-layout="chronicle"] .lx-ch-menu-head strong { color: var(--text); font-weight: 600; }
+html[data-layout="chronicle"] .lx-ch-menu-narrow { display: none; }
+
+/* Right side */
+html[data-layout="chronicle"] .lx-ch-end {
+    margin-left: auto; display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; height: 100%;
+}
+html[data-layout="chronicle"] .lx-ch-end > * { flex: none; }
+html[data-layout="chronicle"] .lx-ch-bar .lx-ch-end > .yago { flex: 0 1 auto; min-width: 0; margin-right: 6px; }
+html[data-layout="chronicle"] .lx-ch-bar .yago-chip {
+    width: auto; min-width: 0; max-width: 18rem;
+    background: transparent; border-color: var(--border);
+    border-radius: var(--r-pill, 999px);
+}
+html[data-layout="chronicle"] .lx-ch-bar .notif-toggle { width: 36px; height: 36px; border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-bar .notif-toggle:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-bar .notif-dot { box-shadow: 0 0 0 2px var(--bg); }
+
+html[data-layout="chronicle"] .lx-ch-datejump {
+    position: relative; display: inline-flex; align-items: center; gap: 8px;
+    height: 36px; min-width: 36px; padding: 0 9px;
+    border-radius: var(--r-2, 0px);
+    color: var(--text-muted);
+    transition: color 150ms ease-out, background-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-datejump:hover { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-datejump:focus-within { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-datejump svg {
+    flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
+}
+html[data-layout="chronicle"] .lx-ch-datejump-label {
+    display: none;
+    font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+/* The native picker sits over the control, invisible, so a tap opens the
+   platform's own date wheel/calendar. */
+html[data-layout="chronicle"] .lx-ch-datejump-input {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    opacity: 0; cursor: pointer; border: 0; padding: 0; margin: 0;
+    font-size: 16px; color-scheme: dark light;
+}
+
+html[data-layout="chronicle"] .lx-ch-account-toggle {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 36px; padding: 0 8px 0 4px; margin-left: 2px;
+    background: none; border: 0; cursor: pointer;
+    border-radius: var(--r-pill, 999px);
+    color: var(--text-muted); font-family: var(--font-body); font-size: 14px;
+    transition: color 150ms ease-out, background-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-account-toggle:hover,
+html[data-layout="chronicle"] .lx-ch-account-toggle[aria-expanded="true"] { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--primary) 16%, var(--bg-elevated));
+    color: var(--text); font-family: var(--font-display); font-size: 14px; font-weight: 600;
+}
+html[data-layout="chronicle"] .lx-ch-account-name { max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-account .lx-ch-menu-panel { top: calc(100% - 6px); }
+
+/* ── Phone dock + More sheet (hidden on larger screens) ─────────── */
+html[data-layout="chronicle"] .lx-ch-dock { display: none; }
+html[data-layout="chronicle"] .lx-ch-sheet[hidden],
+html[data-layout="chronicle"] .lx-ch-sheet-scrim[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-sheet-scrim {
+    position: fixed; inset: 0; z-index: 8500;
+    background: rgba(0, 0, 0, 0.45);
+    opacity: 0; transition: opacity 180ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 8600;
+    max-height: min(86vh, 720px); overflow-y: auto; overscroll-behavior: contain;
+    background: var(--bg-elevated);
+    border-top: 1px solid var(--border-strong);
+    border-radius: var(--r-4, 0px) var(--r-4, 0px) 0 0;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    transform: translateY(100%);
+    transition: transform 200ms var(--lx-ch-ease);
+}
+html[data-layout="chronicle"] .lx-ch-sheet.is-open { transform: none; }
+html[data-layout="chronicle"] .lx-ch-sheet-scrim.is-open { opacity: 1; }
+html[data-layout="chronicle"] .lx-ch-sheet-head {
+    position: sticky; top: 0; z-index: 1;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 8px 8px 20px;
+    background: var(--bg-elevated);
+}
+html[data-layout="chronicle"] .lx-ch-sheet-title { font-family: var(--font-display); font-size: 22px; font-weight: 500; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-sheet-close {
+    width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center;
+    background: none; border: 0; cursor: pointer; color: var(--text-muted);
+    border-radius: var(--r-2, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-sheet-close svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; }
+html[data-layout="chronicle"] .lx-ch-sheet-group {
+    display: grid; grid-template-columns: 1fr 1fr;
+    margin: 0 16px; padding: 8px 0;
+    border-top: 1px solid var(--border);
+}
+html[data-layout="chronicle"] .lx-ch-sheet-group:first-child { border-top: 0; }
+html[data-layout="chronicle"] .lx-ch-sheet-link {
+    display: flex; flex-direction: column; justify-content: center; gap: 2px;
+    min-height: 48px; padding: 8px 8px;
+    border-radius: var(--r-2, 0px);
+    font-family: var(--font-body); font-size: 16px; color: var(--text); text-decoration: none;
+    min-width: 0;
+}
+html[data-layout="chronicle"] .lx-ch-sheet-link:active { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-sheet-link.is-active { color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-sheet-sub {
+    font-size: 12px; color: var(--text-muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── Primitives ──────────────────────────────────────────────────── */
+html[data-layout="chronicle"] .lx-ch-page {
+    position: relative; z-index: 1;
+    width: 100%; max-width: 880px; margin: 0 auto;
+    padding: 32px 24px 64px;
+}
+html[data-layout="chronicle"] .lx-ch-page--wide { max-width: 1150px; }
+html[data-layout="chronicle"] .lx-ch-kicker {
+    display: block;
+    font-family: var(--font-mono); font-size: 12px; line-height: 1.4; letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums; color: var(--text-muted);
+}
+html[data-layout="chronicle"] .lx-ch-title {
+    font-family: var(--font-display); font-size: 34px; line-height: 1.1; font-weight: 500;
+    letter-spacing: -0.015em; color: var(--text); margin: 4px 0 0;
+}
+html[data-layout="chronicle"] .lx-ch-lede { margin-top: 8px; max-width: 60ch; font-size: 15px; line-height: 1.55; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-section { margin-top: 40px; }
+html[data-layout="chronicle"] .lx-ch-section-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+html[data-layout="chronicle"] .lx-ch-section-title {
+    font-family: var(--font-display); font-size: 22px; line-height: 1.2; font-weight: 500; color: var(--text);
+}
+html[data-layout="chronicle"] .lx-ch-section-meta {
+    font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+html[data-layout="chronicle"] .lx-ch-stats { display: flex; flex-wrap: wrap; gap: 16px 32px; }
+html[data-layout="chronicle"] .lx-ch-stat { display: inline-flex; flex-direction: column; gap: 2px; min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-stat-value {
+    font-family: var(--font-mono); font-size: 22px; line-height: 1.15; font-weight: 400;
+    font-variant-numeric: tabular-nums; color: var(--text);
+}
+html[data-layout="chronicle"] .lx-ch-stat-label { font-size: 13px; line-height: 1.3; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-rule { border: 0; border-top: 1px solid var(--border); margin: 24px 0; }
+html[data-layout="chronicle"] .lx-ch-row {
+    display: flex; align-items: baseline; gap: 12px;
+    width: 100%; padding: 12px 0;
+    background: none; border: 0; border-bottom: 1px solid var(--border);
+    font: inherit; color: var(--text); text-align: left; text-decoration: none;
+}
+html[data-layout="chronicle"] .lx-ch-row-main { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-row-meta {
+    flex: none; font-family: var(--font-mono); font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+html[data-layout="chronicle"] a.lx-ch-row,
+html[data-layout="chronicle"] button.lx-ch-row { cursor: pointer; transition: background-color 120ms ease-out; }
+html[data-layout="chronicle"] a.lx-ch-row:hover,
+html[data-layout="chronicle"] button.lx-ch-row:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-row:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
+
+html[data-layout="chronicle"] .lx-ch-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 28px; max-width: 100%; padding: 0 11px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--r-pill, 999px);
+    font-family: var(--font-body); font-size: 13px; line-height: 1; color: var(--text);
+    text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: border-color 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out;
+}
+html[data-layout="chronicle"] a.lx-ch-chip:hover,
+html[data-layout="chronicle"] button.lx-ch-chip:hover { border-color: var(--border-strong); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] button.lx-ch-chip { cursor: pointer; }
+html[data-layout="chronicle"] .lx-ch-chip.is-active { border-color: var(--primary); background: var(--primary-soft); }
+html[data-layout="chronicle"] .lx-ch-chip:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-chip svg { flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+
+html[data-layout="chronicle"] .lx-ch-seg {
+    display: inline-flex; padding: 2px; gap: 2px;
+    border: 1px solid var(--border); border-radius: var(--r-2, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-seg > button {
+    min-height: 30px; padding: 0 12px;
+    background: none; border: 0; cursor: pointer;
+    border-radius: calc(var(--r-2, 0px) * 0.8);
+    font-family: var(--font-body); font-size: 13px; font-weight: 500; color: var(--text-muted);
+    transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-seg > button:hover { color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-seg > button[aria-pressed="true"] { background: var(--lx-ch-tint-strong); color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-seg > button:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+
+html[data-layout="chronicle"] .lx-ch-empty { max-width: 46ch; padding: 48px 0; }
+html[data-layout="chronicle"] .lx-ch-empty-title {
+    font-family: var(--font-display); font-size: 24px; line-height: 1.2; font-weight: 500; color: var(--text); margin-bottom: 8px;
+}
+html[data-layout="chronicle"] .lx-ch-empty p { font-size: 15px; line-height: 1.6; color: var(--text-muted); margin-bottom: 16px; }
+html[data-layout="chronicle"] .lx-ch-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0 24px; }
+
+html[data-layout="chronicle"] .lx-ch-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    min-height: 36px; padding: 0 14px;
+    background: transparent; border: 1px solid var(--border-strong);
+    border-radius: var(--r-2, 0px); cursor: pointer;
+    font-family: var(--font-body); font-size: 14px; font-weight: 500; color: var(--text); text-decoration: none;
+    transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-btn:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-btn:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+html[data-layout="chronicle"] .lx-ch-btn:disabled { opacity: 0.5; cursor: default; }
+html[data-layout="chronicle"] .lx-ch-btn--primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary, #fff); }
+html[data-layout="chronicle"] .lx-ch-btn--primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+html[data-layout="chronicle"] .lx-ch-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 8px; max-width: 100%;
+    border: 1px solid var(--border); border-radius: var(--r-1, 0px);
+    font-size: 12px; line-height: 1.3; color: var(--text-muted); text-decoration: none;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+html[data-layout="chronicle"] a.lx-ch-badge:hover { color: var(--text); border-color: var(--border-strong); }
+html[data-layout="chronicle"] a.lx-ch-badge:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+
+html[data-layout="chronicle"] .lx-ch-skel-title { height: 28px; width: 62%; margin-bottom: 10px; }
+html[data-layout="chronicle"] .lx-ch-skel-line { height: 12px; width: 100%; margin-bottom: 8px; }
+html[data-layout="chronicle"] .lx-ch-skel-line.is-mid { width: 72%; }
+html[data-layout="chronicle"] .lx-ch-skel-line.is-short { width: 40%; }
+html[data-layout="chronicle"] .lx-ch-skel-block { width: 100%; }
+
+/* ── Timeline page ───────────────────────────────────────────────── */
+html[data-layout="chronicle"] .lx-ch-tl {
+    position: relative; z-index: 1;
+    display: grid;
+    grid-template-columns: var(--lx-ch-feed-w) minmax(0, 1fr);
+    grid-template-areas: "feed map";
+    height: calc(100vh - var(--nav-h));
+    height: calc(100dvh - var(--nav-h));
+    min-height: 420px;
+}
+html[data-layout="chronicle"] .lx-ch-tl-feedcol {
+    grid-area: feed;
+    display: flex; flex-direction: column; min-height: 0; min-width: 0;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+}
+html[data-layout="chronicle"] .lx-ch-tl-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 18px 24px 6px;
+}
+html[data-layout="chronicle"] .lx-ch-tl-title {
+    font-family: var(--font-display); font-size: 24px; line-height: 1.1; font-weight: 500; letter-spacing: -0.01em; color: var(--text);
+}
+html[data-layout="chronicle"] .lx-ch-tl-latest[hidden] { display: none; }
+
+/* Year strip */
+html[data-layout="chronicle"] .lx-ch-strip { position: relative; padding: 4px 0 10px; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-strip[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-strip-scroll {
+    overflow-x: auto; overflow-y: hidden;
+    padding: 4px 24px 6px;
+    scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+    cursor: grab; touch-action: pan-x;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+}
+html[data-layout="chronicle"] .lx-ch-strip-scroll.is-dragging { cursor: grabbing; user-select: none; }
+html[data-layout="chronicle"] .lx-ch-strip-track { display: flex; align-items: flex-end; gap: 10px; width: max-content; min-height: 50px; }
+html[data-layout="chronicle"] .lx-ch-strip-month { display: flex; flex-direction: column; gap: 4px; flex: none; }
+html[data-layout="chronicle"] .lx-ch-strip-label {
+    align-self: flex-start;
+    padding: 2px 3px; margin-left: -3px;
+    background: none; border: 0; cursor: pointer;
+    border-radius: var(--r-1, 0px);
+    font-family: var(--font-mono); font-size: 11px; line-height: 1.2; color: var(--text-muted);
+    white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+html[data-layout="chronicle"] .lx-ch-strip-label:hover { color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-strip-label:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-strip-days { display: flex; align-items: flex-end; height: 26px; }
+html[data-layout="chronicle"] .lx-ch-tick { display: flex; align-items: flex-end; justify-content: center; width: 4px; height: 100%; }
+html[data-layout="chronicle"] .lx-ch-tick::before {
+    content: ''; display: block; width: 2px; height: 3px;
+    background: var(--text-dim); opacity: 0.45;
+    transition: background-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-tick[data-s="1"]::before { height: 8px; background: var(--text-muted); opacity: 0.6; }
+html[data-layout="chronicle"] .lx-ch-tick[data-s="2"]::before { height: 13px; background: var(--text-muted); opacity: 0.8; }
+html[data-layout="chronicle"] .lx-ch-tick[data-s="3"]::before { height: 19px; background: var(--text); opacity: 0.7; }
+html[data-layout="chronicle"] .lx-ch-tick[data-s="4"]::before { height: 25px; background: var(--text); opacity: 0.9; }
+html[data-layout="chronicle"] .lx-ch-tick:hover::before { background: var(--text); opacity: 1; }
+html[data-layout="chronicle"] .lx-ch-tick.is-current::before { width: 3px; height: 26px; background: var(--primary); opacity: 1; }
+html[data-layout="chronicle"] .lx-ch-strip-skel { height: 42px; margin: 4px 24px 2px; }
+
+/* Feed */
+html[data-layout="chronicle"] .lx-ch-feed {
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto; overscroll-behavior: contain;
+    padding: 4px 24px 48px;
+    scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+}
+html[data-layout="chronicle"] .lx-ch-feed:focus { outline: none; }
+html[data-layout="chronicle"] .lx-ch-feed:focus-visible { box-shadow: inset 0 0 0 2px var(--lx-ch-ring); }
+
+/* The rail: every feed item draws its own piece of the vertical line, so the
+   line runs unbroken however items are inserted. */
+html[data-layout="chronicle"] .lx-ch-rail { position: relative; padding-left: 32px; }
+html[data-layout="chronicle"] .lx-ch-rail::before {
+    content: ''; position: absolute; left: 7px; top: 0; bottom: 0; width: 1px;
+    background: var(--border);
+}
+html[data-layout="chronicle"] .lx-ch-feed > .lx-ch-rail:first-child::before { top: 24px; }
+
+html[data-layout="chronicle"] .lx-ch-month {
+    padding-top: 28px; padding-bottom: 4px;
+    font-family: var(--font-display); font-size: 17px; font-weight: 500; line-height: 1.2;
+    color: var(--text-muted);
+}
+html[data-layout="chronicle"] .lx-ch-feed > .lx-ch-month:first-child { padding-top: 12px; }
+
+html[data-layout="chronicle"] .lx-ch-day { cursor: pointer; scroll-margin-top: 4px; }
+html[data-layout="chronicle"] .lx-ch-day.is-new { animation: lx-ch-in 200ms ease-out both; }
+html[data-layout="chronicle"] .lx-ch-day-node {
+    position: absolute; left: 2px; top: 31px;
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--bg); border: 1.5px solid var(--text-muted);
+    transition: background-color 150ms ease-out, border-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-day.is-today .lx-ch-day-node { border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-day.is-selected .lx-ch-day-node { background: var(--primary); border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-day-body {
+    padding: 20px 12px 22px; margin: 0 -12px;
+    border-bottom: 1px solid var(--border);
+    border-radius: var(--r-2, 0px);
+    transition: background-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-day:hover .lx-ch-day-body { background: color-mix(in srgb, var(--text) 3%, transparent); }
+html[data-layout="chronicle"] .lx-ch-day.is-selected .lx-ch-day-body { background: color-mix(in srgb, var(--primary) 6%, transparent); }
+html[data-layout="chronicle"] .lx-ch-day-kicker { min-height: 17px; }
+html[data-layout="chronicle"] .lx-ch-day-title {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px;
+    font-family: var(--font-display); font-size: 30px; line-height: 1.15; font-weight: 500;
+    letter-spacing: -0.015em; color: var(--text); margin: 2px 0 6px;
+}
+html[data-layout="chronicle"] .lx-ch-day-date { font-weight: 400; color: var(--text-muted); font-size: 0.72em; letter-spacing: -0.005em; }
+html[data-layout="chronicle"] .lx-ch-day-meta {
+    font-family: var(--font-mono); font-size: 13px; line-height: 1.5; font-variant-numeric: tabular-nums; color: var(--text-muted);
+}
+html[data-layout="chronicle"] .lx-ch-day-meta:empty { display: none; }
+html[data-layout="chronicle"] .lx-ch-day-places { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+html[data-layout="chronicle"] .lx-ch-day-more { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); align-self: center; padding-left: 2px; }
+
+/* Transport mix: one thin stacked bar + a legend. Mode colours are the
+   palette's categorical data colours. */
+html[data-layout="chronicle"] .lx-ch-mix { margin-top: 14px; }
+html[data-layout="chronicle"] .lx-ch-mix-bar {
+    display: flex; gap: 2px; height: 4px; overflow: hidden;
+    border-radius: var(--r-pill, 999px);
+    background: var(--lx-ch-tint);
+}
+html[data-layout="chronicle"] .lx-ch-mix-seg { height: 100%; min-width: 2px; }
+html[data-layout="chronicle"] .lx-ch-mix-legend {
+    display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 7px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+html[data-layout="chronicle"] .lx-ch-mix-key { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-mix-key::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--lx-ch-mode, var(--text-muted)); }
+html[data-layout="chronicle"] [data-mode="walk"] { --lx-ch-mode: var(--clay-mint); }
+html[data-layout="chronicle"] [data-mode="cycle"] { --lx-ch-mode: var(--clay-amber); }
+html[data-layout="chronicle"] [data-mode="vehicle"] { --lx-ch-mode: var(--clay-sky); }
+html[data-layout="chronicle"] [data-mode="plane"] { --lx-ch-mode: var(--clay-lavender); }
+html[data-layout="chronicle"] .lx-ch-mix-seg { background: var(--lx-ch-mode, var(--text-muted)); }
+
+html[data-layout="chronicle"] .lx-ch-journal {
+    margin-top: 16px; padding-left: 14px;
+    border-left: 2px solid var(--border-strong);
+}
+html[data-layout="chronicle"] .lx-ch-journal-title {
+    font-family: var(--font-display); font-size: 18px; line-height: 1.3; font-weight: 600; color: var(--text);
+}
+html[data-layout="chronicle"] .lx-ch-journal-text {
+    margin-top: 4px; max-width: 62ch;
+    font-family: var(--font-display); font-size: 16px; line-height: 1.6; font-weight: 400; color: var(--text);
+    overflow-wrap: anywhere;
+}
+html[data-layout="chronicle"] .lx-ch-journal-foot {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 8px;
+    font-size: 13px; color: var(--text-muted);
+}
+html[data-layout="chronicle"] .lx-ch-journal-foot a { color: var(--link); text-decoration: none; }
+html[data-layout="chronicle"] .lx-ch-journal-foot a:hover { text-decoration: underline; }
+
+html[data-layout="chronicle"] .lx-ch-facts { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
+html[data-layout="chronicle"] .lx-ch-fact {
+    display: flex; align-items: flex-start; gap: 10px;
+    font-size: 14px; line-height: 1.45; color: var(--text);
+    min-width: 0;
+}
+html[data-layout="chronicle"] .lx-ch-fact > svg {
+    flex: none; width: 16px; height: 16px; margin-top: 2px;
+    fill: none; stroke: var(--text-muted); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
+}
+html[data-layout="chronicle"] .lx-ch-fact-text { min-width: 0; overflow-wrap: anywhere; }
+html[data-layout="chronicle"] .lx-ch-fact-num { font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-fact a { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+html[data-layout="chronicle"] .lx-ch-fact a:hover { text-decoration-color: currentColor; }
+html[data-layout="chronicle"] .lx-ch-fact--note .lx-ch-fact-text { font-style: normal; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-day-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+
+html[data-layout="chronicle"] .lx-ch-quiet-row {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    min-height: 40px; padding: 8px 0;
+    background: none; border: 0; cursor: pointer; text-align: left;
+    font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums;
+    border-radius: var(--r-2, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-quiet-row:hover { color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-quiet-row:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 0; }
+html[data-layout="chronicle"] .lx-ch-quiet::before {
+    background: none;
+    border-left: 1px dashed var(--border-strong);
+}
+html[data-layout="chronicle"] .lx-ch-quiet-list { padding: 0 0 8px; }
+html[data-layout="chronicle"] .lx-ch-quiet-list[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-quiet-day {
+    padding: 3px 0; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums;
+}
+html[data-layout="chronicle"] .lx-ch-feed-end {
+    padding: 24px 0 8px; font-size: 13px; color: var(--text-muted);
+}
+html[data-layout="chronicle"] .lx-ch-feed-end .lx-ch-btn { margin-top: 10px; }
+html[data-layout="chronicle"] .lx-ch-sentinel { height: 1px; }
+
+html[data-layout="chronicle"] .lx-ch-day-skel { padding: 22px 0 22px 32px; border-bottom: 1px solid var(--border); }
+
+/* Map column */
+html[data-layout="chronicle"] .lx-ch-tl-mapcol {
+    grid-area: map; position: relative; min-height: 0; min-width: 0;
+    background: var(--surface-0, var(--bg-elevated));
+    overflow: hidden;
+}
+html[data-layout="chronicle"] .lx-ch-map { position: absolute; inset: 0; }
+html[data-layout="chronicle"] .lx-ch-map-cap {
+    position: absolute; top: 16px; left: 16px; z-index: 2;
+    max-width: calc(100% - 32px);
+    display: flex; align-items: baseline; gap: 14px;
+    padding: 9px 14px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--r-3, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-map-cap[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-map-date {
+    font-family: var(--font-display); font-size: 16px; font-weight: 500; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+html[data-layout="chronicle"] .lx-ch-map-open { flex: none; font-size: 13px; color: var(--link); text-decoration: none; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-map-open:hover { text-decoration: underline; }
+html[data-layout="chronicle"] .lx-ch-map-open:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; border-radius: var(--r-1, 0px); }
+html[data-layout="chronicle"] .lx-ch-map-note {
+    position: absolute; left: 50%; bottom: 24px; z-index: 2;
+    transform: translateX(-50%);
+    padding: 7px 12px; max-width: calc(100% - 32px);
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-pill, 999px);
+    font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+html[data-layout="chronicle"] .lx-ch-map-note[hidden] { display: none; }
+html[data-layout="chronicle"] .lx-ch-map-fallback {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: 24px; text-align: center; font-size: 14px; color: var(--text-muted);
+}
+html[data-layout="chronicle"] .lx-ch-map .maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-map .maplibregl-ctrl-attrib a { color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-map .maplibregl-ctrl-group { background: var(--bg); border: 1px solid var(--border); box-shadow: none; border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-map .maplibregl-ctrl-group button + button { border-top-color: var(--border); }
+html[data-layout="chronicle"] .lx-ch-maphandle { display: none; }
+
+/* ── Tablet ──────────────────────────────────────────────────────── */
+@media (max-width: 1440px) {
+    html[data-layout="chronicle"] .lx-ch-account-name { display: none; }
+}
+@media (max-width: 1180px) {
+    html[data-layout="chronicle"] .lx-ch-tab--wide { display: none; }
+    html[data-layout="chronicle"] .lx-ch-menu-narrow { display: block; }
+}
+@media (max-width: 1100px) {
+    html[data-layout="chronicle"] { --lx-ch-feed-w: 400px; }
+    html[data-layout="chronicle"] .lx-ch-day-title { font-size: 28px; }
+}
+@media (max-width: 900px) and (min-width: 769px) {
+    html[data-layout="chronicle"] .lx-ch-bar { gap: 12px; padding: 0 12px 0 16px; }
+    html[data-layout="chronicle"] .lx-ch-tab { padding: 0 9px; }
+    html[data-layout="chronicle"] .lx-ch-tab::after { left: 9px; right: 9px; }
+    html[data-layout="chronicle"] { --lx-ch-feed-w: 360px; }
+}
+
+/* ── Phone ───────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    html[data-layout="chronicle"] {
+        --nav-h: 52px;
+        --bottom-nav-height: calc(68px + env(safe-area-inset-bottom, 0px));
+    }
+    html[data-layout="chronicle"] .lx-ch-bar { gap: 8px; padding: 0 6px 0 16px; }
+    html[data-layout="chronicle"] .lx-ch-brand-word { font-size: 18px; }
+    html[data-layout="chronicle"] .lx-ch-tabs,
+    html[data-layout="chronicle"] .lx-ch-account { display: none; }
+    html[data-layout="chronicle"] .lx-ch-end { gap: 2px; }
+    html[data-layout="chronicle"] .lx-ch-datejump { height: 44px; padding: 0 10px; }
+    html[data-layout="chronicle"] .lx-ch-datejump-label { display: inline; }
+    html[data-layout="chronicle"] .lx-ch-bar .notif-toggle { width: 44px; height: 44px; }
+
+    html[data-layout="chronicle"] .lx-ch-dock {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000;
+        display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+        height: var(--bottom-nav-height);
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        background: var(--bg);
+        border-top: 1px solid var(--border);
+    }
+    html[data-layout="chronicle"] .lx-ch-dock-item {
+        position: relative;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+        min-width: 0; height: 100%;
+        background: none; border: 0; cursor: pointer;
+        font-family: var(--font-body); font-size: 11px; font-weight: 500; line-height: 1;
+        color: var(--text-muted); text-decoration: none;
+        transition: color 150ms ease-out;
+    }
+    html[data-layout="chronicle"] .lx-ch-dock-item svg {
+        width: 22px; height: 22px;
+        fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
+    }
+    html[data-layout="chronicle"] .lx-ch-dock-item::before {
+        content: ''; position: absolute; top: -1px; left: 30%; right: 30%; height: 2px;
+        background: var(--primary); transform: scaleX(0); transition: transform 180ms var(--lx-ch-ease);
+    }
+    html[data-layout="chronicle"] .lx-ch-dock-item.is-active { color: var(--text); }
+    html[data-layout="chronicle"] .lx-ch-dock-item.is-active::before { transform: scaleX(1); }
+    html[data-layout="chronicle"] .lx-ch-dock-item:focus-visible { outline-offset: -4px; }
+
+    html[data-layout="chronicle"] .lx-ch-page { padding: 20px 16px 48px; }
+    html[data-layout="chronicle"] .lx-ch-title { font-size: 28px; }
+    html[data-layout="chronicle"] .lx-ch-chip { height: auto; min-height: 44px; padding: 0 14px; }
+    html[data-layout="chronicle"] .lx-ch-quiet-row { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-btn { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-seg > button { min-height: 40px; }
+
+    /* Timeline: map strip on top, feed below; the feed is the scroller. */
+    html[data-layout="chronicle"] .lx-ch-tl {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto auto minmax(0, 1fr);
+        grid-template-areas: "map" "handle" "feed";
+        height: calc(100vh - var(--nav-h) - var(--bottom-nav-height));
+        height: calc(100dvh - var(--nav-h) - var(--bottom-nav-height));
+        min-height: 360px;
+    }
+    html[data-layout="chronicle"] .lx-ch-tl-mapcol { height: 36vh; height: 36dvh; }
+    html[data-layout="chronicle"] .lx-ch-tl.is-map-collapsed .lx-ch-tl-mapcol { height: 0; }
+    html[data-layout="chronicle"] .lx-ch-tl-feedcol { border-right: 0; }
+    html[data-layout="chronicle"] .lx-ch-maphandle {
+        grid-area: handle;
+        display: flex; align-items: center; justify-content: center; gap: 8px;
+        width: 100%; height: 44px;
+        background: var(--bg); border: 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+        cursor: pointer; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+    }
+    html[data-layout="chronicle"] .lx-ch-maphandle::before {
+        content: ''; width: 28px; height: 3px; border-radius: var(--r-pill, 999px); background: var(--border-strong);
+    }
+    html[data-layout="chronicle"] .lx-ch-maphandle:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
+    html[data-layout="chronicle"] .lx-ch-tl-head { padding: 14px 16px 4px; }
+    html[data-layout="chronicle"] .lx-ch-tl-title { font-size: 20px; }
+    html[data-layout="chronicle"] .lx-ch-strip-scroll { padding: 4px 16px 6px; }
+    html[data-layout="chronicle"] .lx-ch-strip-skel { margin: 4px 16px 2px; }
+    html[data-layout="chronicle"] .lx-ch-feed { padding: 0 16px 32px; }
+    html[data-layout="chronicle"] .lx-ch-rail { padding-left: 26px; }
+    html[data-layout="chronicle"] .lx-ch-day-skel { padding-left: 26px; }
+    html[data-layout="chronicle"] .lx-ch-day-title { font-size: 26px; }
+    html[data-layout="chronicle"] .lx-ch-day-body { padding: 16px 8px 18px; margin: 0 -8px; }
+    html[data-layout="chronicle"] .lx-ch-day-node { top: 27px; }
+    html[data-layout="chronicle"] .lx-ch-map-cap { top: 10px; left: 10px; max-width: calc(100% - 20px); padding: 7px 11px; }
+    html[data-layout="chronicle"] .lx-ch-map-note { bottom: 12px; }
+}
+@media (max-width: 380px) {
+    html[data-layout="chronicle"] .lx-ch-brand-word { display: none; }
+}
+
+/* ── Motion preferences ──────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    html[data-layout="chronicle"] .lx-ch-day.is-new { animation: none; }
+    html[data-layout="chronicle"] .lx-ch-sheet,
+    html[data-layout="chronicle"] .lx-ch-sheet-scrim,
+    html[data-layout="chronicle"] .lx-ch-tab::after,
+    html[data-layout="chronicle"] .lx-ch-dock-item::before { transition: none; }
+}
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-day.is-new { animation: none; }
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-sheet,
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-sheet-scrim { transition: none; }

@@ -1,0 +1,1198 @@
+{% extends 'tracker/base.html' %}
+{% comment %}
+  ATLAS · Places. Replaces tracker/places.html for users on the Atlas layout.
+
+  A list-first page for the ~440px panel over the map (?embed=1) and for the full
+  page. Stack navigation inside the page, no reloads:
+      list  ->  detail (map, stats, notes, notifications)  ->  edit (map picking)
+      list  ->  edit    (New place, or "Name it" on a suggestion)
+  Phone and panel show one view at a time; a full page at 900px+ shows the list on
+  the left and the pushed view on the right.
+
+  Deep link: ?place=<id> opens that place (the URL follows with replaceState so the
+  panel's "Open full page" lands on the same place).
+  Esc pops one level: the pushed view carries data-lx-esc while it is showing.
+  The snapshot bar ids (#snapshot-bar/-updated/-recalc) are bound by base.html at
+  parse time, so they sit in the server-rendered markup.
+{% endcomment %}
+{% block title %}Places - Roamly{% endblock %}
+
+{% block extra_css %}
+html[data-layout="atlas"] body .lx-at-page.lx-at-p {
+    --lx-p-pad: 16px;
+    --lx-p-bg: var(--bg);
+    --lx-p-head-h: 0px;
+    max-width: none;
+    padding: 0 0 48px;
+}
+html[data-layout="atlas"].lx-embedded body .lx-at-page.lx-at-p { --lx-p-bg: var(--bg-card); padding: 0 0 32px; }
+html[data-layout="atlas"] .lx-at-p [hidden] { display: none !important; }
+
+html[data-layout="atlas"] .lx-at-p-pane { min-width: 0; }
+html[data-layout="atlas"] .lx-at-p[data-view="list"] .lx-at-p-detail { display: none; }
+html[data-layout="atlas"] .lx-at-p:not([data-view="list"]) .lx-at-p-listpane { display: none; }
+
+/* ── Sticky bars ── */
+html[data-layout="atlas"] .lx-at-p-head,
+html[data-layout="atlas"] .lx-at-p-bar {
+    position: sticky;
+    top: 0;
+    z-index: 6;
+    background: var(--lx-p-bg);
+    border-bottom: 1px solid var(--border);
+    padding-left: var(--lx-p-pad);
+    padding-right: var(--lx-p-pad);
+}
+html[data-layout="atlas"] .lx-at-p-head { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; padding-bottom: 10px; }
+html[data-layout="atlas"] .lx-at-p-headrow { display: flex; align-items: center; gap: 8px; }
+html[data-layout="atlas"] .lx-at-p-bar { display: flex; align-items: center; gap: 4px; min-height: 56px; padding-top: 8px; padding-bottom: 8px; padding-left: calc(var(--lx-p-pad) - 8px); }
+html[data-layout="atlas"] .lx-at-p-bar .lx-at-iconbtn { flex: none; }
+html[data-layout="atlas"] .lx-at-p-bar-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-left: 4px; }
+html[data-layout="atlas"] .lx-at-p-bar-title { margin: 0; font-family: var(--font-display); font-size: 1.0625rem; font-weight: 500; line-height: 1.25; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="atlas"] .lx-at-p-bar .lx-at-btn { flex: none; height: 32px; padding: 0 12px; }
+
+html[data-layout="atlas"] .lx-at-p-search { position: relative; flex: 1 1 auto; min-width: 0; display: flex; align-items: center; }
+html[data-layout="atlas"] .lx-at-p-search > .lx-at-ico { position: absolute; left: 10px; width: 16px; height: 16px; color: var(--text-muted); pointer-events: none; }
+html[data-layout="atlas"] .lx-at-p-search input {
+    width: 100%;
+    height: 36px;
+    box-sizing: border-box;
+    padding: 0 36px 0 34px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--r-2);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 0.875rem;
+    transition: border-color 120ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-p-search input::placeholder { color: var(--text-dim); }
+html[data-layout="atlas"] .lx-at-p-search input:focus { outline: none; border-color: var(--primary); }
+html[data-layout="atlas"] .lx-at-p-search input:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+html[data-layout="atlas"] .lx-at-p-search input::-webkit-search-cancel-button { display: none; }
+html[data-layout="atlas"] .lx-at-p-search .lx-at-iconbtn { position: absolute; right: 2px; width: 32px; height: 32px; }
+html[data-layout="atlas"] .lx-at-p-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+html[data-layout="atlas"] .lx-at-p-snap { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+html[data-layout="atlas"] .lx-at-p-snap #snapshot-updated { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--text-muted); white-space: nowrap; }
+
+html[data-layout="atlas"] .lx-at-p-linkbtn { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 4px 0; color: var(--link, var(--primary)); font: inherit; font-size: 0.8125rem; font-weight: 500; cursor: pointer; white-space: nowrap; }
+html[data-layout="atlas"] .lx-at-p-linkbtn:hover { text-decoration: underline; }
+html[data-layout="atlas"] .lx-at-p-linkbtn:disabled { opacity: 0.6; cursor: default; text-decoration: none; }
+html[data-layout="atlas"] .lx-at-p-linkbtn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--r-1); }
+
+/* ── Body ── */
+html[data-layout="atlas"] .lx-at-p-section { padding: 16px 0 4px; }
+html[data-layout="atlas"] .lx-at-p-section .lx-at-section-head { padding: 0 var(--lx-p-pad); margin-bottom: 8px; }
+html[data-layout="atlas"] .lx-at-p-sub { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-p-rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+html[data-layout="atlas"] .lx-at-p-rows .lx-at-row { padding-left: var(--lx-p-pad); padding-right: var(--lx-p-pad); min-height: 56px; }
+html[data-layout="atlas"] .lx-at-p-rows .lx-at-row-main > span,
+html[data-layout="atlas"] .lx-at-p-rows .lx-at-row-main > div { display: block; }
+html[data-layout="atlas"] .lx-at-p-dotbox { background: transparent; border: 1px solid var(--border); }
+html[data-layout="atlas"] .lx-at-p-dot { width: 12px; height: 12px; border-radius: var(--r-pill); background: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-p-bell { display: inline-block; vertical-align: -2px; margin-right: 4px; width: 12px; height: 12px; color: var(--primary); }
+html[data-layout="atlas"] .lx-at-p-pts { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+html[data-layout="atlas"] .lx-at-p-pts b { font-weight: 500; font-size: 0.9375rem; color: var(--text); }
+html[data-layout="atlas"] .lx-at-p-pts i { font-style: normal; font-size: 0.625rem; color: var(--text-dim); }
+html[data-layout="atlas"] .lx-at-p-note { padding: 24px var(--lx-p-pad); text-align: center; font-size: 0.8125rem; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-p-note.is-error { color: var(--danger); }
+html[data-layout="atlas"] .lx-at-p-note .lx-at-btn { margin-top: 12px; }
+html[data-layout="atlas"] .lx-at-p-skel { padding: 12px var(--lx-p-pad); display: flex; flex-direction: column; gap: 10px; }
+html[data-layout="atlas"] .lx-at-p-more { display: flex; margin: 12px var(--lx-p-pad) 0; }
+html[data-layout="atlas"] .lx-at-p-places { padding-top: 8px; padding-bottom: 8px; }
+
+/* Suggestions */
+html[data-layout="atlas"] .lx-at-p-sg { border-bottom: 1px solid var(--border); }
+html[data-layout="atlas"] .lx-at-p-sg > .lx-at-row { border-bottom: 0; padding-bottom: 4px; }
+html[data-layout="atlas"] .lx-at-p-sg-chev { flex: none; width: 16px; height: 16px; color: var(--text-dim); transition: transform 140ms ease-out, color 140ms ease-out; }
+html[data-layout="atlas"] .lx-at-p-sg.is-expanded .lx-at-p-sg-chev { transform: rotate(90deg); color: var(--primary); }
+html[data-layout="atlas"] .lx-at-p-sg-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px var(--lx-p-pad) 12px calc(var(--lx-p-pad) + 28px); }
+html[data-layout="atlas"] .lx-at-p-sg-actions .lx-at-btn { height: 30px; padding: 0 12px; }
+html[data-layout="atlas"] .lx-at-p-sg-map { height: 200px; margin: 0 var(--lx-p-pad) 12px; border: 1px solid var(--border); border-radius: var(--r-3); overflow: hidden; background: var(--bg-input); }
+html[data-layout="atlas"] .lx-at-p-sg-map > div { width: 100%; height: 100%; }
+
+/* ── Pushed views ── */
+html[data-layout="atlas"] .lx-at-p-form { padding: 16px var(--lx-p-pad) 0; display: flex; flex-direction: column; gap: 20px; }
+html[data-layout="atlas"] .lx-at-p-mapbox { position: relative; border: 1px solid var(--border); border-radius: var(--r-3); overflow: hidden; background: var(--bg-input); height: 220px; }
+html[data-layout="atlas"] .lx-at-p-mapbox.is-tall { height: 280px; }
+html[data-layout="atlas"] .lx-at-p-map { position: absolute; inset: 0; }
+html[data-layout="atlas"] .lx-at-p-lbl { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+html[data-layout="atlas"] .lx-at-p-lbl-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+html[data-layout="atlas"] .lx-at-p-hint { font-size: 0.75rem; line-height: 1.45; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-p-status { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--text-dim); }
+html[data-layout="atlas"] .lx-at-p-status.is-error { color: var(--danger); }
+html[data-layout="atlas"] .lx-at-p-input,
+html[data-layout="atlas"] .lx-at-p-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--r-2);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 0.875rem;
+    transition: border-color 120ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-p-input { height: 36px; padding: 0 12px; }
+html[data-layout="atlas"] .lx-at-p-textarea { padding: 10px 12px; line-height: 1.55; resize: vertical; min-height: 88px; }
+html[data-layout="atlas"] .lx-at-p-input::placeholder,
+html[data-layout="atlas"] .lx-at-p-textarea::placeholder { color: var(--text-dim); }
+html[data-layout="atlas"] .lx-at-p-input:focus,
+html[data-layout="atlas"] .lx-at-p-textarea:focus { outline: none; border-color: var(--primary); }
+html[data-layout="atlas"] .lx-at-p-input:focus-visible,
+html[data-layout="atlas"] .lx-at-p-textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+html[data-layout="atlas"] .lx-at-p-radius { display: flex; align-items: center; gap: 12px; }
+html[data-layout="atlas"] .lx-at-p-radius input[type="range"] { flex: 1 1 auto; min-width: 0; accent-color: var(--primary); height: 28px; }
+html[data-layout="atlas"] .lx-at-p-radius output { flex: none; min-width: 4.5rem; text-align: right; font-family: var(--font-mono); font-size: 0.875rem; font-variant-numeric: tabular-nums; color: var(--text); }
+
+html[data-layout="atlas"] .lx-at-p-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+html[data-layout="atlas"] .lx-at-p-stats .lx-at-stat { padding: 12px 14px; }
+html[data-layout="atlas"] .lx-at-p-stats .lx-at-stat-value { font-size: 1.25rem; }
+html[data-layout="atlas"] button.lx-at-stat { border: 0; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; transition: background-color 120ms ease-out; }
+html[data-layout="atlas"] button.lx-at-stat:hover { background: var(--lx-at-hover); }
+html[data-layout="atlas"] button.lx-at-stat:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+html[data-layout="atlas"] .lx-at-p-stats .lx-at-stat-unit { font-size: 0.6875rem; }
+
+html[data-layout="atlas"] .lx-at-p-switch { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 0; cursor: pointer; font-size: 0.875rem; color: var(--text); }
+html[data-layout="atlas"] .lx-at-p-switch input { flex: none; width: 18px; height: 18px; margin: 0; accent-color: var(--primary); }
+html[data-layout="atlas"] .lx-at-p-switch + .lx-at-p-switch { border-top: 1px solid var(--border); }
+html[data-layout="atlas"] .lx-at-p-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+html[data-layout="atlas"] .lx-at-p-days { list-style: none; margin: 0 calc(-1 * var(--lx-p-pad)); padding: 0; border-top: 1px solid var(--border); }
+html[data-layout="atlas"] .lx-at-p-days .lx-at-row { padding-left: var(--lx-p-pad); padding-right: var(--lx-p-pad); min-height: 44px; }
+html[data-layout="atlas"] .lx-at-p-days .lx-at-row-main { color: var(--text); font-size: 0.875rem; }
+html[data-layout="atlas"] .lx-at-p-actions { display: flex; gap: 8px; padding-bottom: 8px; }
+html[data-layout="atlas"] .lx-at-p-actions .lx-at-btn { flex: 1 1 0; }
+html[data-layout="atlas"] .lx-at-btn--danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+html[data-layout="atlas"] .lx-at-btn--danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+
+/* Full page, wide: list left, pushed view right. */
+@media (min-width: 900px) {
+    html[data-layout="atlas"]:not(.lx-embedded) body .lx-at-page.lx-at-p {
+        --lx-p-pad: 20px;
+        --lx-p-bg: var(--bg-card);
+        max-width: 1120px;
+        padding: 32px 32px 32px;
+        display: grid;
+        grid-template-columns: minmax(340px, 400px) minmax(0, 1fr);
+        gap: 24px;
+        align-items: start;
+    }
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-p .lx-at-p-pane {
+        position: sticky;
+        top: 32px;
+        height: calc(100vh - 64px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--r-3);
+    }
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-p[data-view="list"] .lx-at-p-detail,
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-p:not([data-view="list"]) .lx-at-p-listpane { display: block; }
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-p .lx-at-p-head,
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-p .lx-at-p-bar { border-top-left-radius: var(--r-3); border-top-right-radius: var(--r-3); }
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-p .lx-at-p-pane { padding-bottom: 32px; }
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-p .lx-at-p-empty { display: flex; min-height: 60%; align-items: center; justify-content: center; }
+}
+@media (max-width: 899px) { html[data-layout="atlas"] .lx-at-p .lx-at-p-empty { display: none !important; } }
+
+@media (max-width: 768px) {
+    html[data-layout="atlas"] .lx-at-p-search input,
+    html[data-layout="atlas"] .lx-at-p-input,
+    html[data-layout="atlas"] .lx-at-p-textarea { font-size: 1rem; }
+    html[data-layout="atlas"] .lx-at-p-search input,
+    html[data-layout="atlas"] .lx-at-p-input { height: 44px; }
+    html[data-layout="atlas"] .lx-at-p-search .lx-at-iconbtn { width: 40px; height: 40px; }
+    html[data-layout="atlas"] .lx-at-p-bar .lx-at-iconbtn { width: 44px; height: 44px; }
+    html[data-layout="atlas"] .lx-at-p-bar .lx-at-btn { height: 40px; }
+    html[data-layout="atlas"] .lx-at-p-sg-actions .lx-at-btn { height: 36px; }
+    html[data-layout="atlas"] .lx-at-p-linkbtn { min-height: 36px; }
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-p-head,
+    html[data-layout="atlas"]:not(.lx-embedded) .lx-at-p-bar { padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+    html[data-layout="atlas"] .lx-at-p * { transition-duration: 1ms !important; }
+}
+html[data-layout="atlas"][data-motion="calm"] .lx-at-p * { transition-duration: 1ms !important; }
+{% endblock %}
+
+{% block content %}
+<div class="lx-at-page lx-at-p" id="lxp" data-view="list">
+
+    <!-- ═════ List ═════ -->
+    <section class="lx-at-p-pane lx-at-p-listpane" aria-label="Places">
+        <div class="lx-at-p-head" id="lxp-head">
+            <h1 class="lx-at-sr">Places</h1>
+            <div class="lx-at-p-headrow">
+                <div class="lx-at-p-search" id="lxp-searchbox" role="search">
+                    <svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></svg>
+                    <input type="search" id="lxp-search" placeholder="Search places" aria-label="Search places" autocomplete="off" spellcheck="false">
+                    <button type="button" class="lx-at-iconbtn" id="lxp-search-clear" aria-label="Clear search" hidden>{% include 'tracker/layouts/atlas/_icon.html' with i='close' %}</button>
+                </div>
+                <button type="button" class="lx-at-btn lx-at-btn--primary" id="lxp-new">
+                    <svg class="lx-at-ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                    <span>New place</span>
+                </button>
+            </div>
+            <div class="lx-at-p-filters">
+                <button type="button" class="lx-at-chip" id="lxp-f-notify" aria-pressed="false">Notifying</button>
+                <div class="lx-at-p-snap" id="snapshot-bar">
+                    <span id="snapshot-updated">updated …</span>
+                    <button type="button" id="snapshot-recalc" class="lx-at-p-linkbtn" title="Recompute now">↻ recalculate</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="lx-at-p-section" id="lxp-suggest" hidden aria-labelledby="lxp-suggest-title">
+            <div class="lx-at-section-head">
+                <h2 class="lx-at-section-title" id="lxp-suggest-title">Suggested places</h2>
+                <span class="lx-at-p-sub" id="lxp-suggest-sub"></span>
+            </div>
+            <ul class="lx-at-p-rows" id="lxp-suggest-list" style="list-style:none"></ul>
+            <button type="button" class="lx-at-btn lx-at-p-more" id="lxp-suggest-more" hidden></button>
+        </div>
+
+        <div class="lx-at-p-section lx-at-p-places" id="lxp-places-wrap" aria-labelledby="lxp-places-title">
+            <div class="lx-at-section-head">
+                <h2 class="lx-at-section-title" id="lxp-places-title">Your places</h2>
+                <span class="lx-at-p-sub lx-at-num" id="lxp-places-count" role="status"></span>
+            </div>
+            <div id="lxp-places" aria-busy="true">
+                <div class="lx-at-p-skel" aria-hidden="true">{% for i in "1234" %}<div class="skeleton lx-at-skel-row" style="height:52px"></div>{% endfor %}</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═════ Pushed views ═════ -->
+    <section class="lx-at-p-pane lx-at-p-detail" id="lxp-detail" aria-label="Place">
+
+        <div class="lx-at-p-empty lx-at-empty" id="lxp-v-empty">
+            <span class="lx-at-empty-icon" aria-hidden="true">{% include 'tracker/layouts/atlas/_icon.html' with i='places' %}</span>
+            <h2 class="lx-at-empty-title">Pick a place</h2>
+            <p class="lx-at-empty-text">Choose a place from the list to see its map, time spent and notifications.</p>
+        </div>
+
+        <!-- Detail -->
+        <div id="lxp-v-detail" hidden>
+            <header class="lx-at-p-bar">
+                <button type="button" class="lx-at-iconbtn" data-act="back" aria-label="Back to places"><svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>
+                <div class="lx-at-p-bar-main">
+                    <span class="lx-at-kicker">Place</span>
+                    <h2 class="lx-at-p-bar-title" id="lxp-d-title" tabindex="-1">Place</h2>
+                </div>
+                <button type="button" class="lx-at-iconbtn" id="lxp-d-edit" aria-label="Edit place" title="Edit place" disabled><svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19l1-4.5L16 4.5a2 2 0 0 1 3 0l.5.5a2 2 0 0 1 0 3L9.5 18 5 19Z"/></svg></button>
+                <button type="button" class="lx-at-iconbtn" id="lxp-d-delete" aria-label="Delete place" title="Delete place" disabled><svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 7h15M10 7V4.5h4V7M6.5 7l.8 12.5h9.4L17.5 7M10 11v5M14 11v5"/></svg></button>
+            </header>
+            <div class="lx-at-p-form">
+                <div class="lx-at-p-mapbox"><div class="lx-at-p-map" id="lxp-d-map"></div></div>
+
+                <div class="lx-at-stats lx-at-p-stats" id="lxp-d-stats" aria-busy="true" aria-label="Place statistics"></div>
+                <div id="lxp-d-error" class="lx-at-p-note is-error" hidden></div>
+
+                <div class="lx-at-p-lbl" id="lxp-d-notes-wrap" hidden>
+                    <span class="lx-at-p-lbl-row"><label class="lx-at-kicker" for="lxp-d-notes">Details</label><span class="lx-at-p-status" id="lxp-d-notes-status" role="status"></span></span>
+                    <textarea class="lx-at-p-textarea" id="lxp-d-notes" rows="4" placeholder="Add notes about this place, anything you want to remember"></textarea>
+                </div>
+
+                <div class="lx-at-p-lbl" id="lxp-d-notify-wrap" hidden>
+                    <span class="lx-at-p-lbl-row"><span class="lx-at-kicker" id="lxp-d-notify-l">Notify me</span><span class="lx-at-p-status" id="lxp-d-notify-status" role="status"></span></span>
+                    <div role="group" aria-labelledby="lxp-d-notify-l">
+                        <label class="lx-at-p-switch"><input type="checkbox" id="lxp-n-arrive"><span>When a device arrives here</span></label>
+                        <label class="lx-at-p-switch"><input type="checkbox" id="lxp-n-leave"><span>When a device leaves</span></label>
+                    </div>
+                </div>
+
+                <div class="lx-at-p-lbl" id="lxp-d-cities-wrap" hidden>
+                    <span class="lx-at-kicker">Cities</span>
+                    <div class="lx-at-p-chips" id="lxp-d-cities"></div>
+                </div>
+
+                <div class="lx-at-p-lbl" id="lxp-d-days-wrap" hidden>
+                    <span class="lx-at-kicker">Recent days</span>
+                    <ul class="lx-at-p-days" id="lxp-d-days"></ul>
+                    <button type="button" class="lx-at-btn" id="lxp-d-days-more" hidden></button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit -->
+        <div id="lxp-v-edit" hidden>
+            <header class="lx-at-p-bar">
+                <button type="button" class="lx-at-iconbtn" data-act="back" aria-label="Cancel and go back"><svg class="lx-at-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>
+                <div class="lx-at-p-bar-main">
+                    <span class="lx-at-kicker">Geofence</span>
+                    <h2 class="lx-at-p-bar-title" id="lxp-e-title" tabindex="-1">New place</h2>
+                </div>
+                <button type="button" class="lx-at-btn lx-at-btn--primary" id="lxp-e-save">Save</button>
+            </header>
+            <div class="lx-at-p-form">
+                <div class="lx-at-p-mapbox is-tall"><div class="lx-at-p-map" id="lxp-e-map"></div></div>
+                <p class="lx-at-p-hint" style="margin:-8px 0 0">Tap the map to move the centre, or drag the pin.</p>
+                <label class="lx-at-p-lbl"><span class="lx-at-kicker">Name</span>
+                    <input class="lx-at-p-input" id="lxp-e-name" type="text" maxlength="200" placeholder="Home, work, mum's house" autocomplete="off">
+                </label>
+                <div class="lx-at-p-lbl">
+                    <span class="lx-at-kicker" id="lxp-e-radius-l">Radius</span>
+                    <div class="lx-at-p-radius">
+                        <input type="range" id="lxp-e-radius" min="25" max="2000" step="25" value="150" aria-labelledby="lxp-e-radius-l">
+                        <output id="lxp-e-radius-val" for="lxp-e-radius">150 m</output>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    'use strict';
+
+    var CSRF = '{{ csrf_token }}';
+    var CARTO_QS = '{{ CARTO_TILE_QS|escapejs }}';
+    var EMBEDDED = (function () { try { return window.self !== window.top; } catch (e) { return true; } })();
+    var MONTHS_S = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var SUGGEST_PREVIEW = 3;
+
+    var ICO = {
+        chev: '<path d="m9 6 6 6-6 6"/>',
+        bell: '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15l1.5-2Z"/><path d="M10 21h4"/>',
+        pin: '<path d="M12 21s-6.5-5.4-6.5-11a6.5 6.5 0 0 1 13 0c0 5.6-6.5 11-6.5 11Z"/><circle cx="12" cy="10" r="2.25"/>',
+        plus: '<path d="M12 5v14M5 12h14"/>'
+    };
+    function ic(name, cls, size) {
+        var s = size || 16;
+        return '<svg class="lx-at-ico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" width="' + s + '" height="' + s + '" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + ICO[name] + '</svg>';
+    }
+    function $(id) { return document.getElementById(id); }
+    function el(tag, cls, text) {
+        var n = document.createElement(tag);
+        if (cls) n.className = cls;
+        if (text != null) n.textContent = text;
+        return n;
+    }
+    function svgNode(name, cls, size) { var t = document.createElement('span'); t.innerHTML = ic(name, cls, size); return t.firstChild; }
+    function toast(msg, type) { if (window.roamlyToast) window.roamlyToast(msg, type ? { type: type } : undefined); }
+    function jsonHeaders() { return { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF }; }
+    function cssColor(name, fallback) {
+        try {
+            var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+            if (/^(#|rgb|hsl)/i.test(v)) return v;
+        } catch (e) { /* use the fallback */ }
+        return fallback;
+    }
+
+    // Build a circle polygon (GeoJSON) around a center for a given radius in metres.
+    function circleGeoJSON(lat, lng, radiusM, steps) {
+        steps = steps || 72;
+        var coords = [];
+        var latR = radiusM / 111320.0;
+        var lngR = radiusM / (111320.0 * Math.cos(lat * Math.PI / 180));
+        for (var i = 0; i <= steps; i++) {
+            var t = (i / steps) * 2 * Math.PI;
+            coords.push([lng + lngR * Math.cos(t), lat + latR * Math.sin(t)]);
+        }
+        return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: {} };
+    }
+    function fmtDur(seconds) {
+        if (!seconds || seconds < 60) return (seconds || 0) + 's';
+        var h = Math.floor(seconds / 3600), m = Math.round((seconds % 3600) / 60);
+        if (h && m) return h + 'h ' + m + 'm';
+        if (h) return h + 'h';
+        return m + 'm';
+    }
+    function fmtDurFull(seconds) {
+        if (!seconds || seconds < 60) return (seconds || 0) + 's';
+        var s = Math.floor(seconds);
+        var mo = Math.floor(s / (30 * 86400)); s -= mo * 30 * 86400;
+        var d = Math.floor(s / 86400); s -= d * 86400;
+        var h = Math.floor(s / 3600); s -= h * 3600;
+        var m = Math.round(s / 60);
+        var p = [];
+        if (mo) p.push(mo + 'mo');
+        if (d) p.push(d + 'd');
+        if (h) p.push(h + 'h');
+        if (m || !p.length) p.push(m + 'm');
+        return p.join(' ');
+    }
+    function fmtDurMins(seconds) { return Math.round((seconds || 0) / 60).toLocaleString() + ' min'; }
+    function fmtDate(iso) {
+        if (!iso) return '—';
+        return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+    // A plain YYYY-MM-DD, shown as that calendar day in every time zone.
+    function fmtDay(ds) {
+        var p = String(ds || '').split('-').map(Number);
+        if (p.length !== 3 || !p[0]) return fmtDate(ds);
+        return MONTHS_S[p[1] - 1] + ' ' + p[2] + ', ' + p[0];
+    }
+    function sgAgo(iso) {
+        if (!iso) return '';
+        var days = Math.floor((Date.now() - new Date(iso)) / 86400000);
+        if (days <= 0) return 'today';
+        if (days === 1) return 'yesterday';
+        if (days < 30) return days + 'd ago';
+        if (days < 365) return Math.floor(days / 30) + 'mo ago';
+        return Math.floor(days / 365) + 'y ago';
+    }
+    function basemapStyle() {
+        var theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light_all' : 'dark_all';
+        return {
+            version: 8,
+            glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+            sources: { base: { type: 'raster', tiles: ['https://basemaps.cartocdn.com/' + theme + '/{z}/{x}/{y}.png' + CARTO_QS], tileSize: 256, attribution: '&copy; OpenStreetMap &copy; CARTO' } },
+            layers: [{ id: 'base', type: 'raster', source: 'base' }]
+        };
+    }
+    function noteBlock(text, isError, retry) {
+        var n = el('div', 'lx-at-p-note' + (isError ? ' is-error' : ''));
+        n.appendChild(el('div', null, text));
+        if (retry) { var b = el('button', 'lx-at-btn', 'Retry'); b.type = 'button'; b.addEventListener('click', retry); n.appendChild(b); }
+        return n;
+    }
+
+    var root = $('lxp');
+    var detailPane = $('lxp-detail');
+
+    // ═════ State ═════
+    var view = 'list';
+    var placesCache = [], placesLoaded = false;
+    var suggestions = [], suggestShowAll = false;
+    var filterNotify = false;
+    var pendingPlace = null;
+    var opener = null, listScroll = 0;
+    var detailId = null, detailMap = null, detailPtsToken = 0, detailPtsFeatures = [], timeSpentRaw = false;
+    var detailLoadSeq = 0;
+    var notesTimer = null, notesDirty = false, notesFor = null;
+    var editMap = null, editMarker = null, editId = null, editCenter = null, editRadius = 150, editFrom = 'list', editBoundsSeq = 0;
+    var miniMap = null, miniMarker = null, expandedIdx = null;
+    var miniHost = document.createElement('div');
+
+    // ═════ View stack ═════
+    function syncHeadH() {
+        var h = $('lxp-head');
+        if (h) root.style.setProperty('--lx-p-head-h', h.offsetHeight + 'px');
+    }
+    function setView(v) {
+        var prev = view;
+        if (prev === 'list' && v !== 'list') listScroll = window.pageYOffset || 0;
+        view = v;
+        root.setAttribute('data-view', v);
+        $('lxp-v-empty').hidden = v !== 'list';
+        $('lxp-v-detail').hidden = v !== 'detail';
+        $('lxp-v-edit').hidden = v !== 'edit';
+        // Esc goes back one level while a pushed view shows (atlas.js leaves Esc alone).
+        if (v === 'list') detailPane.removeAttribute('data-lx-esc'); else detailPane.setAttribute('data-lx-esc', '');
+        if (v === 'list') {
+            window.scrollTo(0, listScroll);
+            syncHeadH();
+            if (expandedIdx !== null) requestAnimationFrame(paintMini);
+            var back = opener && opener.isConnected ? opener : null;
+            opener = null;
+            if (back) { try { back.focus({ preventScroll: true }); } catch (e) { /* detached */ } }
+        } else if (prev === 'list') {
+            window.scrollTo(0, 0);
+            if (detailPane.scrollTo) { try { detailPane.scrollTo(0, 0); } catch (e) { /* not scrollable */ } }
+        }
+    }
+    function syncUrl(id, push) {
+        try {
+            var u = new URL(location.href);
+            if (id) u.searchParams.set('place', String(id)); else u.searchParams.delete('place');
+            var next = u.pathname + u.search + u.hash;
+            if (push && !EMBEDDED) history.pushState({ lxp: 1 }, '', next);
+            else history.replaceState(id ? history.state : null, '', next);
+        } catch (e) { /* the URL is a convenience */ }
+    }
+    function goBack() {
+        if (view === 'edit') {
+            if (editFrom === 'detail' && detailId && placesCache.some(function (p) { return p.id === detailId; })) {
+                setView('detail');
+                requestAnimationFrame(function () { if (detailMap) detailMap.resize(); });
+            } else {
+                closeToList(false);
+            }
+        } else if (view === 'detail') {
+            if (!EMBEDDED && history.state && history.state.lxp === 1) history.back();
+            else closeToList(false);
+        }
+    }
+    function closeToList(fromPop) {
+        flushNotes();
+        detailId = null;
+        detailPtsToken++;      // stop a stream still painting into a place that is gone
+        detailLoadSeq++;
+        if (!fromPop) syncUrl(null, false);
+        setView('list');
+        markSelected();
+    }
+    window.addEventListener('popstate', function (e) {
+        if ((view === 'detail' || view === 'edit') && !(e.state && e.state.lxp === 1)) closeToList(true);
+        else if (view === 'list' && e.state && e.state.lxp === 1) {
+            var id = parseInt(new URLSearchParams(location.search).get('place'), 10);
+            if (id && placesCache.some(function (p) { return p.id === id; })) openDetail(id, { fromHistory: true });
+        }
+    });
+
+    // ═════ Places list ═════
+    function markSelected() {
+        root.querySelectorAll('a[data-place]').forEach(function (a) {
+            var on = view !== 'list' && detailId === Number(a.getAttribute('data-place'));
+            a.classList.toggle('is-selected', on);
+            if (on) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
+        });
+    }
+    function placeRow(p) {
+        var a = el('a', 'lx-at-row is-interactive');
+        a.href = '/places/?place=' + encodeURIComponent(p.id);
+        a.setAttribute('data-place', p.id);
+        var lead = el('span', 'lx-at-row-lead lx-at-p-dotbox');
+        var dot = el('span', 'lx-at-p-dot');
+        if (p.color) dot.style.background = p.color;
+        lead.appendChild(dot);
+        a.appendChild(lead);
+        var main = el('span', 'lx-at-row-main');
+        main.appendChild(el('span', 'lx-at-row-title', p.name || 'Untitled place'));
+        var meta = el('span', 'lx-at-row-meta');
+        if (p.notify_arrive || p.notify_leave) {
+            var b = svgNode('bell', 'lx-at-p-bell', 12);
+            b.setAttribute('aria-label', 'Notifications on');
+            meta.appendChild(b);
+        }
+        meta.appendChild(document.createTextNode('Last seen ' + (p.last_seen ? fmtDate(p.last_seen) : 'never')));
+        main.appendChild(meta);
+        a.appendChild(main);
+        var aside = el('span', 'lx-at-row-aside lx-at-p-pts');
+        aside.appendChild(el('b', null, (p.point_count || 0).toLocaleString()));
+        aside.appendChild(el('i', null, 'points'));
+        a.appendChild(aside);
+        return a;
+    }
+    function renderPlaces() {
+        var box = $('lxp-places');
+        box.removeAttribute('aria-busy');
+        box.textContent = '';
+        var count = $('lxp-places-count');
+        if (!placesCache.length) {
+            count.textContent = '';
+            var n = el('div', 'lx-at-empty');
+            var icon = el('span', 'lx-at-empty-icon'); icon.appendChild(svgNode('pin', null, 20)); n.appendChild(icon);
+            n.appendChild(el('h2', 'lx-at-empty-title', 'No places yet'));
+            n.appendChild(el('p', 'lx-at-empty-text', 'Drop a pin on the map and give it a name to get started.'));
+            var b = el('button', 'lx-at-btn lx-at-btn--primary', 'New place'); b.type = 'button'; b.addEventListener('click', function () { openEdit(null, null, 'list'); });
+            n.appendChild(b);
+            box.appendChild(n);
+            return;
+        }
+        var q = ($('lxp-search').value || '').trim().toLowerCase();
+        var shown = placesCache.filter(function (p) {
+            if (q && (p.name || '').toLowerCase().indexOf(q) === -1) return false;
+            if (filterNotify && !(p.notify_arrive || p.notify_leave)) return false;
+            return true;
+        });
+        count.textContent = shown.length === placesCache.length ? String(placesCache.length) : shown.length + ' of ' + placesCache.length;
+        if (!shown.length) {
+            box.appendChild(noteBlock(q ? 'No places match "' + q + '".' : 'No places have notifications turned on.', false));
+            return;
+        }
+        var ul = el('ul', 'lx-at-p-rows');
+        shown.forEach(function (p) { var li = document.createElement('li'); li.appendChild(placeRow(p)); ul.appendChild(li); });
+        box.appendChild(ul);
+        markSelected();
+        syncHeadH();
+    }
+    function loadPlaces() {
+        var box = $('lxp-places');
+        return fetch('/api/places/').then(function (r) { if (!r.ok) throw new Error('places'); return r.json(); }).then(function (data) {
+            placesCache = data.places || [];
+            placesLoaded = true;
+            if (window.setSnapshotUpdated) window.setSnapshotUpdated(data.computed_at);
+            renderPlaces();
+            if (pendingPlace) {
+                var id = pendingPlace; pendingPlace = null;
+                if (placesCache.some(function (p) { return p.id === id; })) openDetail(id, { fromHistory: true });
+                else { syncUrl(null, false); toast('That place no longer exists.', 'error'); }
+            }
+        }).catch(function () {
+            box.removeAttribute('aria-busy');
+            box.textContent = '';
+            box.appendChild(noteBlock('Could not load your places.', true, loadPlaces));
+            if (pendingPlace) { pendingPlace = null; syncUrl(null, false); }
+        });
+    }
+
+    // ═════ Suggested places ═════
+    // Recurring stays clustered from visit history that are not inside a place yet.
+    // Nothing is stored per suggestion: "Name it" opens the editor prefilled, and
+    // saving the place is what retires it. Only a rejection persists.
+    function ensureMiniMap() {
+        if (miniMap || !window.maplibregl) return !!miniMap;
+        try {
+            miniMap = new window.maplibregl.Map({ container: miniHost, style: basemapStyle(), center: [0, 20], zoom: 1, attributionControl: false });
+            miniMap.addControl(new window.maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+            miniMarker = new window.maplibregl.Marker({ color: cssColor('--primary', '#d0694a') });
+            miniMap.on('load', function () {
+                var c = cssColor('--primary', '#d0694a');
+                miniMap.addSource('mini-circle', { type: 'geojson', data: circleGeoJSON(0, 0, 1) });
+                miniMap.addLayer({ id: 'mini-circle-fill', type: 'fill', source: 'mini-circle', paint: { 'fill-color': c, 'fill-opacity': 0.18 } });
+                miniMap.addLayer({ id: 'mini-circle-line', type: 'line', source: 'mini-circle', paint: { 'line-color': c, 'line-width': 2 } });
+                paintMini();   // the map may finish loading after the row already opened
+            });
+        } catch (e) { miniMap = null; return false; }
+        return true;
+    }
+    function paintMini() {
+        if (!miniMap || expandedIdx === null) return;
+        var s = suggestions[expandedIdx];
+        if (!s) return;
+        try {
+            miniMap.resize();   // the container only got its size when the row opened
+            miniMap.jumpTo({ center: [s.lng, s.lat], zoom: 16 });
+            miniMarker.setLngLat([s.lng, s.lat]).addTo(miniMap);
+            var src = miniMap.getSource('mini-circle');
+            if (src) src.setData(circleGeoJSON(s.lat, s.lng, s.radius_m));
+        } catch (e) { /* the preview is optional */ }
+    }
+    function collapseSuggestion() {
+        if (expandedIdx === null) return;
+        var entry = $('lxp-suggest-list').querySelector('[data-i="' + expandedIdx + '"]');
+        if (entry) { entry.classList.remove('is-expanded'); var t = entry.querySelector('[data-act="toggle"]'); if (t) t.setAttribute('aria-expanded', 'false'); }
+        if (miniHost.parentNode) miniHost.parentNode.removeChild(miniHost);
+        expandedIdx = null;
+    }
+    function toggleSuggestion(i) {
+        if (expandedIdx === i) { collapseSuggestion(); return; }
+        collapseSuggestion();
+        var entry = $('lxp-suggest-list').querySelector('[data-i="' + i + '"]');
+        var slot = entry && entry.querySelector('.lx-at-p-sg-map');
+        if (!slot || !suggestions[i]) return;
+        slot.hidden = false;
+        slot.appendChild(miniHost);
+        entry.classList.add('is-expanded');
+        var t = entry.querySelector('[data-act="toggle"]'); if (t) t.setAttribute('aria-expanded', 'true');
+        expandedIdx = i;
+        ensureMiniMap();
+        requestAnimationFrame(paintMini);   // wait for the row to lay out before measuring
+    }
+    function renderSuggestions() {
+        var wrap = $('lxp-suggest'), list = $('lxp-suggest-list'), more = $('lxp-suggest-more');
+        // The rows are about to be replaced, which would take the shared map element
+        // down with them: lift it out first and forget which row was open.
+        if (miniHost.parentNode) miniHost.parentNode.removeChild(miniHost);
+        expandedIdx = null;
+        list.textContent = '';
+        if (!suggestions.length) { wrap.hidden = true; return; }
+        wrap.hidden = false;
+        var shown = suggestShowAll ? suggestions : suggestions.slice(0, SUGGEST_PREVIEW);
+        $('lxp-suggest-sub').textContent = suggestions.length + (suggestions.length === 1 ? ' spot' : ' spots') + ' you keep returning to';
+        shown.forEach(function (s, i) {
+            var title = s.suggested_name || s.city || (Number(s.lat).toFixed(4) + ', ' + Number(s.lng).toFixed(4));
+            if (s.suggested_name && s.city) title += ', ' + s.city;
+            var li = el('li', 'lx-at-p-sg'); li.setAttribute('data-i', i);
+            var row = el('button', 'lx-at-row is-interactive'); row.type = 'button'; row.setAttribute('data-act', 'toggle'); row.setAttribute('data-i', i); row.setAttribute('aria-expanded', 'false');
+            row.appendChild(svgNode('chev', 'lx-at-p-sg-chev', 16));
+            var main = el('span', 'lx-at-row-main');
+            main.appendChild(el('span', 'lx-at-row-title', title));
+            main.appendChild(el('span', 'lx-at-row-meta', s.visits + ' visits  ·  ' + s.hours + 'h total  ·  last ' + sgAgo(s.last_seen)));
+            row.appendChild(main);
+            li.appendChild(row);
+            var acts = el('div', 'lx-at-p-sg-actions');
+            var add = el('button', 'lx-at-btn lx-at-btn--primary', 'Name it'); add.type = 'button'; add.setAttribute('data-act', 'add'); add.setAttribute('data-i', i);
+            var no = el('button', 'lx-at-btn', 'Not a place'); no.type = 'button'; no.setAttribute('data-act', 'dismiss'); no.setAttribute('data-i', i);
+            acts.appendChild(add); acts.appendChild(no);
+            li.appendChild(acts);
+            var slot = el('div', 'lx-at-p-sg-map'); slot.hidden = true; slot.setAttribute('aria-hidden', 'true');
+            li.appendChild(slot);
+            list.appendChild(li);
+        });
+        more.hidden = suggestions.length <= SUGGEST_PREVIEW;
+        more.textContent = suggestShowAll ? 'Show fewer' : 'Show all ' + suggestions.length;
+        syncHeadH();
+    }
+    function dismissSuggestion(s, btn) {
+        btn.disabled = true;
+        fetch('/api/places/suggestions/dismiss/', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ lat: s.lat, lng: s.lng }) })
+            .then(function (r) { if (!r.ok) throw new Error('dismiss'); suggestions = suggestions.filter(function (x) { return x !== s; }); renderSuggestions(); })
+            .catch(function () { btn.disabled = false; toast('Could not dismiss that suggestion.', 'error'); });
+    }
+    function loadSuggestions() {
+        return fetch('/api/places/suggestions/').then(function (r) { return r.ok ? r.json() : { suggestions: [] }; })
+            .then(function (d) { suggestions = d.suggestions || []; })
+            .catch(function () { suggestions = []; })
+            .then(renderSuggestions);
+    }
+
+    // ═════ Edit (create / edit, with map picking) ═════
+    function redrawEditCircle() {
+        if (!editMap || !editCenter) return;
+        try {
+            var src = editMap.getSource('edit-circle');
+            if (src) src.setData(circleGeoJSON(editCenter[1], editCenter[0], editRadius));
+        } catch (e) { /* style not ready yet; the load handler redraws */ }
+    }
+    function ensureEditMap() {
+        if (editMap) return true;
+        if (!window.maplibregl) return false;
+        try {
+            editMap = new window.maplibregl.Map({ container: 'lxp-e-map', style: basemapStyle(), center: [0, 20], zoom: 1 });
+            editMap.addControl(new window.maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+            editMap.on('load', function () {
+                var c = cssColor('--primary', '#d0694a');
+                editMap.addSource('edit-circle', { type: 'geojson', data: circleGeoJSON(0, 0, 1) });
+                editMap.addLayer({ id: 'edit-circle-fill', type: 'fill', source: 'edit-circle', paint: { 'fill-color': c, 'fill-opacity': 0.18 } });
+                editMap.addLayer({ id: 'edit-circle-line', type: 'line', source: 'edit-circle', paint: { 'line-color': c, 'line-width': 2 } });
+                redrawEditCircle();
+            });
+            editMap.on('click', function (e) {
+                editCenter = [e.lngLat.lng, e.lngLat.lat];
+                editMarker.setLngLat(editCenter).addTo(editMap);
+                redrawEditCircle();
+            });
+            editMarker = new window.maplibregl.Marker({ color: cssColor('--primary', '#d0694a'), draggable: true });
+            editMarker.on('dragend', function () {
+                var ll = editMarker.getLngLat();
+                editCenter = [ll.lng, ll.lat];
+                redrawEditCircle();
+            });
+        } catch (e) { editMap = null; return false; }
+        return true;
+    }
+    function openEdit(place, suggestion, from) {
+        flushNotes();
+        editId = place ? place.id : null;
+        editFrom = from || 'list';
+        if (editFrom === 'list') { var a = document.activeElement; opener = a && a !== document.body ? a : null; }
+        $('lxp-e-title').textContent = place ? 'Edit place' : 'New place';
+        $('lxp-e-name').value = place ? place.name : (suggestion && suggestion.suggested_name) || '';
+        editRadius = place ? Math.round(place.radius_m) : (suggestion ? Math.round(suggestion.radius_m) : 150);
+        var slider = $('lxp-e-radius');
+        if (editRadius > parseInt(slider.max, 10)) slider.max = Math.ceil(editRadius / 25) * 25;
+        slider.value = editRadius;
+        $('lxp-e-radius-val').textContent = editRadius + ' m';
+        var save = $('lxp-e-save'); save.disabled = false; save.textContent = 'Save';
+        editCenter = null;
+        var seq = ++editBoundsSeq;
+        setView('edit');
+        if (!ensureEditMap()) { toast('The map could not load, so the centre cannot be picked.', 'error'); return; }
+        editMap.resize();
+        if (place) {
+            editCenter = [place.lng, place.lat];
+            editMap.jumpTo({ center: editCenter, zoom: 14 });
+            editMarker.setLngLat(editCenter).addTo(editMap);
+            redrawEditCircle();
+        } else if (suggestion) {
+            // Confirming a suggestion: prefill the centre so it is one tap to save,
+            // but leave everything editable rather than inventing a place outright.
+            editCenter = [suggestion.lng, suggestion.lat];
+            editMap.jumpTo({ center: editCenter, zoom: 16 });
+            editMarker.setLngLat(editCenter).addTo(editMap);
+            redrawEditCircle();
+            if (!$('lxp-e-name').value) setTimeout(function () { if (view === 'edit') $('lxp-e-name').focus(); }, 80);
+        } else {
+            editMarker.remove();
+            try { editMap.jumpTo({ center: [0, 20], zoom: 1 }); } catch (e) { /* not ready */ }
+            // Centre the map on the user's data if possible.
+            fetch('/api/locations/bounds/?all=1').then(function (r) { return r.json(); }).then(function (b) {
+                if (seq !== editBoundsSeq || editId !== null || editCenter) return;
+                if (b && b.bounds) {
+                    var mnLng = b.bounds[0][0], mnLat = b.bounds[0][1], mxLng = b.bounds[1][0], mxLat = b.bounds[1][1];
+                    var c = [(mnLng + mxLng) / 2, (mnLat + mxLat) / 2];
+                    editCenter = c;
+                    editMap.fitBounds(b.bounds, { padding: 60, maxZoom: 14, duration: 0 });
+                    editMarker.setLngLat(c).addTo(editMap);
+                    redrawEditCircle();
+                }
+            }).catch(function () { /* the user can still tap the map */ });
+        }
+        setTimeout(function () { if (editMap) editMap.resize(); }, 60);
+        var t = $('lxp-e-title'); if (t && !suggestion) { try { t.focus({ preventScroll: true }); } catch (e) { /* hidden */ } }
+    }
+    function savePlace() {
+        var nameEl = $('lxp-e-name');
+        var name = nameEl.value.trim();
+        if (!name) { nameEl.focus(); return; }
+        if (!editCenter) { if (window.roamlyAlert) window.roamlyAlert('Tap the map to set the centre first.'); return; }
+        var btn = $('lxp-e-save');
+        btn.disabled = true;
+        btn.textContent = 'Saving';
+        var wasId = editId;
+        var payload = { name: name, lat: editCenter[1], lng: editCenter[0], radius_m: editRadius };
+        var url = wasId ? '/api/places/' + wasId + '/update/' : '/api/places/';
+        fetch(url, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify(payload) }).then(function (res) {
+            return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, d: d }; });
+        }).then(function (res) {
+            if (!res.ok) { if (window.roamlyAlert) window.roamlyAlert(res.d.error || 'Could not save this place.'); return null; }
+            // The saved place may cover a suggested cluster, which is what retires
+            // the suggestion, so refresh both lists.
+            return Promise.all([loadPlaces(), loadSuggestions()]).then(function () {
+                var id = wasId || res.d.id;
+                if (id && placesCache.some(function (p) { return p.id === id; })) openDetail(id, { fromEdit: true });
+                else closeToList(false);
+                toast(wasId ? 'Place saved' : 'Place added');
+            });
+        }).catch(function () {
+            if (window.roamlyAlert) window.roamlyAlert('Could not reach Roamly. Check your connection and try again.');
+        }).then(function () { btn.disabled = false; btn.textContent = 'Save'; });
+    }
+
+    // ═════ Detail ═════
+    function ensureDetailMap() {
+        if (detailMap) return true;
+        if (!window.maplibregl) return false;
+        try {
+            detailMap = new window.maplibregl.Map({ container: 'lxp-d-map', style: basemapStyle(), center: [0, 20], zoom: 1 });
+            detailMap.addControl(new window.maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+        } catch (e) { detailMap = null; return false; }
+        return true;
+    }
+    function statCell(label, value, unit, asButton) {
+        var c = el(asButton ? 'button' : 'div', 'lx-at-stat');
+        if (asButton) c.type = 'button';
+        c.appendChild(el('span', 'lx-at-stat-label', label));
+        var v = el('span', 'lx-at-stat-value', value);
+        if (unit) v.appendChild(el('span', 'lx-at-stat-unit', unit));
+        c.appendChild(v);
+        return c;
+    }
+    function statSkeleton() {
+        var box = $('lxp-d-stats');
+        box.textContent = '';
+        box.setAttribute('aria-busy', 'true');
+        ['Points', 'Days', 'Time spent', 'First seen'].forEach(function (l) {
+            var c = el('div', 'lx-at-stat');
+            c.appendChild(el('span', 'lx-at-stat-label', l));
+            var v = el('span', 'lx-at-stat-value'); v.appendChild(el('span', 'skeleton skel-statval')); c.appendChild(v);
+            box.appendChild(c);
+        });
+    }
+    function setupNotes(d) {
+        var ta = $('lxp-d-notes'), status = $('lxp-d-notes-status');
+        ta.value = d.notes || '';
+        status.textContent = '';
+        status.classList.remove('is-error');
+        notesDirty = false; notesFor = d.id;
+        ta.oninput = function () {
+            status.classList.remove('is-error');
+            status.textContent = 'Saving';
+            notesDirty = true; notesFor = d.id;
+            clearTimeout(notesTimer);
+            notesTimer = setTimeout(function () { saveNotes(false); }, 700);
+        };
+    }
+    function saveNotes(keepalive) {
+        clearTimeout(notesTimer);
+        if (!notesDirty || !notesFor) return;
+        var id = notesFor, value = $('lxp-d-notes').value, status = $('lxp-d-notes-status');
+        notesDirty = false;
+        var opts = { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ notes: value }) };
+        if (keepalive) opts.keepalive = true;
+        fetch('/api/places/' + id + '/update/', opts).then(function (res) {
+            if (!res.ok) throw new Error('notes');
+            var cached = placesCache.find(function (p) { return p.id === id; });
+            if (cached) cached.notes = value;
+            if (detailId === id) { status.classList.remove('is-error'); status.textContent = 'Saved'; setTimeout(function () { if (status.textContent === 'Saved') status.textContent = ''; }, 1800); }
+        }).catch(function () {
+            notesDirty = true; notesFor = id;
+            if (detailId === id) { status.classList.add('is-error'); status.textContent = 'Not saved'; }
+        });
+    }
+    function flushNotes() { try { saveNotes(true); } catch (e) { /* leaving anyway */ } }
+
+    // Arrival/departure toggles autosave like the notes: a checkbox that looks on
+    // but is not stored is exactly the kind of thing that goes unnoticed.
+    function setupNotify(place) {
+        $('lxp-n-arrive').checked = !!place.notify_arrive;
+        $('lxp-n-leave').checked = !!place.notify_leave;
+        var st = $('lxp-d-notify-status'); st.textContent = ''; st.classList.remove('is-error');
+    }
+    function saveNotify() {
+        var status = $('lxp-d-notify-status');
+        var id = detailId;
+        if (!id) return;
+        var arrive = $('lxp-n-arrive').checked, leave = $('lxp-n-leave').checked;
+        status.classList.remove('is-error');
+        status.textContent = 'Saving';
+        var req = window.roamlyFetch
+            ? window.roamlyFetch('/api/places/' + id + '/update/', { method: 'POST', toast: false, json: { notify_arrive: arrive, notify_leave: leave } })
+            : fetch('/api/places/' + id + '/update/', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ notify_arrive: arrive, notify_leave: leave }) }).then(function (r) { if (!r.ok) throw new Error('Not saved'); return r.json(); });
+        req.then(function () {
+            var cached = placesCache.find(function (p) { return p.id === id; });
+            if (cached) { cached.notify_arrive = arrive; cached.notify_leave = leave; renderPlaces(); }
+            if (detailId === id) { status.textContent = 'Saved'; setTimeout(function () { if (status.textContent === 'Saved') status.textContent = ''; }, 1800); }
+        }).catch(function (e) {
+            if (detailId === id) { status.classList.add('is-error'); status.textContent = (e && e.message) || 'Not saved'; }
+        });
+    }
+
+    // Draw the geofence circle, zoom to it, and prime an (initially empty) point
+    // layer that streamDetailPoints fills in. `g` needs lat/lng/radius_m/color.
+    function drawDetailCircle(g) {
+        if (!detailMap) return;
+        var run = function () {
+            try {
+                ['d-circle-fill', 'd-circle-line', 'd-points'].forEach(function (lid) { if (detailMap.getLayer(lid)) detailMap.removeLayer(lid); });
+                ['d-circle', 'd-points-src'].forEach(function (sid) { if (detailMap.getSource(sid)) detailMap.removeSource(sid); });
+                var color = g.color || cssColor('--primary', '#d0694a');
+                detailMap.addSource('d-circle', { type: 'geojson', data: circleGeoJSON(g.lat, g.lng, g.radius_m) });
+                detailMap.addLayer({ id: 'd-circle-fill', type: 'fill', source: 'd-circle', paint: { 'fill-color': color, 'fill-opacity': 0.15 } });
+                detailMap.addLayer({ id: 'd-circle-line', type: 'line', source: 'd-circle', paint: { 'line-color': color, 'line-width': 2 } });
+                detailMap.addSource('d-points-src', { type: 'geojson', data: { type: 'FeatureCollection', features: detailPtsFeatures } });
+                detailMap.addLayer({ id: 'd-points', type: 'circle', source: 'd-points-src', paint: { 'circle-radius': 3, 'circle-color': color, 'circle-opacity': 0.6 } });
+                var latR = g.radius_m / 111320.0;
+                var lngR = g.radius_m / (111320.0 * Math.cos(g.lat * Math.PI / 180));
+                detailMap.fitBounds([[g.lng - lngR, g.lat - latR], [g.lng + lngR, g.lat + latR]], { padding: 40, duration: 0 });
+            } catch (e) { /* the map is secondary: stats and notes still work */ }
+        };
+        if (detailMap.isStyleLoaded()) run(); else detailMap.once('load', run);
+        setTimeout(function () { if (detailMap) detailMap.resize(); }, 60);
+    }
+    // Progressively read the newline-delimited point stream and repaint the layer as
+    // each chunk lands, so a big place fills in gradually. The token cancels a stream
+    // that belongs to a place that is no longer open.
+    function streamDetailPoints(id, token) {
+        function repaint() {
+            try {
+                var src = detailMap && detailMap.getSource('d-points-src');
+                if (src) src.setData({ type: 'FeatureCollection', features: detailPtsFeatures });
+            } catch (e) { /* map went away */ }
+        }
+        return fetch('/api/places/' + id + '/points/').then(function (res) {
+            if (!res.ok || !res.body) return;
+            var reader = res.body.getReader(), dec = new TextDecoder(), buf = '';
+            function drain() {
+                var nl;
+                while ((nl = buf.indexOf('\n')) >= 0) {
+                    var line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+                    if (!line.trim()) continue;
+                    var coords;
+                    try { coords = JSON.parse(line); } catch (e) { continue; }
+                    for (var i = 0; i < coords.length; i++) detailPtsFeatures.push({ type: 'Feature', geometry: { type: 'Point', coordinates: coords[i] }, properties: {} });
+                }
+            }
+            function pump() {
+                return reader.read().then(function (r) {
+                    if (token !== detailPtsToken) { reader.cancel(); return; }
+                    if (r.done) { buf += dec.decode(); drain(); repaint(); return; }
+                    buf += dec.decode(r.value, { stream: true });
+                    drain(); repaint();
+                    return pump();
+                });
+            }
+            return pump();
+        }).catch(function () { /* stream failed: the circle and stats are still shown */ });
+    }
+
+    function renderDetailBody(d) {
+        timeSpentRaw = false;
+        var stats = $('lxp-d-stats');
+        stats.removeAttribute('aria-busy');
+        stats.textContent = '';
+        var pts = statCell('Points', (d.point_count || 0).toLocaleString());
+        if (d.color) pts.querySelector('.lx-at-stat-value').style.color = d.color;
+        stats.appendChild(pts);
+        stats.appendChild(statCell('Days', String((d.days || []).length)));
+        var time = statCell('Time spent', fmtDurFull(d.time_spent), '', true);
+        time.id = 'lxp-d-time'; time.setAttribute('data-s', d.time_spent || 0);
+        time.setAttribute('aria-label', 'Time spent, ' + fmtDurFull(d.time_spent) + '. Press to switch between units');
+        stats.appendChild(time);
+        stats.appendChild(statCell('First seen', fmtDate(d.first_seen)));
+
+        var citiesWrap = $('lxp-d-cities-wrap'), cities = $('lxp-d-cities');
+        cities.textContent = '';
+        if (d.cities && d.cities.length) {
+            citiesWrap.hidden = false;
+            d.cities.forEach(function (c) { cities.appendChild(el('span', 'lx-at-chip', c.city + (c.state ? ', ' + c.state : ''))); });
+        } else citiesWrap.hidden = true;
+
+        var daysWrap = $('lxp-d-days-wrap'), list = $('lxp-d-days'), moreBtn = $('lxp-d-days-more');
+        list.textContent = '';
+        if (d.days && d.days.length) {
+            daysWrap.hidden = false;
+            var INITIAL = 10;
+            var paint = function (days) {
+                list.textContent = '';
+                days.forEach(function (day) {
+                    // A real link, so a panel hands the click to the map in the full window.
+                    var url = '/map/?start=' + day.date + '&end=' + day.date + '&lat=' + d.lat + '&lng=' + d.lng + '&zoom=15';
+                    var li = document.createElement('li');
+                    var a = el('a', 'lx-at-row is-interactive'); a.href = url; a.title = 'View on the map';
+                    a.appendChild(el('span', 'lx-at-row-main', fmtDay(day.date)));
+                    a.appendChild(el('span', 'lx-at-row-aside', day.count + ' pts  ·  ' + fmtDur(day.time_spent)));
+                    li.appendChild(a); list.appendChild(li);
+                });
+            };
+            paint(d.days.slice(0, INITIAL));
+            if (d.days.length > INITIAL) {
+                moreBtn.hidden = false;
+                moreBtn.textContent = 'Show ' + (d.days.length - INITIAL) + ' more';
+                moreBtn.onclick = function () { paint(d.days); moreBtn.hidden = true; };
+            } else moreBtn.hidden = true;
+        } else daysWrap.hidden = true;
+
+        var editBtn = $('lxp-d-edit'), delBtn = $('lxp-d-delete');
+        editBtn.disabled = false; delBtn.disabled = false;
+        editBtn.onclick = function () { openEdit({ id: d.id, name: d.name, lat: d.lat, lng: d.lng, radius_m: d.radius_m }, null, 'detail'); };
+        delBtn.onclick = function () { deletePlace(d.id, d.name); };
+    }
+    function openDetail(id, opts) {
+        opts = opts || {};
+        flushNotes();
+        var fromList = view === 'list';
+        if (fromList) { var a = opts.opener || document.activeElement; opener = a && a !== document.body ? a : null; }
+        detailId = id;
+        var token = ++detailPtsToken;
+        var seq = ++detailLoadSeq;
+        detailPtsFeatures = [];
+        syncUrl(id, fromList && !opts.fromHistory && !opts.fromEdit);
+        var known = placesCache.find(function (p) { return p.id === id; });
+        $('lxp-d-title').textContent = known ? known.name : 'Place';
+        $('lxp-d-error').hidden = true;
+        $('lxp-d-edit').disabled = true; $('lxp-d-delete').disabled = true;
+        $('lxp-d-cities-wrap').hidden = true; $('lxp-d-days-wrap').hidden = true;
+        $('lxp-d-notes-wrap').hidden = true; $('lxp-d-notify-wrap').hidden = true;
+        statSkeleton();
+        setView('detail');
+        markSelected();
+        ensureDetailMap();
+        if (detailMap) detailMap.resize();
+        // Everything that needs no server (name, circle, notes, notification
+        // toggles) paints from the cached geometry at once; only stats, days and
+        // cities wait for the fetch.
+        if (known) {
+            drawDetailCircle(known);
+            setupNotes(known);
+            setupNotify(known);
+            $('lxp-d-notes-wrap').hidden = false; $('lxp-d-notify-wrap').hidden = false;
+            streamDetailPoints(id, token);
+        }
+        var t = $('lxp-d-title'); if (t) { try { t.focus({ preventScroll: true }); } catch (e) { /* hidden */ } }
+        fetch('/api/places/' + id + '/').then(function (res) { if (!res.ok) throw new Error('detail'); return res.json(); }).then(function (d) {
+            if (detailId !== id || seq !== detailLoadSeq) return;     // a different place was opened meanwhile
+            $('lxp-d-title').textContent = d.name;
+            // Fallback: no cached geometry (should not normally happen).
+            if (!known) {
+                drawDetailCircle(d); setupNotes(d); setupNotify(d);
+                $('lxp-d-notes-wrap').hidden = false; $('lxp-d-notify-wrap').hidden = false;
+                streamDetailPoints(id, token);
+            }
+            renderDetailBody(d);
+        }).catch(function () {
+            if (detailId !== id || seq !== detailLoadSeq) return;
+            var stats = $('lxp-d-stats'); stats.removeAttribute('aria-busy'); stats.textContent = '';
+            var err = $('lxp-d-error');
+            err.textContent = '';
+            err.appendChild(el('div', null, 'Could not load this place.'));
+            var b = el('button', 'lx-at-btn', 'Retry'); b.type = 'button'; b.addEventListener('click', function () { openDetail(id, { fromEdit: true }); });
+            err.appendChild(b);
+            err.hidden = false;
+        });
+    }
+    function deletePlace(id, name) {
+        var msg = 'Delete "' + name + '"? This only removes the place, not your location data.';
+        var go = window.roamlyConfirm ? window.roamlyConfirm(msg, { danger: true, confirmText: 'Delete place' }) : Promise.resolve(window.confirm(msg));
+        go.then(function (yes) {
+            if (!yes) return;
+            return fetch('/api/places/' + id + '/delete/', { method: 'POST', headers: { 'X-CSRFToken': CSRF } }).then(function (res) {
+                if (!res.ok) throw new Error('delete');
+                notesDirty = false;     // the place is gone: nothing left to save
+                closeToList(false);
+                // Deleting a place can re-expose the cluster it was covering as a suggestion.
+                return Promise.all([loadPlaces(), loadSuggestions()]);
+            }).catch(function () { toast('Could not delete this place.', 'error'); });
+        });
+    }
+
+    // ═════ Events (delegated) ═════
+    root.addEventListener('click', function (e) {
+        var t = e.target;
+        if (!t || !t.closest) return;
+        var row = t.closest('a[data-place]');
+        if (row && root.contains(row)) {
+            // Plain clicks stay in the page; modifier-clicks keep their new-tab behaviour.
+            if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); openDetail(Number(row.getAttribute('data-place')), { opener: row }); }
+            return;
+        }
+        var back = t.closest('[data-act="back"]');
+        if (back) { goBack(); return; }
+        var act = t.closest('#lxp-suggest-list [data-act]');
+        if (act) {
+            var i = parseInt(act.getAttribute('data-i'), 10);
+            var s = suggestions[i];
+            if (!s) return;
+            var kind = act.getAttribute('data-act');
+            if (kind === 'add') openEdit(null, s, 'list');
+            else if (kind === 'dismiss') dismissSuggestion(s, act);
+            else toggleSuggestion(i);
+            return;
+        }
+        var time = t.closest('#lxp-d-time');
+        if (time) {
+            timeSpentRaw = !timeSpentRaw;
+            var secs = parseInt(time.getAttribute('data-s') || '0', 10);
+            time.querySelector('.lx-at-stat-value').textContent = timeSpentRaw ? fmtDurMins(secs) : fmtDurFull(secs);
+        }
+    });
+    $('lxp-new').addEventListener('click', function () { openEdit(null, null, 'list'); });
+    $('lxp-suggest-more').addEventListener('click', function () { suggestShowAll = !suggestShowAll; renderSuggestions(); });
+    $('lxp-f-notify').addEventListener('click', function () {
+        filterNotify = !filterNotify;
+        this.setAttribute('aria-pressed', String(filterNotify));
+        renderPlaces();
+    });
+    $('lxp-n-arrive').addEventListener('change', saveNotify);
+    $('lxp-n-leave').addEventListener('change', saveNotify);
+    $('lxp-e-save').addEventListener('click', savePlace);
+    $('lxp-e-name').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); savePlace(); } });
+    $('lxp-e-radius').addEventListener('input', function (e) {
+        editRadius = parseInt(e.target.value, 10);
+        $('lxp-e-radius-val').textContent = editRadius + ' m';
+        redrawEditCircle();
+    });
+
+    var searchInput = $('lxp-search');
+    searchInput.addEventListener('input', function () {
+        var q = searchInput.value;
+        $('lxp-search-clear').hidden = !q;
+        // Esc clears the search first (atlas.js leaves Esc alone while this is set).
+        if (q) $('lxp-searchbox').setAttribute('data-lx-esc', ''); else $('lxp-searchbox').removeAttribute('data-lx-esc');
+        if (placesLoaded) renderPlaces();
+    });
+    function clearSearch() {
+        searchInput.value = '';
+        $('lxp-search-clear').hidden = true;
+        $('lxp-searchbox').removeAttribute('data-lx-esc');
+        if (placesLoaded) renderPlaces();
+    }
+    $('lxp-search-clear').addEventListener('click', function () { clearSearch(); searchInput.focus(); });
+
+    // Esc goes back one level. A dialog that is open keeps its own Esc.
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape' || e.defaultPrevented) return;
+        if (document.querySelector('.rly-dialog-overlay.open, .rly-date.open, .rly-select.open')) return;
+        if (view !== 'list') { e.preventDefault(); goBack(); return; }
+        if (searchInput.value) { e.preventDefault(); clearSearch(); }
+    });
+
+    // Typed notes must survive the panel being swapped out or the page being left.
+    window.addEventListener('pagehide', flushNotes);
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') flushNotes(); });
+    if (window.ResizeObserver) { try { new ResizeObserver(syncHeadH).observe($('lxp-head')); } catch (e) { /* optional */ } }
+    window.addEventListener('resize', syncHeadH);
+
+    // base.html's "recalculate" button calls this once the snapshot is rebuilt.
+    window.onSnapshotReady = loadPlaces;
+
+    // ═════ Init ═════
+    miniHost.className = 'lx-at-p-sg-host';
+    miniHost.style.cssText = 'width:100%;height:100%';
+    (function init() {
+        var pid = parseInt(new URLSearchParams(location.search).get('place'), 10);
+        if (pid > 0) pendingPlace = pid;
+        syncHeadH();
+        loadPlaces();
+        loadSuggestions();
+    })();
+})();
+</script>
+{% endblock %}

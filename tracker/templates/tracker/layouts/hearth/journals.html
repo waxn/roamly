@@ -1,0 +1,1258 @@
+{% extends "tracker/base.html" %}
+{% block title %}Journals · Roamly{% endblock %}
+
+{% block extra_css %}
+/* Hearth Journals: a two-pane workspace. Entries and calendar on the left, the
+   editor on the right; at <=900px they become two stacked views (list / edit).
+   Everything is scoped to html[data-layout="hearth"] and prefixed lx-he-jr-. */
+html[data-layout="hearth"] {
+    .lx-he-jr.lx-he-page { padding-bottom: 24px; }
+
+    .lx-he-jr-i { display: block; flex: none; }
+    .lx-he-jr [data-ico] { display: inline-flex; }
+
+    /* ── Stats strip ── */
+    .lx-he-card.lx-he-jr-stats { padding: 14px 20px; margin-bottom: 16px; gap: 0; }
+    .lx-he-jr-statrow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px 0; }
+    .lx-he-jr-statrow > .lx-he-stat { padding: 0 16px; border-left: 1px solid var(--lx-he-hair); }
+    .lx-he-jr-statrow > .lx-he-stat:first-child { padding-left: 0; border-left: 0; }
+    .lx-he-jr-stat-err { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-muted); }
+
+    /* ── Workspace ── */
+    .lx-he-jr-work {
+        display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 16px;
+        height: calc(100dvh - var(--nav-h) - 268px); min-height: 540px;
+        > * { min-height: 0; }
+    }
+    .lx-he-jr-side.lx-he-card, .lx-he-jr-editor.lx-he-card { padding: 0; gap: 0; overflow: hidden; }
+
+    /* ── Left pane ── */
+    .lx-he-jr-search { position: relative; padding: 12px 16px; flex: none; }
+    .lx-he-jr-search > [data-ico] { position: absolute; left: 28px; top: 50%; transform: translateY(-50%); color: var(--text-dim); pointer-events: none; }
+    .lx-he-jr-search-input {
+        width: 100%; height: 36px; padding: 0 36px 0 36px; box-sizing: border-box;
+        background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-2);
+        font-family: var(--font-body); font-size: 14px;
+        &::placeholder { color: var(--text-muted); }
+        &:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+    }
+    .lx-he-jr-search .lx-he-jr-search-clear { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; }
+    .lx-he-jr-search-clear[hidden] { display: none; }
+
+    .lx-he-jr-cal { flex: none; padding: 0 16px 12px; border-bottom: 1px solid var(--lx-he-hair); }
+    .lx-he-jr-calhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    .lx-he-jr-caltitle {
+        display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px 0 4px; margin-left: -4px;
+        background: transparent; border: 0; border-radius: var(--r-2); cursor: pointer;
+        font-family: var(--font-display); font-size: 17px; font-weight: 400; color: var(--text); letter-spacing: -0.01em;
+        &:hover { background: var(--lx-he-hover); }
+        [data-ico] { color: var(--text-muted); transition: transform var(--lx-he-t) ease-out; }
+        &[aria-expanded="false"] [data-ico] { transform: rotate(-90deg); }
+    }
+    .lx-he-jr-calnav { display: flex; align-items: center; gap: 2px; }
+    .lx-he-jr-calnav .lx-he-iconbtn { width: 32px; height: 32px; }
+    .lx-he-jr-calbody[hidden] { display: none; }
+    .lx-he-jr-wd, .lx-he-jr-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+    .lx-he-jr-wd > span { text-align: center; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); padding-bottom: 4px; }
+    .lx-he-jr-day {
+        position: relative; height: 40px; min-width: 0; padding: 0;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+        background: transparent; color: var(--text-muted); border: 1px solid transparent; border-radius: var(--r-2);
+        font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums; cursor: pointer;
+        transition: background-color var(--lx-he-t) ease-out, border-color var(--lx-he-t) ease-out;
+        &.is-empty { cursor: default; pointer-events: none; }
+        &:hover:not(:disabled):not(.is-empty) { background: var(--lx-he-hover); }
+        &:disabled { opacity: 0.35; cursor: default; }
+        &.has-entry { background: var(--primary-soft); color: var(--text); }
+        &.is-today { border-color: var(--border-strong); color: var(--primary); font-weight: 600; }
+        &.is-selected { border-color: var(--primary); }
+        .lx-he-jr-day-mood { font-size: 14px; line-height: 14px; font-family: var(--font-body); }
+        .lx-he-jr-day-fav { position: absolute; top: 3px; right: 3px; color: var(--clay-amber); }
+        .lx-he-jr-day-photo { position: absolute; bottom: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--clay-lavender); }
+    }
+    .lx-he-jr-day:focus-visible, .lx-he-jr-caltitle:focus-visible, .lx-he-jr-entry:focus-visible, .lx-he-jr-today:focus-visible,
+    .lx-he-jr-mood:focus-visible, .lx-he-jr-datebtn:focus-visible, .lx-he-jr-daybtn:focus-visible, .lx-he-jr-pill:focus-visible,
+    .lx-he-jr-photo-add:focus-visible, .lx-he-jr-photo-del:focus-visible, .lx-he-jr-search-input:focus-visible {
+        outline: 2px solid var(--primary); outline-offset: 2px;
+    }
+
+    .lx-he-jr-today {
+        flex: none; display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box;
+        margin: 0; padding: 12px 16px; text-align: left; cursor: pointer; font: inherit; color: var(--text);
+        background: transparent; border: 0; border-bottom: 1px solid var(--lx-he-hair);
+        transition: background-color var(--lx-he-t) ease-out;
+        &:hover { background: var(--lx-he-hover); }
+        .lx-he-row-ico { color: var(--primary); }
+    }
+    .lx-he-jr-today-sub { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+
+    .lx-he-jr-listwrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    .lx-he-jr-count { padding: 12px 16px 4px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+    .lx-he-jr-month {
+        position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+        padding: 10px 16px 6px; background: var(--bg-card);
+        font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);
+    }
+    .lx-he-jr-entry {
+        display: flex; align-items: flex-start; gap: 12px; padding: 10px 16px; min-width: 0;
+        color: var(--text); text-decoration: none; border-left: 2px solid transparent;
+        transition: background-color var(--lx-he-t) ease-out;
+        &:hover { background: var(--lx-he-hover); }
+        &.is-selected { background: var(--lx-he-active-bg); border-left-color: var(--primary); }
+    }
+    .lx-he-jr-thumb {
+        flex: none; width: 48px; height: 48px; border-radius: var(--r-2); overflow: hidden;
+        display: flex; align-items: center; justify-content: center;
+        background: var(--lx-he-plate); color: var(--primary); font-size: 22px;
+        img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        svg { width: 100%; height: 100%; display: block; }
+        &.is-plain { color: var(--text-dim); }
+    }
+    .lx-he-jr-entry-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .lx-he-jr-entry-date { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+    .lx-he-jr-entry-date .is-fav { color: var(--clay-amber); }
+    .lx-he-jr-entry-title { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lx-he-jr-entry-title.is-pending { color: var(--text-muted); font-weight: 400; }
+    .lx-he-jr-entry-snip { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lx-he-jr-entry-snip.is-quick { color: var(--text); }
+    .lx-he-jr-entry-foot { display: flex; flex-wrap: wrap; gap: 0 10px; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
+    .lx-he-jr-more { margin: 8px 16px 16px; }
+    .lx-he-jr-note { padding: 16px; font-size: 13px; color: var(--text-muted); line-height: 1.5; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+    .lx-he-jr-skelrow { display: flex; gap: 12px; padding: 10px 16px; }
+    .lx-he-jr-skelrow > .skeleton:first-child { flex: none; width: 48px; height: 48px; border-radius: var(--r-2); }
+
+    /* ── Editor ── */
+    .lx-he-jr-ehead {
+        flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 14px 20px; border-bottom: 1px solid var(--lx-he-hair);
+    }
+    .lx-he-iconbtn.lx-he-jr-back { display: none; margin-left: -8px; }
+    .lx-he-jr-edate { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .lx-he-jr-datewrap { position: relative; }
+    .lx-he-jr-datebtn {
+        display: inline-block; max-width: 100%; padding: 0; background: none; border: 0; cursor: pointer; text-align: left;
+        font-family: var(--font-display); font-size: 20px; font-weight: 400; letter-spacing: -0.01em; color: var(--text);
+        border-bottom: 1px dashed transparent; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        &:hover { border-bottom-color: var(--text-dim); }
+    }
+    .lx-he-jr-dateinput { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .lx-he-jr-etools { display: flex; align-items: center; gap: 4px; flex: none; }
+    .lx-he-jr-pill {
+        height: 28px; padding: 0 8px; background: none; border: 0; border-radius: var(--r-2); cursor: default;
+        font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); white-space: nowrap;
+        &[hidden] { display: none; }
+        &.is-saving { color: var(--clay-amber); }
+        &.is-saved { color: var(--text-muted); }
+        &.is-failed { color: var(--danger); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    }
+    .lx-he-iconbtn.lx-he-jr-fav[aria-pressed="true"] { color: var(--clay-amber); }
+    .lx-he-jr-fav[aria-pressed="true"] svg { fill: currentColor; }
+    .lx-he-iconbtn.lx-he-jr-del:hover { color: var(--danger); }
+
+    .lx-he-jr-ebody {
+        flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+        padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 16px;
+        scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+        > * { width: 100%; max-width: 760px; margin-inline: auto; flex: none; box-sizing: border-box; }
+    }
+    .lx-he-jr-editor.is-busy .lx-he-jr-ebody { opacity: 0.55; pointer-events: none; }
+    .lx-he-jr-editor.is-busy .lx-he-jr-etools .lx-he-iconbtn { pointer-events: none; opacity: 0.5; }
+    .lx-he-jr-eerr { display: none; align-items: center; gap: 12px; font-size: 13px; color: var(--text-muted); padding: 12px 24px 0; }
+    .lx-he-jr-editor.has-error .lx-he-jr-eerr { display: flex; }
+
+    .lx-he-jr-title {
+        display: block; padding: 0; background: transparent; border: 0; outline: none; color: var(--text);
+        font-family: var(--font-display); font-size: 28px; font-weight: 400; line-height: 1.2; letter-spacing: -0.015em;
+        &::placeholder { color: var(--text-dim); }
+    }
+    .lx-he-jr-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; }
+    .lx-he-jr-moods { display: flex; flex-wrap: wrap; gap: 2px; }
+    .lx-he-jr-mood {
+        width: 36px; height: 36px; padding: 0; cursor: pointer; font-size: 18px; line-height: 1;
+        display: inline-flex; align-items: center; justify-content: center;
+        background: transparent; border: 1px solid transparent; border-radius: var(--r-2); filter: grayscale(0.6); opacity: 0.8;
+        transition: background-color var(--lx-he-t) ease-out, opacity var(--lx-he-t) ease-out;
+        &:hover { background: var(--lx-he-hover); opacity: 1; }
+        &[aria-pressed="true"] { background: var(--primary-soft); border-color: color-mix(in srgb, var(--primary) 50%, transparent); filter: none; opacity: 1; }
+    }
+    .lx-he-jr-weather { display: flex; align-items: center; gap: 8px; }
+    .lx-he-jr-weather input, .lx-he-jr-quick textarea {
+        background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-2);
+        font-family: var(--font-body); font-size: 14px; box-sizing: border-box;
+        &::placeholder { color: var(--text-dim); }
+        &:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+    }
+    .lx-he-jr-weather input { height: 36px; width: 190px; padding: 0 12px; }
+    .lx-he-jr-quick { display: flex; flex-direction: column; gap: 6px; }
+    .lx-he-jr-quick-label { display: flex; justify-content: space-between; gap: 12px; }
+    .lx-he-jr-quick-label span:last-child { font-size: 12px; color: var(--text-dim); }
+    .lx-he-jr-quick textarea { display: block; width: 100%; min-height: 40px; padding: 9px 12px; resize: none; overflow: hidden; line-height: 1.5; }
+
+    .lx-he-jr-daybtn {
+        display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; padding: 0 12px; cursor: pointer;
+        background: transparent; border: 1px solid var(--border); border-radius: var(--r-2);
+        color: var(--text); font: inherit; font-size: 13px; text-align: left;
+        transition: border-color var(--lx-he-t) ease-out;
+        &:hover:not(:disabled) { border-color: var(--border-strong); }
+        &:disabled { cursor: default; color: var(--text-muted); }
+        > [data-ico]:first-child { color: var(--text-muted); }
+        .lx-he-jr-daysum { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .lx-he-jr-daychev { color: var(--text-dim); transition: transform var(--lx-he-t) ease-out; }
+        &[aria-expanded="true"] .lx-he-jr-daychev { transform: rotate(180deg); }
+    }
+    .lx-he-jr-daypanel[hidden] { display: none; }
+    .lx-he-jr-daypanel { display: flex; flex-direction: column; gap: 10px; }
+    .lx-he-jr-mapbox { position: relative; height: 240px; border-radius: var(--r-2); overflow: hidden; background: var(--lx-he-plate); border: 1px solid var(--border); }
+    .lx-he-jr-map { position: absolute; inset: 0; }
+    .lx-he-jr-mapmsg { position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; font-size: 13px; color: var(--text-muted); background: var(--lx-he-plate); }
+    .lx-he-jr-mapmsg[hidden] { display: none; }
+
+    .lx-he-jr-bodyinput {
+        display: block; min-height: 240px; resize: none; overflow: hidden; padding: 4px 0 4px 14px; margin-left: 0;
+        background: transparent; color: var(--text); border: 0; border-left: 2px solid var(--lx-he-hair); border-radius: 0; outline: none;
+        font-family: var(--font-body); font-size: 16px; line-height: 1.7;
+        transition: border-color var(--lx-he-t) ease-out;
+        &::placeholder { color: var(--text-dim); }
+        &:focus { border-left-color: var(--primary); }
+    }
+
+    .lx-he-jr-photos { display: flex; flex-wrap: wrap; gap: 8px; }
+    .lx-he-jr-photo { position: relative; width: 72px; height: 72px; border-radius: var(--r-2); background: var(--lx-he-plate); display: flex; align-items: center; justify-content: center; }
+    .lx-he-jr-photo img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: var(--r-2); }
+    .lx-he-jr-photo-del {
+        position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; padding: 0; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border-strong); border-radius: 50%;
+        &:hover { color: var(--danger); border-color: var(--danger); }
+    }
+    .lx-he-jr-photo-add {
+        width: 72px; height: 72px; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+        background: transparent; color: var(--text-muted); border: 1px dashed var(--border-strong); border-radius: var(--r-2);
+        font-family: var(--font-mono); font-size: 11px;
+        &:hover { color: var(--text); border-color: var(--text-muted); }
+    }
+    .lx-he-jr-efoot { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 8px 20px; border-top: 1px solid var(--lx-he-hair); min-height: 20px; }
+
+    /* ── Journal settings popover ── */
+    .lx-he-jr-setwrap { position: relative; }
+    .lx-he-jr-pop {
+        position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: min(330px, calc(100vw - 32px)); padding: 14px 16px;
+        background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: var(--r-3);
+        box-shadow: 0 8px 24px color-mix(in srgb, #000 28%, transparent); animation: lx-he-fade 120ms ease-out;
+    }
+    .lx-he-jr-pop[hidden] { display: none; }
+    .lx-he-jr-pop-row { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; cursor: pointer; font-size: 14px; line-height: 1.35; border-top: 1px solid var(--lx-he-hair); }
+    .lx-he-jr-pop-row:first-of-type { border-top: 0; }
+    .lx-he-jr-pop-row input { accent-color: var(--primary); width: 18px; height: 18px; margin: 1px 0 0; flex: none; }
+    .lx-he-jr-pop-row small { display: block; margin-top: 2px; font-size: 12px; color: var(--text-muted); }
+    .lx-he-jr-pop-row.is-off { opacity: 0.55; cursor: default; }
+    .lx-he-jr-pop-note { margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+
+    /* ── Recap panel ── */
+    .lx-he-jr-recap {
+        position: fixed; right: 0; z-index: 850; top: var(--nav-h, 0px); bottom: var(--bottom-nav-height, 0px);
+        width: min(440px, 100vw); display: none; flex-direction: column;
+        background: var(--bg-card); border-left: 1px solid var(--border);
+        box-shadow: -8px 0 32px color-mix(in srgb, #000 22%, transparent);
+        &.is-open { display: flex; animation: lx-he-fade 160ms ease-out; }
+    }
+    .lx-he-jr-recap-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 20px 14px; border-bottom: 1px solid var(--lx-he-hair); }
+    .lx-he-jr-recap-title { font-family: var(--font-display); font-size: 22px; font-weight: 400; letter-spacing: -0.01em; margin: 0; outline: none; }
+    .lx-he-jr-recap-span { margin-top: 4px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+    .lx-he-jr-recap-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 20px 24px; font-size: 14px; line-height: 1.65; }
+    .lx-he-jr-recap-body p { margin: 0 0 12px; max-width: 62ch; }
+    .lx-he-jr-recap-sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin: 20px 0 8px; }
+    .lx-he-jr-recap-sec:first-child { margin-top: 0; }
+    .lx-he-jr-recap-load { display: flex; align-items: center; gap: 10px; color: var(--text-muted); }
+    .lx-he-jr-recap-load .spinner { margin: 0; flex: none; }
+    .lx-he-jr-recap-muted { color: var(--text-muted); }
+    .lx-he-jr-recap-err { color: var(--danger); }
+    .lx-he-jr-facts { margin-top: 16px; border-top: 1px solid var(--lx-he-hair); }
+    .lx-he-jr-fact { display: grid; grid-template-columns: 1fr auto; gap: 0 12px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--lx-he-hair); }
+    .lx-he-jr-fact .l { font-size: 13px; color: var(--text-muted); }
+    .lx-he-jr-fact .v { font-family: var(--font-mono); font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
+    .lx-he-jr-fact .e { grid-column: 1 / -1; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); text-align: right; }
+    .lx-he-jr-recap-foot { font-size: 12px; color: var(--text-dim); margin-top: 16px; }
+
+    /* ── Stacked views (tablet and phone) ── */
+    @media (max-width: 900px) {
+        .lx-he-jr-work { display: block; height: auto; min-height: 0; }
+        .lx-he-jr-work[data-view="list"] .lx-he-jr-editor { display: none; }
+        .lx-he-jr-work[data-view="edit"] .lx-he-jr-side { display: none; }
+        .lx-he-iconbtn.lx-he-jr-back { display: inline-flex; }
+        .lx-he-jr-listwrap { overflow: visible; }
+        .lx-he-jr-side.lx-he-card { overflow: visible; }
+        .lx-he-jr-month { top: var(--nav-h); }
+        .lx-he-jr-editor.lx-he-card { overflow: visible; min-height: calc(100dvh - var(--nav-h) - var(--bottom-nav-height) - 24px); }
+        .lx-he-jr-ebody { overflow: visible; padding: 16px 16px 24px; }
+        .lx-he-jr-ehead { position: sticky; top: var(--nav-h); z-index: 3; background: var(--bg-card); border-radius: var(--r-3) var(--r-3) 0 0; }
+    }
+    @media (max-width: 768px) {
+        .lx-he-jr.lx-he-page { padding-bottom: 16px; }
+        .lx-he-jr-stats { padding: 12px 16px; }
+        .lx-he-jr-statrow { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 0; }
+        .lx-he-jr-statrow > .lx-he-stat:nth-child(3n+1) { padding-left: 0; border-left: 0; }
+        .lx-he-jr-statrow > .lx-he-stat { padding: 0 12px; }
+        .lx-he-jr-day { height: 44px; }
+        .lx-he-jr-mood { width: 44px; height: 44px; }
+        .lx-he-jr-weather input { height: 44px; flex: 1; width: auto; }
+        .lx-he-jr-weather { width: 100%; }
+        .lx-he-jr-search-input { height: 44px; }
+        .lx-he-jr-daybtn { height: 44px; }
+        .lx-he-jr-entry { padding: 12px 16px; }
+        .lx-he-jr-title { font-size: 24px; }
+        .lx-he-jr-bodyinput { font-size: 16px; }
+        .lx-he-jr-mapbox { height: 220px; }
+        .lx-he-jr-recap { width: 100vw; }
+        .lx-he-jr-photo-del { width: 28px; height: 28px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .lx-he-jr-pop, .lx-he-jr-recap.is-open { animation: none; }
+    }
+    &[data-motion="calm"] .lx-he-jr-pop, &[data-motion="calm"] .lx-he-jr-recap.is-open { animation: none; }
+}
+{% endblock %}
+
+{% block content %}
+<div class="lx-he-page is-wide lx-he-jr">
+    <header class="lx-he-pagehead">
+        <div>
+            <span class="lx-he-pagehead-kicker">Life</span>
+            <h1 class="lx-he-pagehead-title">Journals</h1>
+        </div>
+        <div class="lx-he-pagehead-actions">
+            <button type="button" class="lx-he-btn" id="jr-recap-toggle" aria-expanded="false" aria-controls="jr-recap">
+                <span data-ico="sparkles"></span><span>Recap my past few days</span>
+            </button>
+            <div class="lx-he-jr-setwrap" id="jr-setwrap">
+                <button type="button" class="lx-he-iconbtn" id="jr-setbtn" aria-label="Journal settings" title="Journal settings" aria-haspopup="true" aria-expanded="false" aria-controls="jr-pop"><span data-ico="settings"></span></button>
+                <div class="lx-he-jr-pop" id="jr-pop" role="group" aria-label="Journal settings" hidden>
+                    <label class="lx-he-jr-pop-row"><input type="checkbox" data-setting="auto_title"><span>AI title<small>Titles a day you left untitled, when you leave the entry</small></span></label>
+                    <label class="lx-he-jr-pop-row"><input type="checkbox" data-setting="auto_mood"><span>AI mood emoji<small>Picks an emoji for how the day felt, if you didn’t</small></span></label>
+                    <label class="lx-he-jr-pop-row"><input type="checkbox" data-setting="auto_weather"><span>Fetch the weather<small>Fills a blank weather field from Open-Meteo, using the day’s rough location</small></span></label>
+                    <div class="lx-he-jr-pop-note" id="jr-pop-note" hidden></div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <section class="lx-he-card lx-he-jr-stats" id="jr-stats" aria-label="Journal statistics" aria-busy="true">
+        <div class="lx-he-jr-statrow" id="jr-statrow">
+            {% for i in "123456" %}
+            <div class="lx-he-stat is-sm" aria-hidden="true"><span class="skeleton lx-he-skel-stat" style="width:70px;height:22px"></span><span class="skeleton lx-he-skel-line is-sm" style="width:60px"></span></div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div class="lx-he-jr-work" id="jr-work" data-view="list">
+        <!-- Left: search, calendar, entries -->
+        <section class="lx-he-card lx-he-jr-side" aria-label="Entries">
+            <div class="lx-he-jr-search">
+                <span data-ico="search"></span>
+                <input class="lx-he-jr-search-input" id="jr-search" type="search" placeholder="Search entries" aria-label="Search journal entries" autocomplete="off">
+                <button type="button" class="lx-he-iconbtn lx-he-jr-search-clear" id="jr-search-clear" aria-label="Clear search" hidden><span data-ico="close" data-size="14"></span></button>
+            </div>
+            <div class="lx-he-jr-cal" id="jr-cal">
+                <div class="lx-he-jr-calhead">
+                    <button type="button" class="lx-he-jr-caltitle" id="jr-caltitle" aria-expanded="true" aria-controls="jr-calbody"><span id="jr-caltitle-text">—</span><span data-ico="down" data-size="14"></span></button>
+                    <div class="lx-he-jr-calnav">
+                        <button type="button" class="lx-he-iconbtn" id="jr-prev" aria-label="Previous month"><span data-ico="left"></span></button>
+                        <button type="button" class="lx-he-iconbtn" id="jr-thismonth" aria-label="This month" title="This month"><span data-ico="dot"></span></button>
+                        <button type="button" class="lx-he-iconbtn" id="jr-next" aria-label="Next month"><span data-ico="right"></span></button>
+                    </div>
+                </div>
+                <div class="lx-he-jr-calbody" id="jr-calbody">
+                    <div class="lx-he-jr-wd" id="jr-wd" aria-hidden="true"></div>
+                    <div class="lx-he-jr-grid" id="jr-grid" role="group" aria-label="Days of the month"></div>
+                </div>
+            </div>
+            <button type="button" class="lx-he-jr-today" id="jr-today">
+                <span class="lx-he-row-ico"><span data-ico="pen"></span></span>
+                <span class="lx-he-row-main"><span class="lx-he-row-title">Write today</span><span class="lx-he-jr-today-sub" id="jr-today-sub"></span></span>
+            </button>
+            <div class="lx-he-jr-listwrap" id="jr-listwrap">
+                <div id="jr-count" class="lx-he-jr-count" hidden></div>
+                <div id="jr-list" aria-busy="true">
+                    {% for i in "1234" %}
+                    <div class="lx-he-jr-skelrow" aria-hidden="true"><span class="skeleton"></span><div style="flex:1"><span class="skeleton lx-he-skel-line is-sm" style="margin-bottom:8px"></span><span class="skeleton lx-he-skel-line" style="margin-bottom:8px"></span><span class="skeleton lx-he-skel-line is-sm"></span></div></div>
+                    {% endfor %}
+                </div>
+            </div>
+        </section>
+
+        <!-- Right: editor -->
+        <section class="lx-he-card lx-he-jr-editor is-busy" id="jr-editor" aria-label="Journal entry" aria-busy="true">
+            <header class="lx-he-jr-ehead">
+                <button type="button" class="lx-he-iconbtn lx-he-jr-back" id="jr-back" aria-label="Back to entries"><span data-ico="left"></span></button>
+                <div class="lx-he-jr-edate">
+                    <span class="lx-he-kicker" id="jr-weekday">&nbsp;</span>
+                    <div class="lx-he-jr-datewrap">
+                        <button type="button" class="lx-he-jr-datebtn" id="jr-datebtn" title="Move this entry to another day">—</button>
+                        <input type="date" class="rly-native lx-he-jr-dateinput" id="jr-dateinput" tabindex="-1" aria-label="Move this entry to another day">
+                    </div>
+                </div>
+                <div class="lx-he-jr-etools">
+                    <span aria-live="polite"><button type="button" class="lx-he-jr-pill" id="jr-pill" hidden disabled></button></span>
+                    <button type="button" class="lx-he-iconbtn lx-he-jr-fav" id="jr-fav" aria-pressed="false" aria-label="Favourite" title="Favourite"><span data-ico="star"></span></button>
+                    <button type="button" class="lx-he-iconbtn lx-he-jr-del" id="jr-delete" aria-label="Delete entry" title="Delete entry"><span data-ico="trash"></span></button>
+                </div>
+            </header>
+            <div class="lx-he-jr-eerr" id="jr-eerr" role="alert"><span>This entry didn’t load.</span><button type="button" class="lx-he-btn" id="jr-eretry">Retry</button></div>
+            <div class="lx-he-jr-ebody">
+                <input type="text" class="lx-he-jr-title" id="jr-title" placeholder="Give the day a title" maxlength="300" aria-label="Title" autocomplete="off">
+                <div class="lx-he-jr-meta">
+                    <div class="lx-he-jr-moods" id="jr-moods" role="group" aria-label="Mood"></div>
+                    <label class="lx-he-jr-weather"><span class="lx-he-kicker">Weather</span><input type="text" id="jr-weather" maxlength="60" placeholder="e.g. sunny, 22°" autocomplete="off"></label>
+                </div>
+                <div class="lx-he-jr-quick">
+                    <label class="lx-he-jr-quick-label" for="jr-quick"><span class="lx-he-kicker">Quick note</span><span>Shows on the map</span></label>
+                    <textarea id="jr-quick" rows="1" maxlength="2000" placeholder="What you did, in a line"></textarea>
+                </div>
+                <div>
+                    <button type="button" class="lx-he-jr-daybtn" id="jr-daybtn" aria-expanded="false" aria-controls="jr-daypanel" disabled>
+                        <span data-ico="route"></span><span class="lx-he-jr-daysum" id="jr-daysum">The day on the map</span><span class="lx-he-jr-daychev" data-ico="down" data-size="16"></span>
+                    </button>
+                    <div class="lx-he-jr-daypanel" id="jr-daypanel" hidden style="margin-top:10px">
+                        <div class="lx-he-chips" id="jr-places"></div>
+                        <div class="lx-he-jr-mapbox"><div class="lx-he-jr-map" id="jr-map"></div><div class="lx-he-jr-mapmsg" id="jr-mapmsg" hidden>No tracked location for this day.</div></div>
+                    </div>
+                </div>
+                <textarea class="lx-he-jr-bodyinput" id="jr-body" placeholder="What happened today?" aria-label="Entry text"></textarea>
+                <div class="lx-he-jr-photos" id="jr-photos" aria-label="Photos"></div>
+                <input type="file" id="jr-photo-input" accept="image/*" multiple hidden>
+            </div>
+            <footer class="lx-he-jr-efoot"><span class="lx-he-note-status" id="jr-words"></span></footer>
+        </section>
+    </div>
+</div>
+
+<!-- AI recap: closed on every page load, and nothing in it is kept -->
+<aside class="lx-he-jr-recap" id="jr-recap" aria-labelledby="jr-recap-title">
+    <div class="lx-he-jr-recap-head">
+        <div>
+            <h2 class="lx-he-jr-recap-title" id="jr-recap-title" tabindex="-1">Your past few days</h2>
+            <div class="lx-he-jr-recap-span" id="jr-recap-span"></div>
+        </div>
+        <button type="button" class="lx-he-iconbtn" id="jr-recap-close" aria-label="Close recap"><span data-ico="close"></span></button>
+    </div>
+    <div class="lx-he-jr-recap-body" id="jr-recap-body" aria-live="polite"></div>
+</aside>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    'use strict';
+    var CSRF = '{{ csrf_token }}';
+    var AI_READY = {{ AI_ASK_ENABLED|yesno:"true,false" }};
+    var BASEMAP_QS = '{{ CARTO_TILE_QS|escapejs }}';
+
+    var MOODS = ['😀', '🙂', '😐', '😔', '😢', '😡', '😴', '🥳', '😍', '🤔', '😎', '🤒'];
+    var MOOD_NAMES = ['Happy', 'Content', 'Neutral', 'Sad', 'Crying', 'Angry', 'Tired', 'Celebrating', 'Loving', 'Thinking', 'Cool', 'Unwell'];
+    var DAY_KEY = 'roamly_hearth_jr_day', CAL_KEY = 'roamly_hearth_jr_cal';
+
+    function $(id) { return document.getElementById(id); }
+    function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+    function toast(msg, type) { if (window.roamlyToast) window.roamlyToast(msg, type ? { type: type } : undefined); }
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+    function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+    function clear(n) { while (n && n.firstChild) n.removeChild(n.firstChild); }
+    var stackedMq = window.matchMedia ? window.matchMedia('(max-width: 900px)') : { matches: false };
+    function isStacked() { return !!stackedMq.matches; }
+
+    /* ── Icons (page-local, 24 grid, 1.75 stroke, currentColor) ── */
+    var ICONS = {
+        search: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
+        close: '<path d="M6 6l12 12M18 6 6 18"/>',
+        left: '<path d="m15 6-6 6 6 6"/>', right: '<path d="m9 6 6 6-6 6"/>', down: '<path d="m6 9 6 6 6-6"/>',
+        dot: '<circle cx="12" cy="12" r="3"/>',
+        trash: '<path d="M4 7h16M10 7V4.5h4V7M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/>',
+        star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+        sparkles: '<path d="M11 3l1.8 5.2L18 10l-5.2 1.8L11 17l-1.8-5.2L4 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/>',
+        settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/>',
+        pen: '<path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/><path d="m14 8 3 3"/>',
+        plus: '<path d="M12 5v14M5 12h14"/>',
+        route: '<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7a3 3 0 000-6H9a3 3 0 010-6h7"/>',
+        book: '<path d="M6 3.5h11.5v17H6A1.5 1.5 0 0 1 4.5 19V5A1.5 1.5 0 0 1 6 3.5z"/><path d="M8.5 8h6M8.5 11.5h6"/>'
+    };
+    function svg(name, size) {
+        var s = size || 18;
+        return '<svg class="lx-he-jr-i" viewBox="0 0 24 24" width="' + s + '" height="' + s + '" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + (ICONS[name] || '') + '</svg>';
+    }
+    function icoNode(name, size) { var s = el('span'); s.style.display = 'inline-flex'; s.innerHTML = svg(name, size); return s; }
+    function paintIcons(root) {
+        var nodes = (root || document).querySelectorAll('[data-ico]');
+        for (var i = 0; i < nodes.length; i++) {
+            var n = nodes[i];
+            if (n.getAttribute('data-done')) continue;
+            n.setAttribute('data-done', '1');
+            n.insertAdjacentHTML('afterbegin', svg(n.getAttribute('data-ico'), parseInt(n.getAttribute('data-size') || '18', 10)));
+        }
+    }
+
+    /* ── Dates ── */
+    function pad2(n) { return String(n).padStart(2, '0'); }
+    function ymdOf(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+    function todayStr() { return ymdOf(new Date()); }
+    function parseYmd(s) { var p = String(s).split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+    function validDay(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s || '') && ymdOf(parseYmd(s)) === s; }
+    function fmtLong(s) { return parseYmd(s).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }); }
+    function fmtWeekday(s) { return parseYmd(s).toLocaleDateString(undefined, { weekday: 'long' }); }
+    function fmtShort(s) {
+        var d = parseYmd(s), o = { weekday: 'short', day: 'numeric', month: 'short' };
+        if (d.getFullYear() !== new Date().getFullYear()) o.year = 'numeric';
+        return d.toLocaleDateString(undefined, o);
+    }
+    function fmtMonth(y, m) { return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }); }
+    function monthShort(s) { return parseYmd(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
+
+    function jget(url) {
+        return fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        });
+    }
+    function jpost(url, body) {
+        var opts = { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRFToken': CSRF } };
+        if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+        return fetch(url, opts);
+    }
+
+    /* ── State ── */
+    var viewYear, viewMonth, monthEntries = {};
+    var currentDate = null, loaded = false, dirty = false, editedThisOpen = false;
+    var currentMood = '', currentFav = false, openSeq = 0;
+    var saveTimer = null, refreshTimer = null;
+    var feedEntries = [], feedShown = 12, FEED_STEP = 12, titleBackfillDone = false;
+    var searchActive = false, searchTimer = null, searchSeq = 0;
+    var journalSettings = null;
+
+    var work = $('jr-work'), editor = $('jr-editor');
+    var fTitle = $('jr-title'), fBody = $('jr-body'), fQuick = $('jr-quick'), fWeather = $('jr-weather');
+    var pill = $('jr-pill'), listEl = $('jr-list'), listWrap = $('jr-listwrap'), countEl = $('jr-count');
+
+    function setView(v) { if (work) work.setAttribute('data-view', v); }
+    function setBusy(b) {
+        editor.classList.toggle('is-busy', b);
+        if (b) editor.setAttribute('aria-busy', 'true'); else editor.removeAttribute('aria-busy');
+        [fTitle, fBody, fQuick, fWeather].forEach(function (f) { f.readOnly = b; });
+    }
+
+    /* ── Stats ── */
+    function loadStats() {
+        var box = $('jr-stats');
+        jget('/api/journals/stats/').then(function (s) {
+            box.removeAttribute('aria-busy');
+            var cells = [
+                [s.current_streak, 'Day streak'], [s.longest_streak, 'Longest streak'], [s.total_entries, 'Entries'],
+                [s.this_year, 'This year'], [(s.total_words || 0).toLocaleString(), 'Words'], [s.total_photos, 'Photos']
+            ];
+            var row = $('jr-statrow');
+            clear(row);
+            cells.forEach(function (c) {
+                var st = el('div', 'lx-he-stat is-sm');
+                st.appendChild(el('div', 'lx-he-stat-value', String(c[0] == null ? 0 : c[0])));
+                st.appendChild(el('div', 'lx-he-stat-label', c[1]));
+                row.appendChild(st);
+            });
+        }).catch(function () {
+            box.removeAttribute('aria-busy');
+            var row = $('jr-statrow');
+            clear(row);
+            row.style.display = 'block';
+            var w = el('div', 'lx-he-jr-stat-err');
+            w.appendChild(el('span', '', 'Journal stats didn’t load.'));
+            var b = el('button', 'lx-he-btn', 'Retry'); b.type = 'button';
+            b.addEventListener('click', function () { row.style.display = ''; loadStats(); });
+            w.appendChild(b); row.appendChild(w);
+        });
+    }
+
+    /* ── Calendar ── */
+    function renderWeekdays() {
+        var wd = $('jr-wd'); clear(wd);
+        for (var i = 0; i < 7; i++) wd.appendChild(el('span', '', new Date(2024, 0, 1 + i).toLocaleDateString(undefined, { weekday: 'narrow' })));
+    }
+    function loadMonth() {
+        $('jr-caltitle-text').textContent = fmtMonth(viewYear, viewMonth);
+        var y = viewYear, m = viewMonth;
+        jget('/api/journals/?year=' + y + '&month=' + m).then(function (data) {
+            if (y !== viewYear || m !== viewMonth) return;
+            monthEntries = {};
+            (data.entries || []).forEach(function (e) { monthEntries[e.date] = e; });
+            renderGrid();
+        }).catch(function () { toast('Couldn’t load the calendar.', 'error'); });
+    }
+    function renderGrid() {
+        var grid = $('jr-grid'); clear(grid);
+        var lead = (new Date(viewYear, viewMonth - 1, 1).getDay() + 6) % 7;
+        var dim = new Date(viewYear, viewMonth, 0).getDate(), today = todayStr();
+        var frag = document.createDocumentFragment();
+        for (var i = 0; i < lead; i++) { var sp = el('span', 'lx-he-jr-day is-empty'); sp.setAttribute('aria-hidden', 'true'); frag.appendChild(sp); }
+        for (var d = 1; d <= dim; d++) {
+            var ds = viewYear + '-' + pad2(viewMonth) + '-' + pad2(d), e = monthEntries[ds];
+            var b = el('button', 'lx-he-jr-day'); b.type = 'button'; b.setAttribute('data-date', ds);
+            if (e) b.classList.add('has-entry');
+            if (ds === today) b.classList.add('is-today');
+            if (ds === currentDate) b.classList.add('is-selected');
+            if (ds > today) b.disabled = true;
+            b.setAttribute('aria-label', fmtLong(ds) + (e ? ', has an entry' : '') + (ds === today ? ', today' : ''));
+            b.appendChild(el('span', '', String(d)));
+            if (e && e.mood) b.appendChild(el('span', 'lx-he-jr-day-mood', e.mood));
+            if (e && e.is_favorite) { var f = el('span', 'lx-he-jr-day-fav'); f.innerHTML = svg('star', 9); b.appendChild(f); }
+            if (e && e.photo_count) b.appendChild(el('span', 'lx-he-jr-day-photo'));
+            frag.appendChild(b);
+        }
+        grid.appendChild(frag);
+    }
+    function showMonthOf(ds) {
+        var p = ds.split('-'), y = +p[0], m = +p[1];
+        if (y !== viewYear || m !== viewMonth) { viewYear = y; viewMonth = m; loadMonth(); }
+    }
+    function markSelected() {
+        var days = document.querySelectorAll('.lx-he-jr-day[data-date]');
+        for (var i = 0; i < days.length; i++) days[i].classList.toggle('is-selected', days[i].getAttribute('data-date') === currentDate);
+        var rows = document.querySelectorAll('.lx-he-jr-entry');
+        for (var j = 0; j < rows.length; j++) {
+            var on = rows[j].getAttribute('data-date') === currentDate;
+            rows[j].classList.toggle('is-selected', on);
+            if (on) rows[j].setAttribute('aria-current', 'true'); else rows[j].removeAttribute('aria-current');
+        }
+    }
+
+    /* ── Entry list ── */
+    function trackSnapshot(pts) {
+        var minLa = 90, maxLa = -90, minLo = 180, maxLo = -180;
+        pts.forEach(function (p) { minLa = Math.min(minLa, p[0]); maxLa = Math.max(maxLa, p[0]); minLo = Math.min(minLo, p[1]); maxLo = Math.max(maxLo, p[1]); });
+        var k = Math.cos(((minLa + maxLa) / 2) * Math.PI / 180);
+        var w = Math.max((maxLo - minLo) * k, 1e-5), h = Math.max(maxLa - minLa, 1e-5);
+        var s = 84 / Math.max(w, h), ox = (100 - w * s) / 2, oy = (100 - h * s) / 2;
+        function xy(p) { return [(ox + (p[1] - minLo) * k * s).toFixed(1), (oy + (maxLa - p[0]) * s).toFixed(1)]; }
+        var NS = 'http://www.w3.org/2000/svg';
+        var sv = document.createElementNS(NS, 'svg');
+        sv.setAttribute('viewBox', '0 0 100 100'); sv.setAttribute('preserveAspectRatio', 'xMidYMid meet'); sv.setAttribute('aria-hidden', 'true');
+        var pl = document.createElementNS(NS, 'polyline');
+        pl.setAttribute('points', pts.map(function (p) { return xy(p).join(','); }).join(' '));
+        pl.setAttribute('fill', 'none'); pl.setAttribute('stroke', 'currentColor'); pl.setAttribute('stroke-width', '4');
+        pl.setAttribute('stroke-linecap', 'round'); pl.setAttribute('stroke-linejoin', 'round');
+        sv.appendChild(pl);
+        var last = xy(pts[pts.length - 1]), c = document.createElementNS(NS, 'circle');
+        c.setAttribute('cx', last[0]); c.setAttribute('cy', last[1]); c.setAttribute('r', '5'); c.setAttribute('fill', 'currentColor');
+        sv.appendChild(c);
+        return sv;
+    }
+    function entryRow(e) {
+        var a = el('a', 'lx-he-jr-entry'); a.href = '?date=' + e.date; a.setAttribute('data-date', e.date);
+        if (e.date === currentDate) { a.classList.add('is-selected'); a.setAttribute('aria-current', 'true'); }
+        var th = el('span', 'lx-he-jr-thumb');
+        if (e.cover) {
+            var im = document.createElement('img'); im.src = e.cover; im.alt = ''; im.loading = 'lazy'; im.decoding = 'async'; th.appendChild(im);
+        } else if (Array.isArray(e.track) && e.track.length > 1) {
+            try { th.appendChild(trackSnapshot(e.track)); } catch (err) { th.classList.add('is-plain'); th.appendChild(icoNode('book', 20)); }
+        } else if (e.mood) {
+            th.classList.add('is-plain'); th.textContent = e.mood;
+        } else { th.classList.add('is-plain'); th.appendChild(icoNode('book', 20)); }
+        a.appendChild(th);
+        var main = el('span', 'lx-he-jr-entry-main');
+        var dt = el('span', 'lx-he-jr-entry-date'); dt.appendChild(el('span', '', fmtShort(e.date)));
+        if (e.is_favorite) { var fv = el('span', 'is-fav'); fv.setAttribute('aria-label', 'Favourite'); fv.innerHTML = svg('star', 11); dt.appendChild(fv); }
+        main.appendChild(dt);
+        var quick = String(e.quick_note || '').trim().split('\n')[0];
+        var title = el('span', 'lx-he-jr-entry-title' + (e.title ? '' : ' is-pending'), e.title || ((quick || e.snippet) ? 'Untitled' : 'Empty day'));
+        main.appendChild(title);
+        if (quick) main.appendChild(el('span', 'lx-he-jr-entry-snip is-quick', quick));
+        if (e.snippet && e.snippet !== quick) main.appendChild(el('span', 'lx-he-jr-entry-snip', e.snippet));
+        var foot = el('span', 'lx-he-jr-entry-foot');
+        if (e.word_count) foot.appendChild(el('span', '', e.word_count + (e.word_count === 1 ? ' word' : ' words')));
+        if (e.photo_count) foot.appendChild(el('span', '', e.photo_count + (e.photo_count === 1 ? ' photo' : ' photos')));
+        if (e.location_name) foot.appendChild(el('span', '', e.location_name));
+        if (foot.firstChild) main.appendChild(foot);
+        a.appendChild(main);
+        return a;
+    }
+    function noteBlock(text, retryFn) {
+        var n = el('div', 'lx-he-jr-note'); n.appendChild(el('span', '', text));
+        if (retryFn) { var b = el('button', 'lx-he-btn', 'Retry'); b.type = 'button'; b.addEventListener('click', retryFn); n.appendChild(b); }
+        return n;
+    }
+    function renderFeed() {
+        if (searchActive) return;
+        var st = listWrap.scrollTop;
+        listEl.removeAttribute('aria-busy');
+        clear(listEl);
+        if (!feedEntries.length) {
+            listEl.appendChild(noteBlock('No entries yet. Start with today’s.'));
+            return;
+        }
+        var counts = {};
+        feedEntries.forEach(function (e) { var m = e.date.slice(0, 7); counts[m] = (counts[m] || 0) + 1; });
+        var month = null, frag = document.createDocumentFragment();
+        feedEntries.slice(0, feedShown).forEach(function (e) {
+            var m = e.date.slice(0, 7);
+            if (m !== month) {
+                var h = el('div', 'lx-he-jr-month'); var p = m.split('-');
+                h.appendChild(el('span', '', fmtMonth(+p[0], +p[1])));
+                h.appendChild(el('span', '', counts[m] + (counts[m] === 1 ? ' entry' : ' entries')));
+                frag.appendChild(h); month = m;
+            }
+            frag.appendChild(entryRow(e));
+        });
+        if (feedEntries.length > feedShown) {
+            var more = el('button', 'lx-he-btn lx-he-jr-more', 'Show older entries'); more.type = 'button';
+            more.addEventListener('click', function () { feedShown += FEED_STEP; renderFeed(); });
+            frag.appendChild(more);
+        }
+        listEl.appendChild(frag);
+        listWrap.scrollTop = st;
+    }
+    function loadRecent() {
+        jget('/api/journals/?tz=' + new Date().getTimezoneOffset()).then(function (data) {
+            feedEntries = data.entries || [];
+            renderFeed();
+            backfillTitles();
+        }).catch(function () {
+            if (searchActive) return;
+            listEl.removeAttribute('aria-busy'); clear(listEl);
+            listEl.appendChild(noteBlock('Entries didn’t load.', loadRecent));
+        });
+    }
+    function refreshLists() { loadMonth(); loadRecent(); loadStats(); }
+    function refreshSoon() { clearTimeout(refreshTimer); refreshTimer = setTimeout(refreshLists, 1200); }
+
+    // Untitled days with something written get an AI title, a few at a time, once per
+    // page load, and only when the account switched "AI title" on.
+    function backfillTitles() {
+        if (titleBackfillDone || !journalSettings || !journalSettings.ai_available || !journalSettings.auto_title) return;
+        if (!feedEntries.some(function (e) { return !e.title && (e.snippet || String(e.quick_note || '').trim()); })) return;
+        titleBackfillDone = true;
+        function round() {
+            jpost('/api/journals/title-missing/').then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+                if (!d) return;
+                var dates = Object.keys(d.titled || {});
+                dates.forEach(function (ds) {
+                    var e = feedEntries.filter(function (x) { return x.date === ds; })[0];
+                    if (e) e.title = d.titled[ds];
+                    if (monthEntries[ds]) monthEntries[ds].title = d.titled[ds];
+                });
+                if (dates.length) renderFeed();
+                if (dates.length && d.remaining > 0) round();
+            }).catch(function () {});
+        }
+        round();
+    }
+
+    /* ── Search ── */
+    var searchInput = $('jr-search'), searchClear = $('jr-search-clear');
+    function runSearch(q) {
+        if (!q.trim()) { clearSearch(); return; }
+        var seq = ++searchSeq;
+        searchActive = true;
+        jget('/api/journals/search/?q=' + encodeURIComponent(q)).then(function (data) {
+            if (seq !== searchSeq) return;
+            countEl.hidden = false;
+            countEl.textContent = data.count + (data.count === 1 ? ' result' : ' results');
+            listEl.removeAttribute('aria-busy'); clear(listEl);
+            if (!data.entries || !data.entries.length) listEl.appendChild(noteBlock('No entries match “' + q.trim() + '”.'));
+            else data.entries.forEach(function (e) { listEl.appendChild(entryRow(e)); });
+            listWrap.scrollTop = 0;
+        }).catch(function () {
+            if (seq !== searchSeq) return;
+            countEl.hidden = true; clear(listEl);
+            listEl.appendChild(noteBlock('Search failed.', function () { runSearch(searchInput.value); }));
+        });
+    }
+    function clearSearch() {
+        searchSeq++;
+        searchInput.value = ''; searchClear.hidden = true;
+        countEl.hidden = true; countEl.textContent = '';
+        var was = searchActive; searchActive = false;
+        if (was) renderFeed();
+    }
+    searchInput.addEventListener('input', function () {
+        var q = searchInput.value;
+        searchClear.hidden = !q;
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function () { runSearch(q); }, 300);
+    });
+    searchInput.addEventListener('keydown', function (e) { if (e.key === 'Escape' && searchInput.value) { e.stopPropagation(); clearSearch(); } });
+    searchClear.addEventListener('click', function () { clearSearch(); searchInput.focus(); });
+
+    /* ── Editor: open / leave ── */
+    function aiNeeded() {
+        return !!(journalSettings && journalSettings.ai_available &&
+            ((journalSettings.auto_title && !fTitle.value.trim()) || (journalSettings.auto_mood && !currentMood)) &&
+            (fBody.value.trim() || fQuick.value.trim()));
+    }
+    // Save what is pending, then (once the save landed, never on the autosave) let
+    // the AI fill a blank title/mood. Used when the writer moves to another day.
+    function commitCurrent() {
+        if (!currentDate || !loaded) return Promise.resolve(true);
+        var ds = currentDate, edited = editedThisOpen, needsAi = aiNeeded();
+        editedThisOpen = false;
+        return flushSave().then(function (ok) {
+            if (edited) refreshLists();
+            if (ok && edited && needsAi) autofillEntry(ds);
+            return ok;
+        });
+    }
+    function autofillEntry(ds) {
+        jpost('/api/journals/' + ds + '/autofill/').then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); }).then(function (x) {
+            if (!x.ok) { toast(x.d.error || 'The AI title could not be generated.', 'error'); return; }
+            var d = x.d;
+            if (!d.title && !d.mood) return;
+            refreshLists();
+            if (currentDate === ds) {
+                if (d.title && !fTitle.value) fTitle.value = d.title;
+                if (d.mood && !currentMood) { currentMood = d.mood; renderMoods(); }
+            }
+            toast(((d.mood || '') + ' ' + (d.title || 'Mood added')).trim());
+        }).catch(function () {});
+    }
+
+    function openEntry(ds, opts) {
+        opts = opts || {};
+        if (!validDay(ds)) return;
+        if (ds === currentDate && loaded && !opts.force) { setView('edit'); return; }
+        commitCurrent();
+        clearTimeout(saveTimer);
+        var seq = ++openSeq;
+        currentDate = ds; loaded = false; dirty = false; editedThisOpen = false;
+        setBusy(true);
+        editor.classList.remove('has-error');
+        $('jr-datebtn').textContent = fmtLong(ds);
+        $('jr-weekday').textContent = fmtWeekday(ds);
+        $('jr-dateinput').value = ds;
+        fTitle.value = ''; fBody.value = ''; fQuick.value = ''; fWeather.value = '';
+        currentMood = ''; renderMoods(); setFav(false); renderPhotos([]); setPill('');
+        sizeBox(fBody); sizeBox(fQuick); updateWordCount();
+        dayTrack = null; renderDaySummary();
+        setView('edit');
+        showMonthOf(ds);
+        markSelected();
+        if (!opts.silent) { try { history.replaceState(null, '', '?date=' + ds); } catch (e) {} }
+
+        jget('/api/journals/' + ds + '/?tz=' + new Date().getTimezoneOffset()).then(function (data) {
+            if (seq !== openSeq) return;
+            var en = data.entry || {};
+            fTitle.value = en.title || ''; fBody.value = en.body || ''; fQuick.value = en.quick_note || ''; fWeather.value = en.weather || '';
+            currentMood = en.mood || ''; renderMoods(); setFav(!!en.is_favorite); renderPhotos(en.photos || []);
+            sizeBox(fBody); sizeBox(fQuick); updateWordCount();
+            loaded = true; setBusy(false);
+            dayTrack = data.track || null; renderDaySummary();
+            fillWeather(ds);
+        }).catch(function () {
+            if (seq !== openSeq) return;
+            editor.classList.add('has-error');
+        });
+    }
+    $('jr-eretry').addEventListener('click', function () { if (currentDate) openEntry(currentDate, { force: true, silent: true }); });
+
+    // Into the field only: it is saved with the entry, so just opening a day creates nothing.
+    function fillWeather(ds) {
+        if (!journalSettings || !journalSettings.auto_weather || fWeather.value) return;
+        jget('/api/journals/' + ds + '/weather/').then(function (d) {
+            if (d && d.weather && currentDate === ds && !fWeather.value) fWeather.value = d.weather;
+        }).catch(function () {});
+    }
+
+    /* ── Editor: fields ── */
+    function renderMoods() {
+        var box = $('jr-moods'); clear(box);
+        MOODS.forEach(function (m, i) {
+            var b = el('button', 'lx-he-jr-mood', m); b.type = 'button';
+            b.setAttribute('aria-pressed', m === currentMood ? 'true' : 'false');
+            b.setAttribute('aria-label', MOOD_NAMES[i]); b.title = MOOD_NAMES[i];
+            b.addEventListener('click', function () { currentMood = currentMood === m ? '' : m; renderMoods(); scheduleSave(); });
+            box.appendChild(b);
+        });
+    }
+    function setFav(v) {
+        currentFav = !!v;
+        var b = $('jr-fav'); b.setAttribute('aria-pressed', currentFav ? 'true' : 'false');
+        b.setAttribute('aria-label', currentFav ? 'Remove from favourites' : 'Add to favourites');
+        b.title = currentFav ? 'Remove from favourites' : 'Add to favourites';
+    }
+    $('jr-fav').addEventListener('click', function () { if (!loaded) return; setFav(!currentFav); scheduleSave(); });
+    function sizeBox(t) { t.style.height = 'auto'; t.style.height = (t.scrollHeight + 2) + 'px'; }
+    function updateWordCount() {
+        var w = fBody.value.trim().split(/\s+/).filter(Boolean).length;
+        $('jr-words').textContent = w ? w + (w === 1 ? ' word' : ' words') : '';
+    }
+    fTitle.addEventListener('input', scheduleSave);
+    fWeather.addEventListener('input', scheduleSave);
+    fQuick.addEventListener('input', function () { sizeBox(fQuick); scheduleSave(); });
+    fBody.addEventListener('input', function () { sizeBox(fBody); updateWordCount(); scheduleSave(); });
+
+    /* ── Autosave ── */
+    function setPill(state) {
+        pill.className = 'lx-he-jr-pill' + (state ? ' is-' + state : '');
+        pill.hidden = !state;
+        pill.disabled = state !== 'failed';
+        pill.textContent = state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved' : state === 'failed' ? 'Not saved. Retry' : '';
+    }
+    pill.addEventListener('click', function () { if (pill.classList.contains('is-failed')) flushSave(); });
+    function scheduleSave() {
+        if (!loaded) return;
+        dirty = true; editedThisOpen = true;
+        setPill('saving');
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(flushSave, 800);
+    }
+    // Only runs once the entry has loaded and been edited, so opening a day never
+    // writes a blank row and a slow load can't be overwritten by an empty form.
+    // Resolves true once nothing is left unsaved. A journal entry is typed prose:
+    // never say "Saved" unless the server said so.
+    function flushSave() {
+        clearTimeout(saveTimer);
+        if (!currentDate || !loaded) return Promise.resolve(true);
+        if (!dirty) return Promise.resolve(true);
+        dirty = false;
+        var ds = currentDate;
+        var body = { title: fTitle.value, body: fBody.value, quick_note: fQuick.value, mood: currentMood, weather: fWeather.value, is_favorite: currentFav };
+        return jpost('/api/journals/' + ds + '/save/', body).then(function (r) {
+            if (!r.ok) throw new Error('save failed');
+            return r.json();
+        }).then(function () {
+            if (currentDate === ds && !dirty) setPill('saved');
+            refreshSoon();
+            return true;
+        }).catch(function () {
+            if (currentDate === ds) {
+                dirty = true;
+                setPill('failed');
+                toast('Couldn’t save this entry. Your text is still here; use “Not saved” to try again.', 'error');
+            } else {
+                toast('Couldn’t save the entry for ' + fmtLong(ds) + '. Open it again to retry.', 'error');
+            }
+            return false;
+        });
+    }
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') flushSave(); });
+
+    /* ── Move to another day ── */
+    var dateBtn = $('jr-datebtn'), dateInput = $('jr-dateinput');
+    dateBtn.addEventListener('click', function () {
+        if (!loaded) return;
+        try { dateInput.showPicker(); } catch (e) { dateInput.focus(); dateInput.click(); }
+    });
+    dateInput.addEventListener('change', function () { moveEntry(dateInput.value); });
+    function moveEntry(target) {
+        var from = currentDate;
+        if (!target || !validDay(target) || target === from) { dateInput.value = from || ''; return; }
+        if (target > todayStr()) { dateInput.value = from; toast('Pick a day that has already started.', 'error'); return; }
+        flushSave().then(function () {
+            if (dirty) { dateInput.value = from; return; }      // the save failed: don't move what isn't stored
+            return jpost('/api/journals/' + from + '/move/', { date: target }).catch(function () { return null; }).then(function (r) {
+                if (r && r.status === 404) { openEntry(target); return; }   // nothing saved yet: just a different day
+                return (r ? r.json().catch(function () { return {}; }) : Promise.resolve({})).then(function (d) {
+                    if (!r || !r.ok) {
+                        dateInput.value = from;
+                        var m = (d && d.error) || 'Couldn’t move this entry.';
+                        if (window.roamlyAlert) window.roamlyAlert(m); else toast(m, 'error');
+                        return;
+                    }
+                    editedThisOpen = false;
+                    openEntry(d.date, { force: true });
+                    refreshLists();
+                    toast('Moved to ' + fmtLong(d.date));
+                });
+            });
+        });
+    }
+
+    /* ── Photos ── */
+    function renderPhotos(photos) {
+        var box = $('jr-photos'); clear(box);
+        (photos || []).forEach(function (p) {
+            var t = el('div', 'lx-he-jr-photo');
+            if (p.thumbnail) { var im = document.createElement('img'); im.src = p.thumbnail; im.alt = p.caption || 'Journal photo'; im.loading = 'lazy'; t.appendChild(im); }
+            var d = el('button', 'lx-he-jr-photo-del'); d.type = 'button'; d.setAttribute('aria-label', 'Remove photo'); d.title = 'Remove photo';
+            d.appendChild(icoNode('close', 12));
+            d.addEventListener('click', function () { deletePhoto(p.id); });
+            t.appendChild(d); box.appendChild(t);
+        });
+        var add = el('button', 'lx-he-jr-photo-add'); add.type = 'button'; add.setAttribute('aria-label', 'Add photos');
+        add.appendChild(icoNode('plus', 18)); add.appendChild(el('span', '', 'Add'));
+        add.addEventListener('click', function () { if (loaded) $('jr-photo-input').click(); });
+        box.appendChild(add);
+    }
+    function reloadPhotos(ds) {
+        return jget('/api/journals/' + ds + '/').then(function (d) { if (currentDate === ds) renderPhotos((d.entry && d.entry.photos) || []); });
+    }
+    $('jr-photo-input').addEventListener('change', function (e) {
+        var input = e.target;
+        if (!input.files.length || !currentDate) return;
+        var ds = currentDate, fd = new FormData();
+        Array.prototype.forEach.call(input.files, function (f) { fd.append('photos', f); });
+        var busy = el('div', 'lx-he-jr-photo'); busy.appendChild(el('span', 'spinner'));
+        $('jr-photos').insertBefore(busy, $('jr-photos').firstChild);
+        fetch('/api/journals/' + ds + '/photos/', { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRFToken': CSRF }, body: fd })
+            .then(function (r) { if (!r.ok) throw new Error('upload'); return r.json(); })
+            .then(function () { input.value = ''; refreshSoon(); return reloadPhotos(ds); })
+            .catch(function () { input.value = ''; toast('Couldn’t upload the photos.', 'error'); return reloadPhotos(ds).catch(function () {}); });
+    });
+    function deletePhoto(id) {
+        var ds = currentDate;
+        jpost('/api/journals/photos/' + id + '/delete/').then(function (r) {
+            if (!r.ok) throw new Error('delete');
+            refreshSoon();
+            return reloadPhotos(ds);
+        }).catch(function () { toast('Couldn’t remove that photo.', 'error'); });
+    }
+
+    /* ── Delete ── */
+    $('jr-delete').addEventListener('click', function () {
+        if (!currentDate || !loaded) return;
+        var ds = currentDate;
+        var ask = window.roamlyConfirm ? window.roamlyConfirm('Delete this journal entry? This cannot be undone.', { danger: true, confirmText: 'Delete' }) : Promise.resolve(window.confirm('Delete this journal entry?'));
+        ask.then(function (ok) {
+            if (!ok) return;
+            clearTimeout(saveTimer); dirty = false;      // or the pending autosave recreates it
+            return jpost('/api/journals/' + ds + '/delete/').then(function (r) {
+                if (!r.ok) throw new Error('delete');
+                currentDate = null; loaded = false; editedThisOpen = false;
+                refreshLists();
+                toast('Entry deleted');
+                if (isStacked()) { setView('list'); try { history.replaceState(null, '', location.pathname); } catch (e) {} }
+                else openEntry(todayStr(), { silent: true, force: true });
+            }).catch(function () { toast('Couldn’t delete the entry.', 'error'); });
+        });
+    });
+
+    /* ── Day on the map ── */
+    var dayTrack = null, jmap = null, jmapLoaded = false, drawSeq = 0;
+    var dayBtn = $('jr-daybtn'), dayPanel = $('jr-daypanel');
+    var dayWanted = false;
+    function renderDaySummary() {
+        var t = dayTrack, has = !!(t && t.point_count > 0);
+        dayBtn.disabled = !has;
+        var sum = $('jr-daysum');
+        if (!t) sum.textContent = 'The day on the map';
+        else if (!has) sum.textContent = 'No tracked location for this day';
+        else sum.textContent = (+t.distance_km || 0).toFixed(1) + ' km  ·  ' + ((t.places || []).length) + ((t.places || []).length === 1 ? ' place' : ' places') + '  ·  ' + (+t.point_count).toLocaleString() + ' points';
+        var chips = $('jr-places'); clear(chips);
+        if (has) (t.places || []).slice(0, 6).forEach(function (p) { chips.appendChild(el('span', 'lx-he-chip', p.name || '')); });
+        applyDay();
+    }
+    // The panel shows when the writer wants it AND the day has a track, so a day
+    // without one doesn't forget the preference for the next day.
+    function applyDay() {
+        var show = dayWanted && !!(dayTrack && dayTrack.point_count > 0);
+        dayBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
+        dayPanel.hidden = !show;
+        if (show) drawDayMap();
+    }
+    dayBtn.addEventListener('click', function () { dayWanted = !dayWanted; lsSet(DAY_KEY, dayWanted ? '1' : '0'); applyDay(); });
+    function themeColor(name, fallback) {
+        var v = '';
+        try { v = getComputedStyle(document.documentElement).getPropertyValue(name).trim(); } catch (e) {}
+        return /^(#|rgb)/i.test(v) ? v : fallback;
+    }
+    function ensureMap() {
+        if (jmap) return true;
+        if (typeof maplibregl === 'undefined') return false;
+        var theme = lsGet('roamly_theme') || document.documentElement.getAttribute('data-theme') || 'dark';
+        var basemap = (theme === 'light' ? 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png' : 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png') + BASEMAP_QS;
+        try {
+            jmap = new maplibregl.Map({
+                container: 'jr-map',
+                style: { version: 8, glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+                    sources: { base: { type: 'raster', tiles: [basemap], tileSize: 256, attribution: '© OpenStreetMap © CARTO' } },
+                    layers: [{ id: 'base', type: 'raster', source: 'base' }] },
+                center: [0, 20], zoom: 1, attributionControl: false
+            });
+            jmap.on('load', function () { jmapLoaded = true; });
+        } catch (e) { jmap = null; return false; }
+        return true;
+    }
+    function drawDayMap() {
+        var msg = $('jr-mapmsg'), track = dayTrack;
+        if (!track || !(track.point_count > 0)) { msg.hidden = false; msg.textContent = 'No tracked location for this day.'; return; }
+        if (!ensureMap()) { msg.hidden = false; msg.textContent = 'The map couldn’t be loaded.'; return; }
+        msg.hidden = true;
+        var seq = ++drawSeq, tries = 0;
+        function draw() {
+            if (seq !== drawSeq || !jmap) return;
+            if (!jmapLoaded) { if (++tries < 120) setTimeout(draw, 60); return; }
+            try {
+                jmap.resize();
+                ['jr-line', 'jr-start', 'jr-end'].forEach(function (id) { if (jmap.getLayer(id)) jmap.removeLayer(id); });
+                ['line', 'startend'].forEach(function (id) { if (jmap.getSource(id)) jmap.removeSource(id); });
+                if (!track.points || !track.points.length) return;
+                var primary = themeColor('--primary', '#e8763d'), sky = themeColor('--clay-sky', '#7ba3b8'), ring = themeColor('--bg-card', '#ffffff');
+                // Only chronological segments: a flat point list would draw lines across tracking gaps.
+                var segs = track.segments && track.segments.length ? track.segments : null;
+                if (segs) {
+                    jmap.addSource('line', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'MultiLineString', coordinates: segs } } });
+                    jmap.addLayer({ id: 'jr-line', type: 'line', source: 'line', layout: { 'line-join': 'round', 'line-cap': 'round' },
+                        paint: { 'line-color': primary, 'line-width': 4, 'line-opacity': 0.9 } });
+                }
+                var sp = track.start || track.points[0], ep = track.end || track.points[track.points.length - 1];
+                if (sp && ep) {
+                    jmap.addSource('startend', { type: 'geojson', data: { type: 'FeatureCollection', features: [
+                        { type: 'Feature', properties: { kind: 'start' }, geometry: { type: 'Point', coordinates: sp } },
+                        { type: 'Feature', properties: { kind: 'end' }, geometry: { type: 'Point', coordinates: ep } }] } });
+                    jmap.addLayer({ id: 'jr-start', type: 'circle', source: 'startend', filter: ['==', 'kind', 'start'],
+                        paint: { 'circle-radius': 7, 'circle-color': sky, 'circle-stroke-width': 2.5, 'circle-stroke-color': ring } });
+                    jmap.addLayer({ id: 'jr-end', type: 'circle', source: 'startend', filter: ['==', 'kind', 'end'],
+                        paint: { 'circle-radius': 7, 'circle-color': primary, 'circle-stroke-width': 2.5, 'circle-stroke-color': ring } });
+                }
+                var b = new maplibregl.LngLatBounds();
+                track.points.forEach(function (c) { b.extend(c); });
+                if (!b.isEmpty()) jmap.fitBounds(b, { padding: 40, maxZoom: 14, duration: 300 });
+            } catch (e) { if (window.console) console.error('Journal day map failed', e); }
+        }
+        setTimeout(draw, 60);
+    }
+
+    /* ── Calendar controls, today ── */
+    $('jr-prev').addEventListener('click', function () { viewMonth--; if (viewMonth < 1) { viewMonth = 12; viewYear--; } loadMonth(); });
+    $('jr-next').addEventListener('click', function () { viewMonth++; if (viewMonth > 12) { viewMonth = 1; viewYear++; } loadMonth(); });
+    $('jr-thismonth').addEventListener('click', function () { var d = new Date(); viewYear = d.getFullYear(); viewMonth = d.getMonth() + 1; loadMonth(); });
+    $('jr-caltitle').addEventListener('click', function () {
+        var b = $('jr-caltitle'), open = b.getAttribute('aria-expanded') !== 'true';
+        b.setAttribute('aria-expanded', open ? 'true' : 'false'); $('jr-calbody').hidden = !open; lsSet(CAL_KEY, open ? '1' : '0');
+    });
+    $('jr-grid').addEventListener('click', function (e) {
+        var b = e.target.closest ? e.target.closest('.lx-he-jr-day[data-date]') : null;
+        if (b && !b.disabled) openEntry(b.getAttribute('data-date'));
+    });
+    $('jr-today').addEventListener('click', function () { clearSearchIfAny(); openEntry(todayStr()); });
+    function clearSearchIfAny() { if (searchActive) clearSearch(); }
+    $('jr-today-sub').textContent = fmtShort(todayStr());
+    listEl.addEventListener('click', function (e) {
+        var a = e.target.closest ? e.target.closest('a.lx-he-jr-entry') : null;
+        if (!a || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        openEntry(a.getAttribute('data-date'));
+    });
+    $('jr-back').addEventListener('click', function () {
+        setView('list');
+        try { history.replaceState(null, '', location.pathname); } catch (e) {}
+        commitCurrent();
+        window.scrollTo(0, 0);
+    });
+
+    /* ── Journal settings popover ── */
+    var pop = $('jr-pop'), setBtn = $('jr-setbtn');
+    function popOpen(open) { pop.hidden = !open; setBtn.setAttribute('aria-expanded', open ? 'true' : 'false'); }
+    setBtn.addEventListener('click', function (e) { e.stopPropagation(); popOpen(pop.hidden); });
+    document.addEventListener('click', function (e) { if (!pop.hidden && !$('jr-setwrap').contains(e.target)) popOpen(false); });
+    function renderSettings() {
+        var s = journalSettings; if (!s) return;
+        pop.querySelectorAll('input[data-setting]').forEach(function (box) {
+            var ai = box.getAttribute('data-setting') !== 'auto_weather';
+            box.checked = !!s[box.getAttribute('data-setting')];
+            box.disabled = ai && !s.ai_available;
+            box.closest('.lx-he-jr-pop-row').classList.toggle('is-off', box.disabled);
+        });
+        var note = $('jr-pop-note');
+        note.hidden = !!s.ai_available;
+        note.textContent = s.ai_available ? '' : 'The AI options use the provider from your AI Ask settings. Set one up in Settings to turn them on.';
+    }
+    pop.querySelectorAll('input[data-setting]').forEach(function (box) {
+        box.addEventListener('change', function () {
+            var payload = {}; payload[box.getAttribute('data-setting')] = box.checked;
+            jpost('/api/journals/settings/', payload).then(function (r) { if (!r.ok) throw new Error('settings'); return r.json(); }).then(function (s) {
+                journalSettings = s; renderSettings(); backfillTitles();
+            }).catch(function () { box.checked = !box.checked; toast('Couldn’t save that setting.', 'error'); });
+        });
+    });
+    jget('/api/journals/settings/').then(function (s) { if (s) { journalSettings = s; renderSettings(); backfillTitles(); } }).catch(function () {});
+
+    /* ── AI recap (on demand, never stored) ── */
+    var recapPanel = $('jr-recap'), recapBody = $('jr-recap-body'), recapSpan = $('jr-recap-span'), recapToggle = $('jr-recap-toggle');
+    var recapAbort = null;
+    function paras(list) { return (list || []).map(function (p) { return '<p>' + esc(p) + '</p>'; }).join(''); }
+    function renderRecap(r) {
+        recapSpan.textContent = monthShort(r.from) + ' – ' + monthShort(r.to);
+        if (r.status === 'empty') { recapBody.innerHTML = '<p class="lx-he-jr-recap-muted">Nothing was recorded in the past ' + esc(r.days) + ' days, so there is nothing to recap.</p>'; return; }
+        var html = '<div class="lx-he-jr-recap-sec">Recap</div>' + paras(r.summary);
+        if (r.has_earlier) {
+            if (r.comparison && r.comparison.length) html += '<div class="lx-he-jr-recap-sec">Compared with before</div>' + paras(r.comparison);
+        } else html += '<p class="lx-he-jr-recap-muted">Not enough earlier data to compare these days with yet.</p>';
+        var earlier = r.weeks_compared === 1 ? 'same days last week' : 'average of ' + esc(r.weeks_compared) + ' earlier weeks';
+        html += '<div class="lx-he-jr-facts">' + (r.facts || []).map(function (f) {
+            return '<div class="lx-he-jr-fact"><span class="l">' + esc(f.label) + '</span><span class="v">' + esc(f.value) + '</span>' +
+                (f.earlier ? '<span class="e">' + esc(f.earlier) + ' · ' + earlier + '</span>' : '') + '</div>';
+        }).join('') + '</div>';
+        var source = 'From your location history';
+        if (r.journals_used) source += ' and ' + esc(r.journals_used) + ' journal ' + (r.journals_used === 1 ? 'entry' : 'entries');
+        html += '<p class="lx-he-jr-recap-foot">' + source + '. Written by your AI provider and not saved.' + (r.journals_allowed ? '' : ' Journal text is left out unless you allow it in <a href="/settings/#notifications">AI Ask settings</a>.') + '</p>';
+        recapBody.innerHTML = html;
+    }
+    function recapSetup() {
+        recapBody.innerHTML = '<p class="lx-he-jr-recap-muted">Recaps use the AI provider from your AI Ask settings, the same one as the summary emails.</p><p><a href="/settings/#notifications">Set up AI Ask in Settings</a></p>';
+    }
+    function recapError(msg) {
+        recapBody.innerHTML = '<p class="lx-he-jr-recap-err">' + esc(msg) + '</p><button type="button" class="lx-he-btn" id="jr-recap-retry">Try again</button>';
+        var rb = $('jr-recap-retry'); if (rb) rb.addEventListener('click', loadRecap);
+    }
+    function loadRecap() {
+        if (recapAbort) recapAbort.abort();
+        var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+        recapAbort = ctl;
+        recapBody.innerHTML = '<div class="lx-he-jr-recap-load"><span class="spinner"></span><span>Reading your past few days…</span></div>';
+        var opts = { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRFToken': CSRF } };
+        if (ctl) opts.signal = ctl.signal;
+        fetch('/api/journals/recap/', opts)
+            .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (x) {
+                if (ctl !== recapAbort) return;
+                if (x.ok) renderRecap(x.d); else if (x.d.setup) recapSetup(); else recapError(x.d.error || 'Couldn’t write your recap.');
+            }).catch(function (e) {
+                if (e && e.name !== 'AbortError' && ctl === recapAbort) recapError('Couldn’t reach Roamly. Check your connection.');
+            });
+    }
+    function openRecap() {
+        recapPanel.classList.add('is-open'); recapToggle.setAttribute('aria-expanded', 'true');
+        $('jr-recap-title').focus({ preventScroll: true });
+        if (AI_READY) loadRecap(); else recapSetup();
+    }
+    function closeRecap() {
+        if (recapAbort) recapAbort.abort();
+        recapAbort = null;
+        recapPanel.classList.remove('is-open'); recapToggle.setAttribute('aria-expanded', 'false');
+        recapBody.innerHTML = ''; recapSpan.textContent = '';
+        recapToggle.focus({ preventScroll: true });
+    }
+    recapToggle.addEventListener('click', function () { recapPanel.classList.contains('is-open') ? closeRecap() : openRecap(); });
+    $('jr-recap-close').addEventListener('click', closeRecap);
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') return;
+        if (!pop.hidden) { popOpen(false); setBtn.focus(); return; }
+        if (recapPanel.classList.contains('is-open')) closeRecap();
+    });
+
+    /* ── Init ── */
+    paintIcons();
+    renderMoods();
+    renderPhotos([]);
+    setBusy(true);
+    (function init() {
+        var d = new Date();
+        viewYear = d.getFullYear(); viewMonth = d.getMonth() + 1;
+        var wantDay = new URLSearchParams(location.search).get('date');
+        var initial = validDay(wantDay) && wantDay <= todayStr() ? wantDay : null;
+        if (initial) { var p = initial.split('-'); viewYear = +p[0]; viewMonth = +p[1]; }
+        // Calendar open by default on desktop; closed on phones unless chosen.
+        var cal = lsGet(CAL_KEY);
+        var calOpen = cal === null ? !isStacked() : cal === '1';
+        $('jr-caltitle').setAttribute('aria-expanded', calOpen ? 'true' : 'false'); $('jr-calbody').hidden = !calOpen;
+        renderWeekdays();
+        loadStats();
+        loadMonth();
+        loadRecent();
+        var dayPref = lsGet(DAY_KEY);
+        dayWanted = dayPref === '1' || (dayPref === null && !isStacked());
+        if (initial) openEntry(initial, { force: true });
+        else if (!isStacked()) openEntry(todayStr(), { silent: true });
+        else setView('list');
+        if (stackedMq.addEventListener) stackedMq.addEventListener('change', function () {
+            if (!isStacked() && !currentDate) openEntry(todayStr(), { silent: true });
+        });
+    })();
+})();
+</script>
+{% endblock %}

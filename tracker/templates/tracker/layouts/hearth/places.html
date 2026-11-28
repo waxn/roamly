@@ -1,0 +1,1239 @@
+{% extends 'tracker/base.html' %}
+{% block title %}Places - Roamly{% endblock %}
+
+{% block extra_css %}
+html[data-layout="hearth"] {
+    /* ══ Hearth · Places ══════════════════════════════════════════════════
+       A card per place; the detail opens in a right-hand drawer (a full-screen
+       sheet on phones) and create/edit in a dialog with the picking map.
+       Chrome z-indexes stay below RoamlyDialog (~10000). Classes: lx-pl-* */
+
+    .lx-pl-updated { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .lx-pl-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+    /* Toolbar */
+    .lx-pl-toolbar { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; margin-bottom: 16px; }
+    .lx-pl-search { position: relative; flex: 1 1 14rem; max-width: 24rem; min-width: 0; }
+    .lx-pl-search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
+    .lx-pl-input {
+        width: 100%; height: 36px; padding: 0 12px;
+        background: var(--bg-input); color: var(--text);
+        border: 1px solid var(--border); border-radius: var(--r-2);
+        font-family: var(--font-body); font-size: 14px;
+        &::placeholder { color: var(--text-muted); }
+        &:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+    }
+    .lx-pl-search .lx-pl-input { padding-left: 36px; }
+    .lx-pl-alertchip { cursor: pointer; height: 32px; padding: 0 12px; font-size: 12px; }
+    .lx-pl-sg[hidden], .lx-he-error[hidden], .lx-he-btn[hidden] { display: none; }
+    .lx-pl-count { margin-left: auto; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+    /* Suggestions */
+    .lx-pl-sg { margin-bottom: 16px; }
+    .lx-pl-sg-sub { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+    .lx-pl-sg-list { display: flex; flex-direction: column; }
+    .lx-pl-sg-entry { border-top: 1px solid var(--lx-he-hair); }
+    .lx-pl-sg-entry:first-child { border-top: 0; }
+    .lx-pl-sg-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; min-width: 0; }
+    .lx-pl-sg-toggle {
+        flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px; cursor: pointer;
+        background: none; border: 0; padding: 0; text-align: left; color: var(--text); font: inherit;
+        border-radius: var(--r-2);
+    }
+    .lx-pl-sg-chev { flex: none; color: var(--text-dim); display: inline-flex; transition: transform var(--lx-he-t) ease-out; }
+    .lx-pl-sg-entry.is-open .lx-pl-sg-chev { transform: rotate(90deg); color: var(--primary); }
+    .lx-pl-sg-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .lx-pl-sg-name { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lx-pl-sg-meta { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .lx-pl-sg-actions { flex: none; display: flex; gap: 8px; }
+    .lx-pl-sg-mini { display: none; height: 220px; margin: 0 0 12px; border-radius: var(--r-2); overflow: hidden; border: 1px solid var(--border); }
+    .lx-pl-sg-entry.is-open .lx-pl-sg-mini { display: block; }
+    .lx-pl-sg-mini-map { width: 100%; height: 100%; }
+    .lx-pl-sg-more { align-self: flex-start; }
+
+    /* Place cards */
+    .lx-pl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 16px; }
+    .lx-pl-grid > .lx-pl-wide { grid-column: 1 / -1; }
+    .lx-pl-card { gap: 16px; }
+    .lx-pl-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .lx-pl-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--text-dim); box-shadow: 0 0 0 3px color-mix(in srgb, var(--text) 8%, transparent); }
+    .lx-pl-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 500; color: var(--text); }
+    .lx-pl-card .lx-he-card-foot b { color: var(--text); font-weight: 500; }
+    .lx-pl-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .lx-pl-card.is-skel { cursor: default; pointer-events: none; }
+
+    /* Scrim + drawer */
+    .lx-pl-scrim {
+        position: fixed; inset: 0; z-index: 1190; background: color-mix(in srgb, #000 45%, transparent);
+        opacity: 0; transition: opacity 180ms ease-out;
+        &.is-open { opacity: 1; }
+        &[hidden] { display: none; }
+    }
+    .lx-pl-drawer {
+        position: fixed; top: 0; right: 0; bottom: 0; z-index: 1200;
+        width: min(480px, 100vw);
+        display: flex; flex-direction: column;
+        background: var(--bg-card); border-left: 1px solid var(--border-strong);
+        box-shadow: -12px 0 32px color-mix(in srgb, #000 24%, transparent);
+        transform: translateX(100%); transition: transform 200ms var(--lx-he-ease);
+        outline: none;
+        &.is-open { transform: none; }
+        &[hidden] { display: none; }
+    }
+    .lx-pl-dhead { flex: none; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 20px 16px; border-bottom: 1px solid var(--lx-he-hair); }
+    .lx-pl-dtitle { margin: 6px 0 0; font-family: var(--font-display); font-size: 24px; font-weight: 400; line-height: 1.2; letter-spacing: -0.01em; color: var(--text); overflow-wrap: anywhere; }
+    .lx-pl-dbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px; display: flex; flex-direction: column; gap: 20px; }
+    .lx-pl-dfoot { flex: none; display: flex; gap: 8px; padding: 16px 20px; padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--lx-he-hair); }
+    .lx-pl-dfoot .lx-he-btn:first-child { flex: 1; }
+    .lx-he-btn.lx-pl-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+    .lx-he-btn.lx-pl-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+
+    .lx-pl-mapwrap { position: relative; width: 100%; height: 220px; border-radius: var(--r-2); overflow: hidden; border: 1px solid var(--border); background: var(--lx-he-plate); flex: none; }
+    .lx-pl-map { position: absolute; inset: 0; }
+    .lx-pl-mapmsg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px; font-size: 13px; color: var(--text-muted); }
+
+    .lx-pl-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .lx-pl-stat { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: var(--r-2); background: var(--lx-he-plate); border: 1px solid transparent; text-align: left; font: inherit; color: inherit; min-width: 0; }
+    button.lx-pl-stat { cursor: pointer; border-color: var(--lx-he-hair); transition: border-color var(--lx-he-t) ease-out; }
+    button.lx-pl-stat:hover { border-color: var(--border-strong); }
+    .lx-pl-stat-num { font-family: var(--font-display); font-size: 22px; line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums lining-nums; color: var(--text); overflow-wrap: anywhere; }
+    .lx-pl-stat-num.is-date { font-size: 17px; }
+    .lx-pl-stat-lbl { font-size: 12px; color: var(--text-muted); }
+
+    .lx-pl-sec { display: flex; flex-direction: column; gap: 8px; }
+    .lx-pl-sec[hidden] { display: none; }
+    .lx-pl-sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+    .lx-pl-sec-title { margin: 0; font-size: 13px; font-weight: 500; color: var(--text); }
+    .lx-pl-status { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); min-height: 16px; }
+    .lx-pl-status.is-error { color: var(--danger); }
+    .lx-pl-textarea { width: 100%; min-height: 96px; resize: vertical; padding: 10px 12px; height: auto; line-height: 1.5; }
+    .lx-pl-check { display: flex; align-items: center; gap: 10px; min-height: 32px; font-size: 14px; color: var(--text); cursor: pointer; }
+    .lx-pl-check input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); flex: none; }
+    .lx-pl-days { display: flex; flex-direction: column; }
+    .lx-pl-day { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px solid var(--lx-he-hair); color: var(--text); text-decoration: none; font-size: 14px; }
+    .lx-pl-day:first-child { border-top: 0; }
+    .lx-pl-day:hover .lx-pl-day-date { text-decoration: underline; text-underline-offset: 2px; }
+    .lx-pl-day-meta { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    /* Create / edit dialog */
+    .lx-pl-modal {
+        position: fixed; inset: 0; z-index: 1300; display: flex; align-items: center; justify-content: center; padding: 24px;
+        background: color-mix(in srgb, #000 55%, transparent);
+        opacity: 0; transition: opacity 180ms ease-out;
+        &.is-open { opacity: 1; }
+        &[hidden] { display: none; }
+    }
+    .lx-pl-dialog {
+        width: min(960px, 100%); height: min(620px, 100%);
+        display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, 1fr);
+        background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: var(--r-4);
+        box-shadow: 0 16px 48px color-mix(in srgb, #000 40%, transparent);
+        overflow: hidden; outline: none;
+        transform: translateY(8px); transition: transform 200ms var(--lx-he-ease);
+    }
+    .lx-pl-modal.is-open .lx-pl-dialog { transform: none; }
+    .lx-pl-dmap { position: relative; min-height: 0; background: var(--lx-he-plate); }
+    .lx-pl-form { display: flex; flex-direction: column; gap: 20px; padding: 24px; overflow-y: auto; min-height: 0; }
+    .lx-pl-form-title { margin: 0; font-family: var(--font-display); font-size: 24px; font-weight: 400; letter-spacing: -0.01em; color: var(--text); }
+    .lx-pl-field { display: flex; flex-direction: column; gap: 8px; }
+    .lx-pl-field label { font-size: 13px; font-weight: 500; color: var(--text); }
+    .lx-pl-radius { display: flex; align-items: center; gap: 12px; }
+    .lx-pl-radius input[type=range] { flex: 1; min-width: 0; accent-color: var(--primary); height: 28px; }
+    .lx-pl-radius-val { min-width: 4.5rem; text-align: right; font-family: var(--font-mono); font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
+    .lx-pl-hint { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+    .lx-pl-form-actions { display: flex; gap: 8px; margin-top: auto; }
+    .lx-pl-form-actions .lx-he-btn:first-child { flex: 1; }
+
+    &.lx-pl-lock body { overflow: hidden; }
+
+    :is(.lx-pl-input, .lx-pl-sg-toggle, .lx-pl-stat, .lx-pl-day, .lx-pl-check input, .lx-pl-radius input, .lx-pl-card):focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+    @media (max-width: 820px) {
+        .lx-pl-dialog { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(180px, 38%) minmax(0, 1fr); }
+    }
+    @media (max-width: 768px) {
+        .lx-pl-drawer { width: 100vw; border-left: 0; transform: translateY(24px); opacity: 0; transition: transform 200ms var(--lx-he-ease), opacity 160ms ease-out; }
+        .lx-pl-drawer.is-open { transform: none; opacity: 1; }
+        .lx-pl-modal { padding: 0; }
+        .lx-pl-dialog { height: 100%; width: 100%; border-radius: 0; border: 0; }
+        .lx-pl-form { padding: 16px; }
+        .lx-pl-input { height: 44px; font-size: 16px; }
+        .lx-pl-input.lx-pl-textarea { height: auto; }
+        .lx-pl-alertchip { height: 44px; padding: 0 16px; }
+        .lx-pl-search { flex-basis: 100%; max-width: none; }
+        .lx-pl-count { margin-left: 0; }
+        .lx-pl-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+        .lx-pl-sg-row { flex-wrap: wrap; }
+        .lx-pl-sg-actions { width: 100%; }
+        .lx-pl-sg-actions .lx-he-btn { flex: 1; }
+        .lx-pl-check { min-height: 44px; }
+        .lx-pl-bar { width: 100%; justify-content: space-between; }
+        .lx-pl-mapwrap { height: 200px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .lx-pl-scrim, .lx-pl-drawer, .lx-pl-modal, .lx-pl-dialog, .lx-pl-sg-chev { transition: none; }
+    }
+}
+{% endblock %}
+
+{% block content %}
+<div class="lx-he-page">
+    <header class="lx-he-pagehead">
+        <div>
+            <span class="lx-he-pagehead-kicker">Life</span>
+            <h1 class="lx-he-pagehead-title">Places</h1>
+            <p class="lx-he-pagehead-sub" id="lx-pl-sub" aria-live="polite">Your named spots</p>
+        </div>
+        <div class="lx-he-pagehead-actions">
+            <div class="lx-pl-bar" id="snapshot-bar">
+                <span id="snapshot-updated" class="lx-pl-updated">updated …</span>
+                <button id="snapshot-recalc" class="lx-he-btn" type="button" title="Recompute now">↻ recalculate</button>
+                <button class="lx-he-btn is-primary" type="button" id="lx-pl-new">New place</button>
+            </div>
+        </div>
+    </header>
+
+    <div class="lx-pl-toolbar">
+        <div class="lx-pl-search" role="search">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+            <input type="search" id="places-search" class="lx-pl-input" placeholder="Search places" aria-label="Search places" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="lx-he-seg" id="lx-pl-sort" role="group" aria-label="Sort places">
+            <button type="button" data-sort="added" aria-pressed="true">Added</button>
+            <button type="button" data-sort="recent" aria-pressed="false">Recent</button>
+            <button type="button" data-sort="points" aria-pressed="false">Points</button>
+            <button type="button" data-sort="name" aria-pressed="false">A–Z</button>
+        </div>
+        <button type="button" class="lx-he-chip lx-pl-alertchip" id="lx-pl-alerts" aria-pressed="false">Alerts on</button>
+        <span class="lx-pl-count" id="lx-pl-count" aria-live="polite"></span>
+    </div>
+
+    <!-- Recurring stays not yet inside any place. Naming one opens the create
+         dialog prefilled; creating the place is what clears it from here. -->
+    <section class="lx-he-card lx-pl-sg" id="suggest-wrap" hidden aria-labelledby="lx-pl-sg-h">
+        <div class="lx-he-card-head">
+            <h2 class="lx-he-kicker" id="lx-pl-sg-h">Suggested places</h2>
+            <span class="lx-pl-sg-sub" id="suggest-sub"></span>
+        </div>
+        <div class="lx-pl-sg-list" id="suggest-list"></div>
+        <button class="lx-he-btn lx-pl-sg-more" type="button" id="suggest-more" hidden>Show all</button>
+    </section>
+
+    <div class="lx-pl-grid" id="places-grid" aria-busy="true">
+        <div class="lx-he-card lx-pl-card is-skel" aria-hidden="true">
+            <div class="lx-pl-top"><span class="skeleton lx-he-skel-line" style="width:12px;height:12px;border-radius:50%"></span><span class="skeleton lx-he-skel-line" style="width:55%"></span></div>
+            <span class="skeleton lx-he-skel-stat"></span>
+            <span class="skeleton lx-he-skel-line is-sm"></span>
+        </div>
+        <div class="lx-he-card lx-pl-card is-skel" aria-hidden="true">
+            <div class="lx-pl-top"><span class="skeleton lx-he-skel-line" style="width:12px;height:12px;border-radius:50%"></span><span class="skeleton lx-he-skel-line" style="width:65%"></span></div>
+            <span class="skeleton lx-he-skel-stat"></span>
+            <span class="skeleton lx-he-skel-line is-sm"></span>
+        </div>
+        <div class="lx-he-card lx-pl-card is-skel" aria-hidden="true">
+            <div class="lx-pl-top"><span class="skeleton lx-he-skel-line" style="width:12px;height:12px;border-radius:50%"></span><span class="skeleton lx-he-skel-line" style="width:45%"></span></div>
+            <span class="skeleton lx-he-skel-stat"></span>
+            <span class="skeleton lx-he-skel-line is-sm"></span>
+        </div>
+    </div>
+</div>
+
+<!-- Detail drawer -->
+<div class="lx-pl-scrim" id="lx-pl-scrim" hidden></div>
+<aside class="lx-pl-drawer" id="detail-overlay" role="dialog" aria-modal="true" aria-labelledby="detail-title" tabindex="-1" hidden>
+    <header class="lx-pl-dhead">
+        <div style="min-width:0">
+            <span class="lx-he-kicker">Place</span>
+            <h2 class="lx-pl-dtitle" id="detail-title">Place</h2>
+        </div>
+        <button type="button" class="lx-he-iconbtn" id="lx-pl-dclose" aria-label="Close place details">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+    </header>
+    <div class="lx-pl-dbody">
+        <div class="lx-pl-mapwrap"><div class="lx-pl-map" id="detail-map"></div></div>
+        <div class="lx-he-error" id="detail-error" hidden role="alert">
+            <span>Couldn’t load this place’s stats.</span>
+            <button type="button" class="lx-he-btn" id="detail-retry">Retry</button>
+        </div>
+        <div class="lx-pl-stats" id="detail-stats"></div>
+
+        <div class="lx-pl-sec" id="detail-notes-wrap">
+            <div class="lx-pl-sec-head">
+                <label class="lx-pl-sec-title" for="detail-notes">Details</label>
+                <span class="lx-pl-status" id="detail-notes-status" role="status"></span>
+            </div>
+            <textarea id="detail-notes" class="lx-pl-input lx-pl-textarea" rows="4" placeholder="Add notes about this place, anything you want to remember"></textarea>
+        </div>
+
+        <div class="lx-pl-sec" id="detail-notify-wrap">
+            <h3 class="lx-pl-sec-title">Notify me</h3>
+            <label class="lx-pl-check"><input type="checkbox" id="notify-arrive"> when a device arrives here</label>
+            <label class="lx-pl-check"><input type="checkbox" id="notify-leave"> when a device leaves</label>
+            <div class="lx-pl-status" id="notify-status" role="status"></div>
+        </div>
+
+        <div class="lx-pl-sec" id="detail-cities-wrap" hidden>
+            <h3 class="lx-pl-sec-title">Cities</h3>
+            <div class="lx-pl-chips" id="detail-cities"></div>
+        </div>
+
+        <div class="lx-pl-sec" id="detail-days-wrap" hidden>
+            <h3 class="lx-pl-sec-title">Recent days</h3>
+            <div class="lx-pl-days" id="detail-days"></div>
+            <button id="detail-days-more" class="lx-he-btn" type="button" hidden></button>
+        </div>
+    </div>
+    <footer class="lx-pl-dfoot">
+        <button class="lx-he-btn" type="button" id="detail-edit">Edit place</button>
+        <button class="lx-he-btn lx-pl-danger" type="button" id="detail-delete">Delete</button>
+    </footer>
+</aside>
+
+<!-- Create / edit dialog -->
+<div class="lx-pl-modal" id="edit-overlay" hidden>
+    <div class="lx-pl-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-title" tabindex="-1">
+        <div class="lx-pl-dmap"><div class="lx-pl-map" id="edit-map"></div></div>
+        <form class="lx-pl-form" id="edit-form" novalidate>
+            <h2 class="lx-pl-form-title" id="edit-title">New place</h2>
+            <div class="lx-pl-field">
+                <label for="edit-name">Name</label>
+                <input class="lx-pl-input" id="edit-name" type="text" maxlength="200" placeholder="Home, work, mom’s house…" autocomplete="off">
+            </div>
+            <div class="lx-pl-field">
+                <label for="edit-radius">Radius</label>
+                <div class="lx-pl-radius">
+                    <input type="range" id="edit-radius" min="25" max="2000" step="25" value="150">
+                    <span class="lx-pl-radius-val" id="edit-radius-val">150 m</span>
+                </div>
+                <div class="lx-pl-hint">Click the map or drag the pin to move the centre.</div>
+            </div>
+            <div class="lx-pl-form-actions">
+                <button type="submit" class="lx-he-btn is-primary" id="edit-save">Save</button>
+                <button type="button" class="lx-he-btn" id="edit-cancel">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+    const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+    const basemapStyle = {
+        version: 8,
+        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sources: { base: {
+            type: 'raster',
+            tiles: ['https://basemaps.cartocdn.com/' + (theme === 'light' ? 'light_all' : 'dark_all') + '/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'],
+            tileSize: 256,
+            attribution: '&copy; OpenStreetMap &copy; CARTO'
+        }},
+        layers: [{ id: 'base', type: 'raster', source: 'base' }]
+    };
+
+    /* ── Helpers ───────────────────────────────────────────────────────── */
+    function el(tag, cls, text) {
+        const n = document.createElement(tag);
+        if (cls) n.className = cls;
+        if (text != null) n.textContent = text;
+        return n;
+    }
+    function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
+    function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+    function nf(v) { try { return Number(v).toLocaleString(); } catch (e) { return String(v); } }
+    function reducedMotion() {
+        try { if (window.RoamlyStyle && window.RoamlyStyle.reducedMotion) return !!window.RoamlyStyle.reducedMotion(); } catch (e) {}
+        return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    }
+    function toast(msg, type) { if (window.roamlyToast) window.roamlyToast(msg, { type: type || 'error' }); }
+    async function alertMsg(msg) {
+        if (window.roamlyAlert) await window.roamlyAlert(msg); else window.alert(msg);
+    }
+    function api(url, opts) {
+        opts = Object.assign({}, opts || {});
+        // The template's own token, as the classic page sent, in case the cookie is absent.
+        if (opts.method && opts.method !== 'GET') opts.headers = Object.assign({ 'X-CSRFToken': '{{ csrf_token }}' }, opts.headers || {});
+        if (window.roamlyFetch) return window.roamlyFetch(url, opts);
+        return fetch(url, Object.assign({}, opts, opts && opts.json !== undefined ? {
+            body: JSON.stringify(opts.json), headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' }
+        } : {})).then((r) => { if (!r.ok) throw new Error('Request failed'); return r.json(); });
+    }
+
+    // Map colours must be a literal colour MapLibre can parse.
+    function themeColor(token, fallback) {
+        try {
+            const p = document.createElement('span');
+            p.style.display = 'none';
+            p.style.color = 'var(' + token + ')';
+            document.body.appendChild(p);
+            const c = getComputedStyle(p).color;
+            document.body.removeChild(p);
+            if (/^(rgb|hsl|#)/i.test(c)) return c;
+        } catch (e) {}
+        return fallback;
+    }
+
+    // Circle polygon (GeoJSON) around a centre for a radius in metres.
+    function circleGeoJSON(lat, lng, radiusM, steps) {
+        steps = steps || 72;
+        const coords = [];
+        const latR = radiusM / 111320.0;
+        const lngR = radiusM / (111320.0 * Math.cos(lat * Math.PI / 180));
+        for (let i = 0; i <= steps; i++) {
+            const t = (i / steps) * 2 * Math.PI;
+            coords.push([lng + lngR * Math.cos(t), lat + latR * Math.sin(t)]);
+        }
+        return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: {} };
+    }
+
+    function fmtDur(seconds) {
+        if (!seconds || seconds < 60) return (seconds || 0) + 's';
+        const h = Math.floor(seconds / 3600), m = Math.round((seconds % 3600) / 60);
+        if (h && m) return h + 'h ' + m + 'm';
+        if (h) return h + 'h';
+        return m + 'm';
+    }
+    function fmtDurFull(seconds) {
+        if (!seconds || seconds < 60) return (seconds || 0) + 's';
+        let s = Math.floor(seconds);
+        const mo = Math.floor(s / (30 * 86400)); s -= mo * 30 * 86400;
+        const d = Math.floor(s / 86400); s -= d * 86400;
+        const h = Math.floor(s / 3600); s -= h * 3600;
+        const m = Math.round(s / 60);
+        const parts = [];
+        if (mo) parts.push(mo + 'mo');
+        if (d) parts.push(d + 'd');
+        if (h) parts.push(h + 'h');
+        if (m || !parts.length) parts.push(m + 'm');
+        return parts.join(' ');
+    }
+    function fmtDurMins(seconds) { return Math.round((seconds || 0) / 60).toLocaleString() + ' min'; }
+    function fmtDate(iso) {
+        if (!iso) return '—';
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return '—';
+        return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+    function fmtDay(day) {
+        const d = new Date(day + 'T12:00:00');
+        if (isNaN(d.getTime())) return day;
+        return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    /* ── Layers (drawer + dialog): focus, scroll lock, Escape ──────────── */
+    const layers = [];
+    function lockSync() { document.documentElement.classList.toggle('lx-pl-lock', layers.length > 0); }
+    function focusables(root) {
+        return Array.prototype.filter.call(
+            root.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+            (n) => n.offsetParent !== null || n === document.activeElement
+        );
+    }
+    function openLayer(layer, scrim, first, ret) {
+        clearTimeout(layer._t);
+        layer._ret = ret || document.activeElement;
+        layer.hidden = false;
+        if (scrim) scrim.hidden = false;
+        void layer.offsetWidth;
+        layer.classList.add('is-open');
+        if (scrim) scrim.classList.add('is-open');
+        if (layers.indexOf(layer) < 0) layers.push(layer);
+        lockSync();
+        try { (first || layer).focus({ preventScroll: true }); } catch (e) {}
+    }
+    function closeLayer(layer, scrim, restore) {
+        if (layer.hidden) return;
+        layer.classList.remove('is-open');
+        if (scrim) scrim.classList.remove('is-open');
+        const i = layers.indexOf(layer);
+        if (i >= 0) layers.splice(i, 1);
+        lockSync();
+        clearTimeout(layer._t);
+        layer._t = setTimeout(() => { layer.hidden = true; if (scrim && !layers.some((l) => l.id === 'detail-overlay')) scrim.hidden = true; }, reducedMotion() ? 0 : 220);
+        if (restore !== false) {
+            let r = layer._ret;
+            if ((!r || !document.contains(r)) && layer._retId != null) r = document.querySelector('.lx-pl-card[data-id="' + layer._retId + '"]');
+            if (r && document.contains(r) && typeof r.focus === 'function') { try { r.focus({ preventScroll: true }); } catch (e) {} }
+        }
+    }
+    document.addEventListener('keydown', (e) => {
+        if (!layers.length) return;
+        // A RoamlyDialog (confirm/alert) on top handles its own keys.
+        if (document.querySelector('.rly-dialog-overlay.open')) return;
+        const top = layers[layers.length - 1];
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            if (top.id === 'edit-overlay') closeEdit(); else closeDetail();
+            return;
+        }
+        if (e.key === 'Tab') {
+            const f = focusables(top);
+            if (!f.length) { e.preventDefault(); return; }
+            const a = f[0], z = f[f.length - 1];
+            if (e.shiftKey && (document.activeElement === a || document.activeElement === top)) { e.preventDefault(); z.focus(); }
+            else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
+        }
+    });
+
+    /* ── Places grid ───────────────────────────────────────────────────── */
+    let placesCache = [];
+    let sortMode = 'added';
+    let alertsOnly = false;
+    const recentEdits = new Map();     // id -> {patch, t}: a saved edit must not be undone by a stale snapshot
+
+    function rememberEdit(id, patch) {
+        const prev = recentEdits.get(id);
+        recentEdits.set(id, { patch: Object.assign({}, prev ? prev.patch : {}, patch), t: Date.now() });
+        const p = placesCache.find((x) => x.id === id);
+        if (p) Object.assign(p, patch);
+    }
+    function applyRecentEdits() {
+        // Kept for the whole page session: the snapshot behind /api/places/ is
+        // only rebuilt when geometry changes, so it can lag behind notes/alerts.
+        placesCache.forEach((p) => {
+            const e = recentEdits.get(p.id);
+            if (!e) return;
+            Object.assign(p, e.patch);
+        });
+    }
+
+    function gridMessage(kind, title, text, action) {
+        const grid = $('places-grid');
+        clear(grid);
+        const card = el('div', 'lx-he-card lx-pl-wide');
+        if (kind === 'error') {
+            const w = el('div', 'lx-he-error');
+            w.setAttribute('role', 'alert');
+            w.appendChild(el('span', null, title));
+            const b = el('button', 'lx-he-btn', 'Retry');
+            b.type = 'button';
+            b.addEventListener('click', loadPlaces);
+            w.appendChild(b);
+            card.appendChild(w);
+        } else {
+            const w = el('div', 'lx-he-empty');
+            w.appendChild(el('div', 'lx-he-empty-title', title));
+            if (text) w.appendChild(el('div', 'lx-he-empty-text', text));
+            if (action) w.appendChild(action);
+            card.appendChild(w);
+        }
+        grid.appendChild(card);
+        card.classList.add('lx-pl-wide');
+    }
+
+    async function loadPlaces() {
+        const grid = $('places-grid');
+        let data;
+        try {
+            const res = await fetch('/api/places/');
+            if (!res.ok) throw new Error('places request failed');
+            data = await res.json();
+        } catch (e) {
+            grid.removeAttribute('aria-busy');
+            placesCache = [];
+            $('lx-pl-count').textContent = '';
+            gridMessage('error', 'Couldn’t load your places.');
+            return;
+        }
+        placesCache = data.places || [];
+        applyRecentEdits();
+        if (window.setSnapshotUpdated) window.setSnapshotUpdated(data.computed_at);
+        grid.removeAttribute('aria-busy');
+        renderPlaces();
+    }
+
+    function sortedPlaces(list) {
+        const out = list.slice();
+        if (sortMode === 'recent') {
+            out.sort((a, b) => (b.last_seen ? Date.parse(b.last_seen) : -1) - (a.last_seen ? Date.parse(a.last_seen) : -1));
+        } else if (sortMode === 'points') {
+            out.sort((a, b) => (b.point_count || 0) - (a.point_count || 0));
+        } else if (sortMode === 'name') {
+            out.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+        }
+        return out;
+    }
+
+    function placeCard(p) {
+        const card = el('article', 'lx-he-card is-link lx-pl-card');
+        card.setAttribute('role', 'button');
+        card.tabIndex = 0;
+        card.setAttribute('data-id', String(p.id));
+        card.setAttribute('aria-label', 'Open place ' + (p.name || ''));
+        const top = el('div', 'lx-pl-top');
+        const dot = el('span', 'lx-pl-dot');
+        if (p.color) dot.style.background = p.color;
+        top.appendChild(dot);
+        top.appendChild(el('span', 'lx-pl-name', p.name || 'Untitled'));
+        card.appendChild(top);
+        const stat = el('div', 'lx-he-stat');
+        stat.appendChild(el('div', 'lx-he-stat-value', nf(p.point_count || 0)));
+        stat.appendChild(el('div', 'lx-he-stat-label', 'points logged'));
+        card.appendChild(stat);
+        if (p.notify_arrive || p.notify_leave) {
+            const chips = el('div', 'lx-pl-chips');
+            if (p.notify_arrive) chips.appendChild(el('span', 'lx-he-chip is-active', 'Arrival alert'));
+            if (p.notify_leave) chips.appendChild(el('span', 'lx-he-chip is-active', 'Departure alert'));
+            card.appendChild(chips);
+        }
+        const foot = el('div', 'lx-he-card-foot');
+        const seen = el('span');
+        seen.appendChild(document.createTextNode('Last seen '));
+        seen.appendChild(el('b', null, p.last_seen ? fmtDate(p.last_seen) : 'never'));
+        foot.appendChild(seen);
+        if (p.radius_m) foot.appendChild(el('span', null, Math.round(p.radius_m) + ' m'));
+        card.appendChild(foot);
+        const open = () => openDetail(p.id, card);
+        card.addEventListener('click', open);
+        card.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+        });
+        return card;
+    }
+
+    function renderPlaces() {
+        const grid = $('places-grid');
+        const total = placesCache.length;
+        const sub = $('lx-pl-sub');
+        sub.textContent = total ? plural(total, 'place', 'places') : 'Your named spots';
+        if (!total) {
+            $('lx-pl-count').textContent = '';
+            const b = el('button', 'lx-he-btn is-primary', 'New place');
+            b.type = 'button';
+            b.addEventListener('click', () => openEdit(null));
+            gridMessage('empty', 'No places yet',
+                'Drop a pin on the map and give it a name. Roamly then counts every visit and can notify you when a device arrives or leaves.', b);
+            return;
+        }
+        const q = ($('places-search').value || '').trim().toLowerCase();
+        let shown = placesCache;
+        if (q) shown = shown.filter((p) => (p.name || '').toLowerCase().indexOf(q) >= 0);
+        if (alertsOnly) shown = shown.filter((p) => p.notify_arrive || p.notify_leave);
+        $('lx-pl-count').textContent = (q || alertsOnly) ? 'Showing ' + shown.length + ' of ' + total : '';
+        clear(grid);
+        if (!shown.length) {
+            const msg = el('div', 'lx-he-card lx-pl-wide');
+            const w = el('div', 'lx-he-empty');
+            w.appendChild(el('div', 'lx-he-empty-title', q ? 'No places match “' + $('places-search').value.trim() + '”' : 'No places have alerts on'));
+            w.appendChild(el('div', 'lx-he-empty-text', q ? 'Try a different name.' : 'Open a place and turn on arrival or departure notifications.'));
+            msg.appendChild(w);
+            grid.appendChild(msg);
+            return;
+        }
+        const frag = document.createDocumentFragment();
+        sortedPlaces(shown).forEach((p) => frag.appendChild(placeCard(p)));
+        grid.appendChild(frag);
+    }
+
+    $('places-search').addEventListener('input', renderPlaces);
+    document.querySelectorAll('#lx-pl-sort button').forEach((b) => {
+        b.addEventListener('click', () => {
+            sortMode = b.dataset.sort;
+            document.querySelectorAll('#lx-pl-sort button').forEach((x) => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+            renderPlaces();
+        });
+    });
+    $('lx-pl-alerts').addEventListener('click', (e) => {
+        alertsOnly = !alertsOnly;
+        e.currentTarget.setAttribute('aria-pressed', alertsOnly ? 'true' : 'false');
+        e.currentTarget.classList.toggle('is-active', alertsOnly);
+        renderPlaces();
+    });
+    $('lx-pl-new').addEventListener('click', () => openEdit(null));
+
+    /* ── Suggested places ──────────────────────────────────────────────── */
+    // Recurring stays clustered from visit history that aren't inside a place
+    // yet. Nothing is stored per suggestion: naming one just opens the create
+    // dialog, and saving the place is what removes it from this list. Only
+    // rejections persist.
+    let suggestions = [];
+    let suggestShowAll = false;
+    const SUGGEST_PREVIEW = 5;
+    let miniMap = null, miniMarker = null, expandedIdx = null;
+    // One shared MapLibre instance is moved into whichever row is open, rather
+    // than one live GL context per row.
+    const miniHost = document.createElement('div');
+    miniHost.className = 'lx-pl-sg-mini-map';
+
+    function sgAgo(iso) {
+        if (!iso) return '';
+        const days = Math.floor((Date.now() - new Date(iso)) / 86400000);
+        if (days <= 0) return 'today';
+        if (days === 1) return 'yesterday';
+        if (days < 30) return days + 'd ago';
+        if (days < 365) return Math.floor(days / 30) + 'mo ago';
+        return Math.floor(days / 365) + 'y ago';
+    }
+
+    function chevronSvg() {
+        const s = el('span', 'lx-pl-sg-chev');
+        s.setAttribute('aria-hidden', 'true');
+        s.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>';
+        return s;
+    }
+
+    function renderSuggestions() {
+        const wrap = $('suggest-wrap'), list = $('suggest-list'), more = $('suggest-more');
+        // The rows are about to be replaced, which would take the shared map
+        // element down with them: lift it out first.
+        if (miniHost.parentNode) miniHost.parentNode.removeChild(miniHost);
+        expandedIdx = null;
+        clear(list);
+        if (!suggestions.length) { wrap.hidden = true; return; }
+        wrap.hidden = false;
+        const shown = suggestShowAll ? suggestions : suggestions.slice(0, SUGGEST_PREVIEW);
+        $('suggest-sub').textContent = plural(suggestions.length, 'spot', 'spots') + ' you keep returning to';
+        shown.forEach((s, i) => {
+            const title = s.suggested_name || s.city || (Number(s.lat).toFixed(4) + ', ' + Number(s.lng).toFixed(4));
+            const where = s.suggested_name && s.city ? ' · ' + s.city : '';
+            const entry = el('div', 'lx-pl-sg-entry');
+            entry.setAttribute('data-i', String(i));
+            const row = el('div', 'lx-pl-sg-row');
+            const toggle = el('button', 'lx-pl-sg-toggle');
+            toggle.type = 'button';
+            toggle.setAttribute('data-act', 'toggle');
+            toggle.setAttribute('data-i', String(i));
+            toggle.setAttribute('aria-expanded', 'false');
+            toggle.appendChild(chevronSvg());
+            const main = el('span', 'lx-pl-sg-main');
+            main.appendChild(el('span', 'lx-pl-sg-name', title + where));
+            main.appendChild(el('span', 'lx-pl-sg-meta', plural(s.visits || 0, 'visit', 'visits') + ' · ' + (s.hours || 0) + 'h total · last ' + sgAgo(s.last_seen)));
+            toggle.appendChild(main);
+            row.appendChild(toggle);
+            const actions = el('div', 'lx-pl-sg-actions');
+            const add = el('button', 'lx-he-btn is-primary', 'Name it');
+            add.type = 'button'; add.setAttribute('data-act', 'add'); add.setAttribute('data-i', String(i));
+            const dis = el('button', 'lx-he-btn', 'Not a place');
+            dis.type = 'button'; dis.setAttribute('data-act', 'dismiss'); dis.setAttribute('data-i', String(i));
+            actions.appendChild(add); actions.appendChild(dis);
+            row.appendChild(actions);
+            entry.appendChild(row);
+            const slot = el('div', 'lx-pl-sg-mini');
+            slot.setAttribute('data-i', String(i));
+            entry.appendChild(slot);
+            list.appendChild(entry);
+        });
+        more.hidden = suggestions.length <= SUGGEST_PREVIEW;
+        more.textContent = suggestShowAll ? 'Show fewer' : 'Show all ' + suggestions.length;
+    }
+
+    function ensureMiniMap() {
+        if (miniMap || !window.maplibregl) return;
+        try {
+            miniMap = new maplibregl.Map({ container: miniHost, style: basemapStyle, center: [0, 20], zoom: 1, attributionControl: false });
+            miniMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+            miniMarker = new maplibregl.Marker({ color: themeColor('--primary', '#e8763d') });
+            miniMap.on('load', () => {
+                const c = themeColor('--primary', '#e8763d');
+                miniMap.addSource('mini-circle', { type: 'geojson', data: circleGeoJSON(0, 0, 1) });
+                miniMap.addLayer({ id: 'mini-circle-fill', type: 'fill', source: 'mini-circle', paint: { 'fill-color': c, 'fill-opacity': 0.18 } });
+                miniMap.addLayer({ id: 'mini-circle-line', type: 'line', source: 'mini-circle', paint: { 'line-color': c, 'line-width': 2 } });
+                paintMini();   // the map may finish loading after the row already opened
+            });
+        } catch (e) { miniMap = null; }
+    }
+    function paintMini() {
+        if (!miniMap || expandedIdx === null) return;
+        const s = suggestions[expandedIdx];
+        if (!s) return;
+        miniMap.resize();
+        miniMap.jumpTo({ center: [s.lng, s.lat], zoom: 16 });
+        miniMarker.setLngLat([s.lng, s.lat]).addTo(miniMap);
+        const src = miniMap.getSource('mini-circle');
+        if (src) src.setData(circleGeoJSON(s.lat, s.lng, s.radius_m));
+    }
+    function collapseSuggestion() {
+        if (expandedIdx === null) return;
+        const entry = document.querySelector('.lx-pl-sg-entry[data-i="' + expandedIdx + '"]');
+        if (entry) {
+            entry.classList.remove('is-open');
+            const t = entry.querySelector('.lx-pl-sg-toggle');
+            if (t) t.setAttribute('aria-expanded', 'false');
+        }
+        if (miniHost.parentNode) miniHost.parentNode.removeChild(miniHost);
+        expandedIdx = null;
+    }
+    function toggleSuggestion(i) {
+        if (expandedIdx === i) { collapseSuggestion(); return; }
+        collapseSuggestion();
+        const entry = document.querySelector('.lx-pl-sg-entry[data-i="' + i + '"]');
+        const slot = entry && entry.querySelector('.lx-pl-sg-mini');
+        if (!slot || !suggestions[i]) return;
+        slot.appendChild(miniHost);
+        entry.classList.add('is-open');
+        const t = entry.querySelector('.lx-pl-sg-toggle');
+        if (t) t.setAttribute('aria-expanded', 'true');
+        expandedIdx = i;
+        ensureMiniMap();
+        requestAnimationFrame(paintMini);   // wait for the row to lay out before measuring
+    }
+
+    $('suggest-list').addEventListener('click', (e) => {
+        const node = e.target.closest ? e.target.closest('[data-act]') : null;
+        if (!node) return;
+        const i = parseInt(node.getAttribute('data-i'), 10);
+        const s = suggestions[i];
+        if (!s) return;
+        const act = node.getAttribute('data-act');
+        if (act === 'add') openEdit(null, s, node);
+        else if (act === 'dismiss') dismissSuggestion(s, node);
+        else toggleSuggestion(i);
+    });
+    $('suggest-more').addEventListener('click', () => { suggestShowAll = !suggestShowAll; renderSuggestions(); });
+
+    async function dismissSuggestion(s, btn) {
+        btn.disabled = true;
+        try {
+            await api('/api/places/suggestions/dismiss/', { method: 'POST', json: { lat: s.lat, lng: s.lng }, toast: false });
+            suggestions = suggestions.filter((x) => x !== s);
+            renderSuggestions();
+        } catch (e) {
+            btn.disabled = false;
+            toast(e && e.message ? e.message : 'Couldn’t dismiss that suggestion.');
+        }
+    }
+    async function loadSuggestions() {
+        try {
+            const res = await fetch('/api/places/suggestions/');
+            if (!res.ok) throw new Error('suggestions failed');
+            const d = await res.json();
+            suggestions = d.suggestions || [];
+        } catch (e) { suggestions = []; }
+        renderSuggestions();
+    }
+
+    /* ── Create / edit dialog ──────────────────────────────────────────── */
+    let editMap = null, editMarker = null, editId = null;
+    let editCenter = null, editRadius = 150;
+    const editOverlay = $('edit-overlay');
+
+    function ensureEditMap() {
+        if (editMap || !window.maplibregl) return;
+        try {
+            const c = themeColor('--primary', '#e8763d');
+            editMap = new maplibregl.Map({ container: 'edit-map', style: basemapStyle, center: [0, 20], zoom: 1 });
+            editMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+            editMap.on('load', () => {
+                editMap.addSource('edit-circle', { type: 'geojson', data: circleGeoJSON(0, 0, 1) });
+                editMap.addLayer({ id: 'edit-circle-fill', type: 'fill', source: 'edit-circle', paint: { 'fill-color': c, 'fill-opacity': 0.18 } });
+                editMap.addLayer({ id: 'edit-circle-line', type: 'line', source: 'edit-circle', paint: { 'line-color': c, 'line-width': 2 } });
+                redrawEditCircle();
+            });
+            editMarker = new maplibregl.Marker({ color: c, draggable: true });
+            editMarker.on('dragend', () => {
+                const ll = editMarker.getLngLat();
+                editCenter = [ll.lng, ll.lat];
+                redrawEditCircle();
+            });
+            editMap.on('click', (e) => {
+                editCenter = [e.lngLat.lng, e.lngLat.lat];
+                editMarker.setLngLat(editCenter).addTo(editMap);
+                redrawEditCircle();
+            });
+        } catch (err) { editMap = null; editMarker = null; }
+    }
+    function redrawEditCircle() {
+        if (!editMap || !editMap.getSource || !editMap.getSource('edit-circle') || !editCenter) return;
+        editMap.getSource('edit-circle').setData(circleGeoJSON(editCenter[1], editCenter[0], editRadius));
+    }
+
+    function openEdit(place, suggestion, opener) {
+        editId = place ? place.id : null;
+        $('edit-title').textContent = place ? 'Edit place' : 'New place';
+        $('edit-name').value = place ? place.name : (suggestion && suggestion.suggested_name) || '';
+        editRadius = place ? Math.round(place.radius_m) : (suggestion ? Math.round(suggestion.radius_m) : 150);
+        const slider = $('edit-radius');
+        if (editRadius > parseInt(slider.max, 10)) slider.max = String(Math.ceil(editRadius / 25) * 25);
+        slider.value = String(editRadius);
+        $('edit-radius-val').textContent = editRadius + ' m';
+        editOverlay._retId = place ? place.id : null;
+        openLayer(editOverlay, null, $('edit-name'), opener || (place ? document.querySelector('.lx-pl-card[data-id="' + place.id + '"]') : $('lx-pl-new')));
+        ensureEditMap();
+        if (!editMap) { toast('The map could not be loaded, so the centre can’t be picked.'); return; }
+        editMap.resize();
+        if (place) {
+            editCenter = [place.lng, place.lat];
+            editMap.jumpTo({ center: editCenter, zoom: 14 });
+            editMarker.setLngLat(editCenter).addTo(editMap);
+            redrawEditCircle();
+        } else if (suggestion) {
+            // Confirming a suggestion: prefill the centre so it's one click to
+            // save, but leave everything editable.
+            editCenter = [suggestion.lng, suggestion.lat];
+            editMap.jumpTo({ center: editCenter, zoom: 16 });
+            editMarker.setLngLat(editCenter).addTo(editMap);
+            redrawEditCircle();
+        } else {
+            editCenter = null;
+            editMarker.remove();
+            // Start on the user's own data when there is any.
+            fetch('/api/locations/bounds/?all=1').then((r) => r.json()).then((b) => {
+                if (b && b.bounds && editCenter === null && !editOverlay.hidden) {
+                    const mm = b.bounds;
+                    const c = [(mm[0][0] + mm[1][0]) / 2, (mm[0][1] + mm[1][1]) / 2];
+                    editCenter = c;
+                    editMap.fitBounds(b.bounds, { padding: 60, maxZoom: 14, duration: 0 });
+                    editMarker.setLngLat(c).addTo(editMap);
+                    redrawEditCircle();
+                }
+            }).catch(() => {});
+        }
+        setTimeout(() => { if (editMap) editMap.resize(); }, 80);
+    }
+    function closeEdit() { closeLayer(editOverlay, null, true); }
+    $('edit-cancel').addEventListener('click', closeEdit);
+    editOverlay.addEventListener('mousedown', (e) => { if (e.target === editOverlay) closeEdit(); });
+    $('edit-radius').addEventListener('input', (e) => {
+        editRadius = parseInt(e.target.value, 10);
+        $('edit-radius-val').textContent = editRadius + ' m';
+        redrawEditCircle();
+    });
+    $('edit-form').addEventListener('submit', (e) => { e.preventDefault(); savePlace(); });
+
+    async function savePlace() {
+        const nameEl = $('edit-name');
+        const name = nameEl.value.trim();
+        if (!name) { nameEl.focus(); return; }
+        if (!editCenter) { await alertMsg('Click the map to set the centre first.'); return; }
+        const btn = $('edit-save');
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+        const payload = { name: name, lat: editCenter[1], lng: editCenter[0], radius_m: editRadius };
+        const url = editId ? '/api/places/' + editId + '/update/' : '/api/places/';
+        try {
+            const saved = await api(url, { method: 'POST', json: payload, toast: false });
+            if (editId && saved && typeof saved === 'object') {
+                rememberEdit(editId, { name: saved.name, lat: saved.lat, lng: saved.lng, radius_m: saved.radius_m });
+            }
+            closeEdit();
+            // The saved place may cover a suggested cluster, which is what
+            // retires the suggestion, so refresh both lists.
+            await Promise.all([loadPlaces(), loadSuggestions()]);
+        } catch (err) {
+            await alertMsg((err && err.message) || 'Save failed.');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Save';
+        }
+    }
+
+    /* ── Detail drawer ─────────────────────────────────────────────────── */
+    const drawer = $('detail-overlay');
+    const scrim = $('lx-pl-scrim');
+    let detailMap = null, detailId = null;
+    let detailPtsToken = 0, detailPtsFeatures = [];
+    let timeSpentRaw = false;
+    let detailData = null;                       // the fetched detail, when the cache lacks the place
+    let notesTouched = false, notifyTouched = false;   // user edits since the drawer opened
+    function currentPlace() {
+        return placesCache.find((x) => x.id === detailId) || (detailData && detailData.id === detailId ? detailData : null);
+    }
+
+    function ensureDetailMap() {
+        if (detailMap) return true;
+        if (!window.maplibregl) {
+            if (!$('detail-map').firstChild) $('detail-map').appendChild(el('div', 'lx-pl-mapmsg', 'The map could not be loaded.'));
+            return false;
+        }
+        try {
+            detailMap = new maplibregl.Map({ container: 'detail-map', style: basemapStyle, center: [0, 20], zoom: 1 });
+            detailMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+            return true;
+        } catch (e) { detailMap = null; return false; }
+    }
+    function closeDetail() {
+        detailPtsToken++;   // stops a still-running point stream
+        detailId = null;
+        closeLayer(drawer, scrim, true);
+    }
+    $('lx-pl-dclose').addEventListener('click', closeDetail);
+    scrim.addEventListener('click', closeDetail);
+
+    function statCell(num, label, opts) {
+        opts = opts || {};
+        const c = el(opts.button ? 'button' : 'div', 'lx-pl-stat');
+        if (opts.button) c.type = 'button';
+        if (opts.id) c.id = opts.id;
+        const n = el('div', 'lx-pl-stat-num' + (opts.date ? ' is-date' : ''), num);
+        c.appendChild(n);
+        c.appendChild(el('div', 'lx-pl-stat-lbl', label));
+        return c;
+    }
+    function skeletonStats() {
+        const box = $('detail-stats');
+        clear(box);
+        ['Points', 'Days', 'Time spent', 'First seen'].forEach((l) => {
+            const c = el('div', 'lx-pl-stat');
+            c.appendChild(el('span', 'skeleton lx-he-skel-stat'));
+            c.lastChild.style.width = '60%';
+            c.appendChild(el('div', 'lx-pl-stat-lbl', l));
+            box.appendChild(c);
+        });
+    }
+
+    function setupDetailNotes(p) {
+        const ta = $('detail-notes'), status = $('detail-notes-status');
+        ta.value = p.notes || '';
+        status.textContent = '';
+        status.classList.remove('is-error');
+        ta.oninput = () => {
+            notesTouched = true;
+            status.classList.remove('is-error');
+            status.textContent = 'Saving…';
+            clearTimeout(setupDetailNotes._t);
+            setupDetailNotes._t = setTimeout(() => saveNotes(p.id, ta.value, status), 700);
+        };
+    }
+    async function saveNotes(id, notes, status) {
+        try {
+            await api('/api/places/' + id + '/update/', { method: 'POST', json: { notes: notes }, toast: false });
+            rememberEdit(id, { notes: notes });
+            if (detailId === id) { status.classList.remove('is-error'); status.textContent = 'Saved'; }
+        } catch (e) {
+            if (detailId === id) { status.classList.add('is-error'); status.textContent = 'Not saved'; }
+            return;
+        }
+        setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 1800);
+    }
+
+    // Arrival/departure toggles are autosaved, like the notes: a checkbox that
+    // looks on but isn't saved is a trap.
+    function setupDetailNotify(p) {
+        $('notify-arrive').checked = !!p.notify_arrive;
+        $('notify-leave').checked = !!p.notify_leave;
+        const st = $('notify-status');
+        st.textContent = '';
+        st.classList.remove('is-error');
+    }
+    async function saveNotify() {
+        const st = $('notify-status');
+        const id = detailId;
+        if (!id) return;
+        notifyTouched = true;
+        const patch = { notify_arrive: $('notify-arrive').checked, notify_leave: $('notify-leave').checked };
+        st.classList.remove('is-error');
+        st.textContent = 'Saving…';
+        try {
+            await api('/api/places/' + id + '/update/', { method: 'POST', json: patch, toast: false });
+            rememberEdit(id, patch);
+            renderPlaces();
+            if (detailId === id) st.textContent = 'Saved';
+            setTimeout(() => { if (st.textContent === 'Saved') st.textContent = ''; }, 1800);
+        } catch (e) {
+            st.classList.add('is-error');
+            st.textContent = (e && e.message) || 'Not saved';
+        }
+    }
+    $('notify-arrive').addEventListener('change', saveNotify);
+    $('notify-leave').addEventListener('change', saveNotify);
+
+    function drawDetailCircle(g) {
+        if (!detailMap) return;
+        const run = () => {
+            ['d-circle-fill', 'd-circle-line', 'd-points'].forEach((lid) => { if (detailMap.getLayer(lid)) detailMap.removeLayer(lid); });
+            ['d-circle', 'd-points-src'].forEach((sid) => { if (detailMap.getSource(sid)) detailMap.removeSource(sid); });
+            const col = g.color || themeColor('--primary', '#e8763d');
+            detailMap.addSource('d-circle', { type: 'geojson', data: circleGeoJSON(g.lat, g.lng, g.radius_m) });
+            detailMap.addLayer({ id: 'd-circle-fill', type: 'fill', source: 'd-circle', paint: { 'fill-color': col, 'fill-opacity': 0.15 } });
+            detailMap.addLayer({ id: 'd-circle-line', type: 'line', source: 'd-circle', paint: { 'line-color': col, 'line-width': 2 } });
+            detailMap.addSource('d-points-src', { type: 'geojson', data: { type: 'FeatureCollection', features: detailPtsFeatures } });
+            detailMap.addLayer({ id: 'd-points', type: 'circle', source: 'd-points-src', paint: { 'circle-radius': 3, 'circle-color': col, 'circle-opacity': 0.6 } });
+            const latR = g.radius_m / 111320.0;
+            const lngR = g.radius_m / (111320.0 * Math.cos(g.lat * Math.PI / 180));
+            detailMap.fitBounds([[g.lng - lngR, g.lat - latR], [g.lng + lngR, g.lat + latR]], { padding: 40, duration: 0 });
+        };
+        try {
+            if (detailMap.isStyleLoaded()) run(); else detailMap.once('load', run);
+        } catch (e) { /* map unavailable: stats still show */ }
+        setTimeout(() => { if (detailMap) detailMap.resize(); }, 260);
+    }
+
+    // Points arrive as newline-delimited coordinate chunks; repaint as each
+    // lands so a big place fills in gradually. The token cancels a stream whose
+    // place was closed or replaced.
+    async function streamDetailPoints(id, token) {
+        const repaint = () => {
+            if (!detailMap) return;
+            const src = detailMap.getSource('d-points-src');
+            if (src) src.setData({ type: 'FeatureCollection', features: detailPtsFeatures });
+        };
+        try {
+            const res = await fetch('/api/places/' + id + '/points/');
+            if (!res.ok || !res.body) return;
+            const reader = res.body.getReader();
+            const dec = new TextDecoder();
+            let buf = '';
+            const drain = () => {
+                let nl;
+                while ((nl = buf.indexOf('\n')) >= 0) {
+                    const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+                    if (!line.trim()) continue;
+                    let coords;
+                    try { coords = JSON.parse(line); } catch (e) { continue; }
+                    for (let i = 0; i < coords.length; i++) detailPtsFeatures.push({ type: 'Feature', geometry: { type: 'Point', coordinates: coords[i] }, properties: {} });
+                }
+            };
+            for (;;) {
+                const r = await reader.read();
+                if (token !== detailPtsToken) { reader.cancel(); return; }
+                if (r.done) break;
+                buf += dec.decode(r.value, { stream: true });
+                drain();
+                repaint();
+            }
+            buf += dec.decode();
+            drain();
+            repaint();
+        } catch (e) { /* stream failed: circle and stats are still shown */ }
+    }
+
+    function renderDetail(d) {
+        timeSpentRaw = false;
+        const box = $('detail-stats');
+        clear(box);
+        box.appendChild(statCell(nf(d.point_count || 0), 'Points'));
+        box.appendChild(statCell(String((d.days || []).length), 'Days'));
+        const tcell = statCell(fmtDurFull(d.time_spent), 'Time spent (tap to switch units)', { button: true, id: 'detail-time-stat' });
+        tcell.setAttribute('data-s', String(d.time_spent || 0));
+        tcell.addEventListener('click', () => {
+            timeSpentRaw = !timeSpentRaw;
+            const s = parseInt(tcell.getAttribute('data-s') || '0', 10);
+            tcell.querySelector('.lx-pl-stat-num').textContent = timeSpentRaw ? fmtDurMins(s) : fmtDurFull(s);
+        });
+        box.appendChild(tcell);
+        box.appendChild(statCell(fmtDate(d.first_seen), 'First seen', { date: true }));
+
+        const citiesWrap = $('detail-cities-wrap'), cities = $('detail-cities');
+        clear(cities);
+        if (d.cities && d.cities.length) {
+            citiesWrap.hidden = false;
+            d.cities.forEach((c) => cities.appendChild(el('span', 'lx-he-chip', c.city + (c.state ? ', ' + c.state : ''))));
+        } else citiesWrap.hidden = true;
+
+        const daysWrap = $('detail-days-wrap'), list = $('detail-days'), moreBtn = $('detail-days-more');
+        clear(list);
+        if (d.days && d.days.length) {
+            daysWrap.hidden = false;
+            const INITIAL = 10;
+            const rows = (items) => {
+                clear(list);
+                items.forEach((day) => {
+                    const a = el('a', 'lx-pl-day');
+                    a.href = '/map/?start=' + encodeURIComponent(day.date) + '&end=' + encodeURIComponent(day.date)
+                        + '&lat=' + encodeURIComponent(d.lat) + '&lng=' + encodeURIComponent(d.lng) + '&zoom=15';
+                    a.title = 'View on map';
+                    a.appendChild(el('span', 'lx-pl-day-date', fmtDay(day.date)));
+                    a.appendChild(el('span', 'lx-pl-day-meta', day.count + ' pts'));
+                    a.appendChild(el('span', 'lx-pl-day-meta', fmtDur(day.time_spent)));
+                    list.appendChild(a);
+                });
+            };
+            rows(d.days.slice(0, INITIAL));
+            if (d.days.length > INITIAL) {
+                moreBtn.hidden = false;
+                moreBtn.textContent = 'Show ' + (d.days.length - INITIAL) + ' more';
+                moreBtn.onclick = () => { rows(d.days); moreBtn.hidden = true; };
+            } else moreBtn.hidden = true;
+        } else { daysWrap.hidden = true; moreBtn.hidden = true; }
+    }
+
+    async function openDetail(id, opener) {
+        detailId = id;
+        detailData = null;
+        notesTouched = false; notifyTouched = false;
+        const token = ++detailPtsToken;
+        detailPtsFeatures = [];
+        const known = placesCache.find((p) => p.id === id);
+        $('detail-title').textContent = known ? known.name : 'Place';
+        $('detail-error').hidden = true;
+        $('detail-cities-wrap').hidden = true;
+        $('detail-days-wrap').hidden = true;
+        $('detail-notes-wrap').hidden = !known;
+        $('detail-notify-wrap').hidden = !known;
+        skeletonStats();
+        $('detail-edit').disabled = !known;
+        $('detail-delete').disabled = !known;
+        drawer._retId = id;
+        openLayer(drawer, scrim, $('lx-pl-dclose'), opener);
+        const mapOk = ensureDetailMap();
+        if (mapOk) detailMap.resize();
+
+        // Everything that needs no server round trip paints at once from the
+        // cached geometry; only the aggregates wait on the fetch.
+        if (known) {
+            if (mapOk) drawDetailCircle(known);
+            setupDetailNotes(known);
+            setupDetailNotify(known);
+            streamDetailPoints(id, token);
+        }
+
+        let d;
+        try {
+            d = await api('/api/places/' + id + '/', { toast: false });
+        } catch (e) {
+            if (detailId !== id) return;
+            clear($('detail-stats'));
+            $('detail-error').hidden = false;
+            return;
+        }
+        if (detailId !== id || !d) return;
+        $('detail-title').textContent = d.name;
+        detailData = d;
+        if (known) {
+            // The list snapshot can lag behind notes/alerts; the detail is fresh.
+            const patch = { notes: d.notes || '', notify_arrive: !!d.notify_arrive, notify_leave: !!d.notify_leave };
+            if (!notesTouched) { $('detail-notes').value = patch.notes; } else delete patch.notes;
+            if (!notifyTouched) { $('notify-arrive').checked = patch.notify_arrive; $('notify-leave').checked = patch.notify_leave; }
+            else { delete patch.notify_arrive; delete patch.notify_leave; }
+            if (Object.keys(patch).length) { rememberEdit(id, patch); renderPlaces(); }
+        }
+        if (!known) {
+            // No cached geometry (shouldn't normally happen): use the detail.
+            if (mapOk) drawDetailCircle(d);
+            setupDetailNotes(d);
+            setupDetailNotify(d);
+            $('detail-notes-wrap').hidden = false;
+            $('detail-notify-wrap').hidden = false;
+            streamDetailPoints(id, token);
+        }
+        $('detail-edit').disabled = false;
+        $('detail-delete').disabled = false;
+        renderDetail(d);
+    }
+    $('detail-retry').addEventListener('click', () => { if (detailId) openDetail(detailId); });
+
+    $('detail-edit').addEventListener('click', () => {
+        const p = currentPlace();
+        if (!p) return;
+        const ret = document.querySelector('.lx-pl-card[data-id="' + p.id + '"]');
+        closeLayer(drawer, scrim, false);
+        detailPtsToken++;
+        detailId = null;
+        openEdit({ id: p.id, name: p.name, lat: p.lat, lng: p.lng, radius_m: p.radius_m }, null, ret);
+    });
+    $('detail-delete').addEventListener('click', async () => {
+        const p = currentPlace();
+        if (!p) return;
+        const ok = window.roamlyConfirm
+            ? await window.roamlyConfirm('Delete “' + p.name + '”? This only removes the place, not your location data.', { danger: true, confirmText: 'Delete' })
+            : window.confirm('Delete “' + p.name + '”?');
+        if (!ok) return;
+        try {
+            await api('/api/places/' + p.id + '/delete/', { method: 'POST', errorMessage: 'Couldn’t delete the place' });
+        } catch (e) { return; }
+        closeDetail();
+        // Deleting a place can re-expose the cluster it was covering as a suggestion.
+        await Promise.all([loadPlaces(), loadSuggestions()]);
+    });
+
+    window.onSnapshotReady = loadPlaces;
+    loadPlaces();
+    loadSuggestions();
+})();
+</script>
+{% endblock %}

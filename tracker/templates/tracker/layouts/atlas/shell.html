@@ -1,0 +1,148 @@
+{% load static %}{% comment %}
+  ATLAS shell: the map is the room. Replaces the classic navbar + bottom nav
+  (base.html includes this instead of them). Everything here is position:fixed,
+  so it takes no room in the page flow; atlas.css offsets <body> by the rail.
+
+  Desktop (>768px): .lx-at-rail, a 56px instrument rail on the left.
+  Phone (<=768px):  .lx-at-tabbar (5 slots) + .lx-at-sheet ("More", everything else).
+  Map page only:    .lx-at-panel, Journals / Places / Visits opened over the map
+                    in an iframe (?embed=1). atlas.js drives it; without JS every
+                    trigger is a plain link to the full page.
+
+  #yago and #notif are included exactly once (base.html wires them by id);
+  atlas.js moves #notif between the rail and the phone sheet.
+{% endcomment %}{% with u=request.resolver_match.url_name %}
+<div class="lx-at-shell" id="lx-at-shell" data-page="{{ u|default:'' }}">
+
+    <nav class="lx-at-rail" aria-label="Main">
+        <a class="lx-at-brand" href="{% url 'tracker:map' %}" aria-label="Roamly: map">
+            <img src="{% static 'tracker/roamlymark.svg' %}" alt="" width="30" height="30">
+        </a>
+
+        <ul class="lx-at-rail-list">
+            <li><a class="lx-at-ri" href="{% url 'tracker:map' %}" data-tip="Map" aria-label="Map"{% if u == 'map' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='map' %}</a></li>
+            <li><a class="lx-at-ri" href="{% url 'tracker:journals' %}" data-lx-panel="journals" data-lx-kicker="Day by day" data-tip="Journals" aria-label="Journals"{% if u == 'journals' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='journals' %}</a></li>
+            <li><a class="lx-at-ri" href="{% url 'tracker:places' %}" data-lx-panel="places" data-lx-kicker="Named places" data-tip="Places" aria-label="Places"{% if u == 'places' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='places' %}</a></li>
+            <li><a class="lx-at-ri" href="{% url 'tracker:visits' %}" data-lx-panel="visits" data-lx-kicker="Time by place" data-tip="Visits" aria-label="Visits"{% if u == 'visits' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='visits' %}</a></li>
+
+            <li class="lx-at-rail-sep" aria-hidden="true"></li>
+            <li><a class="lx-at-ri" href="{% url 'tracker:adventures' %}" data-tip="Adventures" aria-label="Adventures"{% if u == 'adventures' or u == 'adventure_edit' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='adventures' %}</a></li>
+            <li><a class="lx-at-ri" href="{% url 'tracker:health' %}" data-tip="Health" aria-label="Health"{% if u == 'health' or u == 'activities' or u == 'activity_detail' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='health' %}</a></li>
+            <li><a class="lx-at-ri" href="{% url 'tracker:stats' %}" data-tip="Stats" aria-label="Stats"{% if u == 'stats' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='stats' %}</a></li>
+
+            <li class="lx-at-rail-sep" aria-hidden="true"></li>
+            <li><a class="lx-at-ri" href="{% url 'tracker:search' %}" data-tip="Search" aria-label="Search"{% if u == 'search' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='search' %}</a></li>
+            {% if AI_ASK_ENABLED %}<li><a class="lx-at-ri" href="{% url 'tracker:ask' %}" data-tip="Ask" aria-label="Ask"{% if u == 'ask' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='ask' %}</a></li>{% endif %}
+            <li class="lx-at-pop-anchor">
+                <button type="button" class="lx-at-ri{% if u == 'achievements' or u == 'data' or u == 'cells' or u == 'flights' or u == 'editor' or u == 'trip_blog' %} is-active{% endif %}" id="lx-at-more-btn" data-tip="More" aria-label="More pages" aria-haspopup="menu" aria-expanded="false" aria-controls="lx-at-more-menu">{% include 'tracker/layouts/atlas/_icon.html' with i='more' %}</button>
+                <div class="lx-at-menu" id="lx-at-more-menu" role="menu" aria-label="More pages" hidden>
+                    {% if FEATURED_TRIP %}<a role="menuitem" class="lx-at-menu-item" href="{% url 'tracker:trip_blog' FEATURED_TRIP.id %}" title="{{ FEATURED_TRIP.name }}"{% if u == 'trip_blog' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='trip' %}<span>Trip</span><span class="lx-at-menu-aside">{{ FEATURED_TRIP.name|truncatechars:18 }}</span></a>
+                    <div class="lx-at-menu-sep" role="separator"></div>{% endif %}
+                    <a role="menuitem" class="lx-at-menu-item" href="{% url 'tracker:achievements' %}"{% if u == 'achievements' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='achievements' %}<span>Achievements</span></a>
+                    <a role="menuitem" class="lx-at-menu-item" href="{% url 'tracker:data' %}"{% if u == 'data' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='data' %}<span>Raw data</span></a>
+                    <a role="menuitem" class="lx-at-menu-item" href="{% url 'tracker:cells' %}"{% if u == 'cells' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='cells' %}<span>Cell signal</span></a>
+                    <a role="menuitem" class="lx-at-menu-item" href="{% url 'tracker:flights' %}"{% if u == 'flights' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='flights' %}<span>Flights</span></a>
+                    <a role="menuitem" class="lx-at-menu-item" href="{% url 'tracker:editor' %}"{% if u == 'editor' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='editor' %}<span>Map editor</span></a>
+                </div>
+            </li>
+        </ul>
+
+        <div class="lx-at-rail-foot">
+            {% include 'tracker/_nav_yago.html' %}
+            <div class="lx-at-notif-slot" data-lx-slot="rail">{% include 'tracker/_nav_notif.html' %}</div>
+            <div class="lx-at-pop-anchor">
+                <button type="button" class="lx-at-ri lx-at-acct{% if u == 'settings' or u == 'diagnostics' or u == 'admin_panel' %} is-active{% endif %}" id="lx-at-acct-btn" data-tip="{{ user.username }}" aria-label="Account: {{ user.username }}" aria-haspopup="menu" aria-expanded="false" aria-controls="lx-at-acct-menu"><span class="lx-at-avatar" aria-hidden="true">{{ user.username|first|upper }}</span></button>
+                <div class="lx-at-menu" id="lx-at-acct-menu" role="menu" aria-label="Account" hidden>
+                    <div class="lx-at-menu-head" aria-hidden="true"><span class="lx-at-kicker">Signed in as</span><span class="lx-at-menu-user">{{ user.username }}</span></div>
+                    <a role="menuitem" class="lx-at-menu-item" href="{% url 'tracker:settings' %}"{% if u == 'settings' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='settings' %}<span>Settings</span></a>
+                    <a role="menuitem" class="lx-at-menu-item" href="{% url 'tracker:settings' %}#appearance">{% include 'tracker/layouts/atlas/_icon.html' with i='appearance' %}<span>Appearance</span></a>
+                    <a role="menuitem" class="lx-at-menu-item" href="{% url 'tracker:diagnostics' %}"{% if u == 'diagnostics' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='diagnostics' %}<span>Diagnostics</span></a>
+                    {% if IS_ADMIN %}<a role="menuitem" class="lx-at-menu-item" href="{% url 'tracker:admin_panel' %}"{% if u == 'admin_panel' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='admin' %}<span>Admin panel</span></a>{% endif %}
+                    <div class="lx-at-menu-sep" role="separator"></div>
+                    <a role="menuitem" class="lx-at-menu-item" href="{% url 'tracker:logout' %}">{% include 'tracker/layouts/atlas/_icon.html' with i='logout' %}<span>Log out</span></a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <nav class="lx-at-tabbar" aria-label="Main">
+        <a class="lx-at-tab" href="{% url 'tracker:map' %}"{% if u == 'map' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='map' %}<span>Map</span></a>
+        <a class="lx-at-tab" href="{% url 'tracker:journals' %}" data-lx-panel="journals" data-lx-kicker="Day by day"{% if u == 'journals' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='journals' %}<span>Journals</span></a>
+        <a class="lx-at-tab" href="{% url 'tracker:places' %}" data-lx-panel="places" data-lx-kicker="Named places"{% if u == 'places' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='places' %}<span>Places</span></a>
+        <a class="lx-at-tab" href="{% url 'tracker:health' %}"{% if u == 'health' or u == 'activities' or u == 'activity_detail' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='health' %}<span>Health</span></a>
+        <button type="button" class="lx-at-tab{% if u != 'map' and u != 'journals' and u != 'places' and u != 'health' and u != 'activities' and u != 'activity_detail' %} is-active{% endif %}" id="lx-at-sheet-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="lx-at-sheet">{% include 'tracker/layouts/atlas/_icon.html' with i='more' %}<span>More</span><span class="lx-at-tab-dot" id="lx-at-sheet-dot" hidden></span></button>
+    </nav>
+
+    <div class="lx-at-scrim" id="lx-at-scrim" aria-hidden="true"></div>
+    <div class="lx-at-sheet" id="lx-at-sheet" role="dialog" aria-modal="true" aria-labelledby="lx-at-sheet-title">
+        <div class="lx-at-sheet-grip" aria-hidden="true"></div>
+        <div class="lx-at-sheet-head">
+            <span class="lx-at-avatar" aria-hidden="true">{{ user.username|first|upper }}</span>
+            <div class="lx-at-sheet-who">
+                <span class="lx-at-kicker">Signed in as</span>
+                <h2 class="lx-at-sheet-title" id="lx-at-sheet-title">{{ user.username }}</h2>
+            </div>
+            <div class="lx-at-notif-slot" data-lx-slot="sheet"></div>
+            <button type="button" class="lx-at-iconbtn" id="lx-at-sheet-close" aria-label="Close menu">{% include 'tracker/layouts/atlas/_icon.html' with i='close' %}</button>
+        </div>
+        <div class="lx-at-sheet-body">
+            <h3 class="lx-at-sheet-group">Go to</h3>
+            <ul class="lx-at-sheet-list">
+                <li><a class="lx-at-sheet-item" href="{% url 'tracker:visits' %}" data-lx-panel="visits" data-lx-kicker="Time by place"{% if u == 'visits' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='visits' %}<span>Visits</span></a></li>
+                <li><a class="lx-at-sheet-item" href="{% url 'tracker:adventures' %}"{% if u == 'adventures' or u == 'adventure_edit' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='adventures' %}<span>Adventures</span></a></li>
+                <li><a class="lx-at-sheet-item" href="{% url 'tracker:stats' %}"{% if u == 'stats' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='stats' %}<span>Stats</span></a></li>
+                <li><a class="lx-at-sheet-item" href="{% url 'tracker:search' %}"{% if u == 'search' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='search' %}<span>Search</span></a></li>
+                {% if AI_ASK_ENABLED %}<li><a class="lx-at-sheet-item" href="{% url 'tracker:ask' %}"{% if u == 'ask' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='ask' %}<span>Ask</span></a></li>{% endif %}
+                {% if FEATURED_TRIP %}<li><a class="lx-at-sheet-item" href="{% url 'tracker:trip_blog' FEATURED_TRIP.id %}" title="{{ FEATURED_TRIP.name }}"{% if u == 'trip_blog' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='trip' %}<span>Trip</span></a></li>{% endif %}
+            </ul>
+            <h3 class="lx-at-sheet-group">Your data</h3>
+            <ul class="lx-at-sheet-list">
+                <li><a class="lx-at-sheet-item" href="{% url 'tracker:achievements' %}"{% if u == 'achievements' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='achievements' %}<span>Achievements</span></a></li>
+                <li><a class="lx-at-sheet-item" href="{% url 'tracker:data' %}"{% if u == 'data' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='data' %}<span>Raw data</span></a></li>
+                <li><a class="lx-at-sheet-item" href="{% url 'tracker:cells' %}"{% if u == 'cells' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='cells' %}<span>Cell signal</span></a></li>
+                <li><a class="lx-at-sheet-item" href="{% url 'tracker:flights' %}"{% if u == 'flights' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='flights' %}<span>Flights</span></a></li>
+                <li><a class="lx-at-sheet-item" href="{% url 'tracker:editor' %}"{% if u == 'editor' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='editor' %}<span>Map editor</span></a></li>
+            </ul>
+            <h3 class="lx-at-sheet-group">Account</h3>
+            <ul class="lx-at-sheet-list">
+                <li><a class="lx-at-sheet-item" href="{% url 'tracker:settings' %}"{% if u == 'settings' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='settings' %}<span>Settings</span></a></li>
+                <li><a class="lx-at-sheet-item" href="{% url 'tracker:settings' %}#appearance">{% include 'tracker/layouts/atlas/_icon.html' with i='appearance' %}<span>Appearance</span></a></li>
+                <li><a class="lx-at-sheet-item" href="{% url 'tracker:diagnostics' %}"{% if u == 'diagnostics' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='diagnostics' %}<span>Diagnostics</span></a></li>
+                {% if IS_ADMIN %}<li><a class="lx-at-sheet-item" href="{% url 'tracker:admin_panel' %}"{% if u == 'admin_panel' %} aria-current="page"{% endif %}>{% include 'tracker/layouts/atlas/_icon.html' with i='admin' %}<span>Admin panel</span></a></li>{% endif %}
+                <li><a class="lx-at-sheet-item" href="{% url 'tracker:logout' %}">{% include 'tracker/layouts/atlas/_icon.html' with i='logout' %}<span>Log out</span></a></li>
+            </ul>
+        </div>
+    </div>
+
+    {% if u == 'map' %}
+    {% comment %} The panel: one at a time, over the map. Closed it is
+       visibility:hidden (out of the tab order and the accessibility tree). {% endcomment %}
+    <aside class="lx-at-panel" id="lx-at-panel" aria-labelledby="lx-at-panel-title" tabindex="-1">
+        <div class="lx-at-panel-head" id="lx-at-panel-head">
+            <button type="button" class="lx-at-grip" id="lx-at-panel-grip" aria-label="Resize panel"><span aria-hidden="true"></span></button>
+            <div class="lx-at-panel-heading">
+                <span class="lx-at-kicker" id="lx-at-panel-kicker"></span>
+                <h2 class="lx-at-panel-title" id="lx-at-panel-title"></h2>
+            </div>
+            <a class="lx-at-iconbtn" id="lx-at-panel-full" href="{% url 'tracker:map' %}" data-tip="Open full page" aria-label="Open full page">{% include 'tracker/layouts/atlas/_icon.html' with i='open' %}</a>
+            <button type="button" class="lx-at-iconbtn" id="lx-at-panel-close" data-tip="Close" aria-label="Close panel">{% include 'tracker/layouts/atlas/_icon.html' with i='close' %}</button>
+        </div>
+        <div class="lx-at-panel-body" id="lx-at-panel-body">
+            <div class="lx-at-panel-skel" id="lx-at-panel-skel" aria-hidden="true">
+                <div class="skeleton skel-line lg" style="width: 46%"></div>
+                <div class="lx-at-skel-stats"><div class="skeleton lx-at-skel-block"></div><div class="skeleton lx-at-skel-block"></div><div class="skeleton lx-at-skel-block"></div></div>
+                <div class="skeleton lx-at-skel-row"></div>
+                <div class="skeleton lx-at-skel-row"></div>
+                <div class="skeleton lx-at-skel-row"></div>
+                <div class="skeleton lx-at-skel-row" style="width: 72%"></div>
+            </div>
+            <div class="lx-at-panel-msg" id="lx-at-panel-msg" role="status" hidden>
+                <p class="lx-at-panel-msg-text" id="lx-at-panel-msg-text"></p>
+                <a class="lx-at-btn" id="lx-at-panel-msg-link" href="{% url 'tracker:map' %}">Open full page</a>
+            </div>
+        </div>
+        <div class="lx-at-resize" id="lx-at-panel-resize" role="separator" aria-orientation="vertical" aria-label="Panel width" aria-controls="lx-at-panel" aria-valuemin="360" aria-valuemax="720" aria-valuenow="440" tabindex="0"></div>
+    </aside>
+    {% endif %}
+</div>
+{% endwith %}

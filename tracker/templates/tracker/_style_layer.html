@@ -5,7 +5,9 @@
   type, background, extras, plus text size and motion. Every facet that is not
   Field Journal's own value sets one attribute on <html> (data-palette,
   data-style, data-shape, data-type, data-bg, data-fx, data-size, data-motion)
-  and pulls in its file. The default look is Field Journal with the Squircle
+  and pulls in its file. A seventh, the UI *layout* (data-layout: classic,
+  atlas, chronicle, hearth), is decided by the server because it changes markup
+  (tracker/layouts.py); this script only mirrors it and loads its CSS/JS. The default look is Field Journal with the Squircle
   shape, so it sets data-shape="squircle" and loads facets.css; only the
   square "field" shape (kept by appearances saved before that) loads nothing.
 
@@ -20,18 +22,21 @@
 {% endcomment %}{{ APPEARANCE_REGISTRY|json_script:"rly-appearance-registry" }}{{ APPEARANCE|json_script:"rly-appearance-user" }}<script>
 window.__RLY_SIGNED_IN__ = {{ user.is_authenticated|yesno:"true,false" }};
 window.__RLY_CSRF__ = '{{ csrf_token }}';
+window.__RLY_LAYOUT__ = '{{ LAYOUT|default:"classic" }}';
 (function () {
     var de = document.documentElement;
     var REG = JSON.parse(document.getElementById('rly-appearance-registry').textContent);
     var server = JSON.parse(document.getElementById('rly-appearance-user').textContent);
     var byId = function (list, id) { for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; };
     var D = REG['default'];
+    var LAYOUT = window.__RLY_LAYOUT__ || 'classic';
     var FACETS = ['palette', 'components', 'shape', 'type', 'bg'];
 
     // Client mirror of appearance.sanitize(): unknown values fall back.
     function normalize(a) {
-        var out = { palette: D.palette, components: D.components, shape: D.shape, type: D.type, bg: D.bg, fx: [], size: D.size, motion: D.motion };
+        var out = { palette: D.palette, components: D.components, shape: D.shape, type: D.type, bg: D.bg, fx: [], size: D.size, motion: D.motion, layout: D.layout };
         if (!a || typeof a !== 'object') return out;
+        if (typeof a.layout === 'string' && byId(REG.layout, a.layout)) out.layout = a.layout;
         var p = a.preset && byId(REG.presets, a.preset);
         if (p) { FACETS.forEach(function (k) { out[k] = p.facets[k]; }); out.fx = p.facets.fx.slice(); }
         FACETS.concat(['size', 'motion']).forEach(function (k) {
@@ -72,6 +77,9 @@ window.__RLY_CSRF__ = '{{ csrf_token }}';
         if (pid && byId(REG.presets, pid)) param = { preset: pid };
     } catch (e) {}
     var app = normalize(param || server || local);
+    // The server already rendered this layout's markup; never let a stale
+    // localStorage copy or a preview link disagree with it.
+    app.layout = LAYOUT;
     try { localStorage.setItem('roamly_appearance', JSON.stringify(app)); localStorage.removeItem('roamly_style'); } catch (e) {}
 
     var custom = false;
@@ -84,6 +92,7 @@ window.__RLY_CSRF__ = '{{ csrf_token }}';
     attr('data-bg', app.bg, 'field');
     attr('data-size', app.size, 'm');
     attr('data-motion', app.motion, 'full');
+    attr('data-layout', app.layout, 'classic');
     if (app.fx.length) { de.setAttribute('data-fx', app.fx.join(' ')); custom = true; }
 
     var css = [], js = [];
@@ -95,6 +104,9 @@ window.__RLY_CSRF__ = '{{ csrf_token }}';
         if (comp && comp.css) css.push(comp.css);
         if (bg && bg.css) css.push(bg.css);
         if (app.fx.length) css.push(REG.extras_css);
+        var lay = byId(REG.layout, app.layout);
+        if (lay && lay.css) css.push(lay.css);
+        if (lay && lay.js) js.push(lay.js);
         if (comp && comp.js) js.push(comp.js);
         if (bg && bg.js) js.push(bg.js);
         if (app.fx.length) js.push(REG.extras_js);
@@ -104,6 +116,7 @@ window.__RLY_CSRF__ = '{{ csrf_token }}';
 
     function csrf() { var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/); return m ? decodeURIComponent(m[1]) : (window.__RLY_CSRF__ || ''); }
     function save(next, opts) {
+        if (next && typeof next === 'object' && !next.layout) next.layout = app.layout;
         var n = normalize(next);
         try { localStorage.setItem('roamly_appearance', JSON.stringify(n)); } catch (e) {}
         var done = function () {
@@ -180,7 +193,13 @@ window.__RLY_CSRF__ = '{{ csrf_token }}';
         set: save,
         applyPreset: function (id) {
             var p = byId(REG.presets, id); if (!p) return;
-            save({ preset: id, size: app.size, motion: app.motion });
+            save({ preset: id, size: app.size, motion: app.motion, layout: app.layout });
+        },
+        // Changing layout changes server-rendered markup, so it always reloads.
+        setLayout: function (id) {
+            if (!byId(REG.layout, id)) return;
+            var n = JSON.parse(JSON.stringify(app)); n.layout = id;
+            save(n);
         },
         reducedMotion: function () {
             return app.motion === 'calm' || !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);

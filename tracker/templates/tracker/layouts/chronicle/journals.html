@@ -1,0 +1,1604 @@
+{% extends "tracker/base.html" %}
+{% block title %}Journals - Roamly{% endblock %}
+{% comment %} Chronicle journals: an index of typeset days (left) and the open day
+   as a page you read and write in (right; stacked on phones). One day is open
+   at a time, saved as you type, so there is no editor dialog. Same endpoints
+   as the classic page (/api/journals/...). Deep link: /journals/?date=YYYY-MM-DD.
+   MapLibre loads through base.html's default map blocks (the day map). The page
+   fills the viewport on desktop, so the version footer is dropped. {% endcomment %}
+{% block version_footer %}{% endblock %}
+
+{% block extra_css %}
+html[data-layout="chronicle"] .lx-ch-j {
+    position: relative; z-index: 1;
+    display: grid;
+    grid-template-columns: 360px minmax(0, 1fr);
+    grid-template-areas: "index editor";
+    height: calc(100vh - var(--nav-h));
+    height: calc(100dvh - var(--nav-h));
+    min-height: 420px;
+}
+html[data-layout="chronicle"] svg.lx-ch-j-i {
+    flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
+}
+html[data-layout="chronicle"] .lx-ch-j button { font-family: var(--font-body); }
+html[data-layout="chronicle"] .lx-ch-j [hidden] { display: none !important; }
+
+/* ── Index (left) ─────────────────────────────────────────────── */
+html[data-layout="chronicle"] .lx-ch-j-index {
+    grid-area: index; min-width: 0; min-height: 0;
+    overflow-y: auto; overscroll-behavior: contain;
+    background: var(--bg); border-right: 1px solid var(--border);
+    padding: 0 24px 48px;
+    scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+}
+html[data-layout="chronicle"] .lx-ch-j-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 18px 0 12px;
+}
+html[data-layout="chronicle"] .lx-ch-j-h1 {
+    font-family: var(--font-display); font-size: 24px; line-height: 1.1; font-weight: 500;
+    letter-spacing: -0.01em; text-transform: none; color: var(--text); margin: 0;
+}
+html[data-layout="chronicle"] .lx-ch-j-iconbtn {
+    position: relative;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    min-width: 36px; height: 36px; padding: 0 8px;
+    background: none; border: 1px solid transparent; border-radius: var(--r-2, 0px);
+    color: var(--text-muted); cursor: pointer; font-size: 13px;
+    transition: color 120ms ease-out, background-color 120ms ease-out, border-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-j-iconbtn:hover { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-j-iconbtn[aria-expanded="true"],
+html[data-layout="chronicle"] .lx-ch-j-iconbtn[aria-pressed="true"] { color: var(--text); background: var(--lx-ch-tint-strong); }
+html[data-layout="chronicle"] .lx-ch-j-iconbtn:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-cell:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-item:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-mood:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-photo-x:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-photo-add:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-link:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-search input:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-recap-close:focus-visible {
+    outline: 2px solid var(--lx-ch-ring); outline-offset: 1px;
+}
+html[data-layout="chronicle"] .lx-ch-j-cog { position: relative; }
+html[data-layout="chronicle"] .lx-ch-j-pop {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+    width: min(320px, calc(100vw - 32px)); padding: 14px 16px;
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--r-3, 0px);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+}
+html[data-layout="chronicle"] .lx-ch-j-pop-title { font-family: var(--font-display); font-size: 17px; font-weight: 500; color: var(--text); margin-bottom: 4px; }
+html[data-layout="chronicle"] .lx-ch-j-opt {
+    display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; cursor: pointer;
+    font-size: 14px; line-height: 1.35; color: var(--text); text-transform: none; letter-spacing: 0;
+}
+html[data-layout="chronicle"] .lx-ch-j-opt input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-j-opt small { display: block; margin-top: 2px; font-size: 12.5px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-opt.is-off { opacity: 0.55; cursor: default; }
+html[data-layout="chronicle"] .lx-ch-j-pop-note { margin-top: 4px; font-size: 12.5px; line-height: 1.45; color: var(--text-muted); }
+
+html[data-layout="chronicle"] .lx-ch-j-stats {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 12px;
+    padding: 14px 0 18px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+html[data-layout="chronicle"] .lx-ch-j-stat { min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-j-stat-v {
+    font-family: var(--font-mono); font-size: 18px; line-height: 1.2; font-variant-numeric: tabular-nums; color: var(--text);
+}
+html[data-layout="chronicle"] .lx-ch-j-stat-l { margin-top: 2px; font-size: 12px; line-height: 1.3; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-statserr { grid-column: 1 / -1; font-size: 13px; color: var(--text-muted); }
+
+html[data-layout="chronicle"] .lx-ch-j-search { position: relative; margin-top: 16px; }
+html[data-layout="chronicle"] .lx-ch-j-search > svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
+html[data-layout="chronicle"] .lx-ch-j-search input {
+    width: 100%; height: 38px; padding: 0 36px 0 34px; box-sizing: border-box;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--r-2, 0px);
+    color: var(--text); font-family: var(--font-body); font-size: 14px; box-shadow: none; text-transform: none;
+}
+html[data-layout="chronicle"] .lx-ch-j-search input::placeholder { color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-j-search input:focus { border-color: var(--border-strong); outline: none; }
+html[data-layout="chronicle"] .lx-ch-j-search input:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-j-search-clear {
+    position: absolute; right: 2px; top: 1px; width: 36px; height: 36px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: none; border: 0; cursor: pointer; color: var(--text-muted); border-radius: var(--r-2, 0px);
+}
+html[data-layout="chronicle"] .lx-ch-j-search-clear:hover { color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-j-search-clear:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
+html[data-layout="chronicle"] .lx-ch-btn.lx-ch-j-recapbtn { width: 100%; justify-content: flex-start; margin-top: 8px; gap: 10px; }
+html[data-layout="chronicle"] .lx-ch-j-recapbtn .lx-ch-j-i:first-child { color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-j-recapbtn span { flex: 1; text-align: left; }
+html[data-layout="chronicle"] .lx-ch-j-filters { display: flex; gap: 6px; margin-top: 14px; }
+
+html[data-layout="chronicle"] .lx-ch-j-listhead {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    margin-top: 20px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+html[data-layout="chronicle"] .lx-ch-j-month {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    margin: 26px 0 4px; font-family: var(--font-display); font-size: 17px; font-weight: 500; line-height: 1.2;
+    text-transform: none; letter-spacing: 0; color: var(--text-muted);
+}
+html[data-layout="chronicle"] .lx-ch-j-list > section:first-child > .lx-ch-j-month { margin-top: 14px; }
+html[data-layout="chronicle"] .lx-ch-j-month small { font-family: var(--font-mono); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-j-ul { list-style: none; margin: 0; padding: 0; }
+html[data-layout="chronicle"] .lx-ch-j-item {
+    position: relative;
+    display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 0 14px;
+    padding: 14px 8px 14px 12px; margin: 0 -8px 0 -12px;
+    border-bottom: 1px solid var(--border); border-radius: var(--r-2, 0px);
+    color: var(--text); text-decoration: none;
+    transition: background-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-j-item:hover { background: color-mix(in srgb, var(--text) 3%, transparent); }
+html[data-layout="chronicle"] .lx-ch-j-item.is-selected { background: color-mix(in srgb, var(--primary) 7%, transparent); }
+html[data-layout="chronicle"] .lx-ch-j-item.is-selected::before {
+    content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 2px; background: var(--primary);
+}
+html[data-layout="chronicle"] .lx-ch-j-item-day { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+html[data-layout="chronicle"] .lx-ch-j-item-n { font-family: var(--font-display); font-size: 24px; line-height: 1.05; font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-j-item-w { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-item-mood { margin-top: 4px; font-size: 15px; line-height: 1; }
+html[data-layout="chronicle"] .lx-ch-j-item-main { min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-j-item-t {
+    display: block; font-family: var(--font-display); font-size: 16px; line-height: 1.3; font-weight: 600; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+html[data-layout="chronicle"] .lx-ch-j-item-t.is-pending { font-weight: 400; font-style: italic; color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-j-item-q {
+    display: flex; align-items: baseline; gap: 6px; margin-top: 3px; font-size: 13px; line-height: 1.4; color: var(--text);
+}
+html[data-layout="chronicle"] .lx-ch-j-item-q svg { color: var(--primary); transform: translateY(2px); }
+html[data-layout="chronicle"] .lx-ch-j-item-q span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-j-item-s {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    margin-top: 3px; font-size: 13px; line-height: 1.45; color: var(--text-muted); overflow-wrap: anywhere;
+}
+html[data-layout="chronicle"] .lx-ch-j-item-f {
+    margin-top: 6px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.4; color: var(--text-dim);
+    font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+html[data-layout="chronicle"] .lx-ch-j-item-side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+html[data-layout="chronicle"] .lx-ch-j-item-star { color: var(--clay-amber); }
+html[data-layout="chronicle"] .lx-ch-j-item-star svg { fill: currentColor; }
+html[data-layout="chronicle"] .lx-ch-j-thumb {
+    width: 52px; height: 52px; background-color: var(--bg-elevated); background-size: cover; background-position: center;
+    border-radius: var(--r-2, 0px); border: 1px solid var(--border); overflow: hidden;
+}
+html[data-layout="chronicle"] .lx-ch-j-thumb svg { width: 100%; height: 100%; display: block; }
+html[data-layout="chronicle"] .lx-ch-btn.lx-ch-j-more { margin: 20px auto 0; display: flex; }
+html[data-layout="chronicle"] .lx-ch-j-skel { padding: 16px 0 16px 54px; border-bottom: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-j-index .lx-ch-empty { padding: 28px 0; }
+
+/* ── Editor (right) ───────────────────────────────────────────── */
+html[data-layout="chronicle"] .lx-ch-j-editor {
+    grid-area: editor; position: relative; min-width: 0; min-height: 0;
+    overflow-y: auto; overscroll-behavior: contain; scroll-margin-top: var(--nav-h);
+    scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+}
+html[data-layout="chronicle"] .lx-ch-j-strip {
+    position: sticky; top: 0; z-index: 5;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+    padding: 12px 32px 0;
+}
+html[data-layout="chronicle"] .lx-ch-j-strip-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 720px; margin: 0 auto 4px;
+}
+html[data-layout="chronicle"] .lx-ch-j-monthlabel {
+    font-family: var(--font-display); font-size: 19px; font-weight: 500; letter-spacing: -0.005em;
+    text-transform: none; color: var(--text); margin: 0;
+}
+html[data-layout="chronicle"] .lx-ch-j-strip-nav { display: flex; align-items: center; gap: 2px; }
+html[data-layout="chronicle"] .lx-ch-j-days {
+    display: flex; gap: 2px; overflow-x: auto; max-width: 720px; margin: 0 auto; padding: 4px 0 10px;
+    scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+}
+html[data-layout="chronicle"] .lx-ch-j-cell {
+    position: relative; flex: none; width: 44px; height: 68px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    background: none; border: 0; border-bottom: 2px solid transparent; border-radius: var(--r-1, 0px);
+    color: var(--text-muted); cursor: pointer;
+    transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-j-cell:hover:not(:disabled) { background: var(--lx-ch-tint); color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-j-cell:disabled { opacity: 0.35; cursor: default; }
+html[data-layout="chronicle"] .lx-ch-j-cell-w { font-family: var(--font-mono); font-size: 11px; line-height: 1; }
+html[data-layout="chronicle"] .lx-ch-j-cell-n { font-family: var(--font-display); font-size: 20px; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-cell.has-entry .lx-ch-j-cell-n { color: var(--text); font-weight: 600; }
+html[data-layout="chronicle"] .lx-ch-j-cell.is-today .lx-ch-j-cell-n { color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-j-cell.is-selected { border-bottom-color: var(--primary); color: var(--text); background: color-mix(in srgb, var(--primary) 6%, transparent); }
+html[data-layout="chronicle"] .lx-ch-j-cell-m { height: 14px; display: flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1; }
+html[data-layout="chronicle"] .lx-ch-j-cell-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-cell-fav { position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; color: var(--clay-amber); }
+html[data-layout="chronicle"] .lx-ch-j-cell-fav svg { width: 8px; height: 8px; display: block; fill: currentColor; stroke: none; }
+html[data-layout="chronicle"] .lx-ch-j-cell-ph { position: absolute; top: 6px; left: 6px; width: 4px; height: 4px; border-radius: 50%; background: var(--clay-lavender); }
+
+html[data-layout="chronicle"] .lx-ch-j-day { max-width: 720px; margin: 0 auto; padding: 32px 32px 96px; }
+html[data-layout="chronicle"] .lx-ch-j-day-top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; min-height: 18px; }
+html[data-layout="chronicle"] .lx-ch-j-save { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; }
+html[data-layout="chronicle"] .lx-ch-j-save.is-saving { color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-save.is-saved { color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-save.is-failed { color: var(--danger); }
+html[data-layout="chronicle"] .lx-ch-j-save button {
+    background: none; border: 1px solid currentColor; border-radius: var(--r-1, 0px); color: inherit; cursor: pointer;
+    font: inherit; padding: 1px 8px;
+}
+html[data-layout="chronicle"] .lx-ch-j-save button:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+html[data-layout="chronicle"] .lx-ch-j-weekday {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 14px;
+    font-family: var(--font-display); font-size: 40px; line-height: 1.12; font-weight: 500; letter-spacing: -0.02em;
+    text-transform: none; color: var(--text); margin: 4px 0 0;
+}
+html[data-layout="chronicle"] .lx-ch-j-weekday span:last-child { font-size: 0.55em; font-weight: 400; letter-spacing: -0.005em; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+html[data-layout="chronicle"] .lx-ch-j-acts .lx-ch-btn { min-height: 32px; padding: 0 12px; font-size: 13px; }
+html[data-layout="chronicle"] .lx-ch-j-acts .lx-ch-btn[aria-pressed="true"] { border-color: var(--clay-amber); color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-j-acts .lx-ch-btn[aria-pressed="true"] svg { fill: var(--clay-amber); stroke: var(--clay-amber); }
+html[data-layout="chronicle"] .lx-ch-j-acts .lx-ch-j-del { margin-left: auto; color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+html[data-layout="chronicle"] .lx-ch-j-datewrap { position: relative; display: inline-flex; }
+html[data-layout="chronicle"] .lx-ch-j-dateinput { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0; }
+
+html[data-layout="chronicle"] .lx-ch-j-fields { border: 0; margin: 0; padding: 0; min-width: 0; transition: opacity 150ms ease-out; }
+html[data-layout="chronicle"] .lx-ch-j-day.is-loading .lx-ch-j-fields { opacity: 0.5; }
+html[data-layout="chronicle"] .lx-ch-j-title {
+    display: block; width: 100%; box-sizing: border-box; margin: 28px 0 0; padding: 4px 0 8px;
+    background: transparent; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; box-shadow: none;
+    font-family: var(--font-display); font-size: 28px; line-height: 1.25; font-weight: 500; letter-spacing: -0.012em;
+    color: var(--text); text-transform: none;
+}
+html[data-layout="chronicle"] .lx-ch-j-title::placeholder { color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-j-title:focus { outline: none; border-bottom-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-j-title:focus-visible { outline: none; border-bottom-color: var(--primary); box-shadow: 0 1px 0 0 var(--primary); }
+
+html[data-layout="chronicle"] .lx-ch-j-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px 20px; align-items: center; margin-top: 18px; }
+html[data-layout="chronicle"] .lx-ch-j-label { font-size: 13px; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
+html[data-layout="chronicle"] .lx-ch-j-moods { display: flex; flex-wrap: wrap; gap: 4px; }
+html[data-layout="chronicle"] .lx-ch-j-mood {
+    width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
+    background: none; border: 1px solid transparent; border-radius: var(--r-pill, 999px);
+    font-size: 19px; line-height: 1; cursor: pointer;
+    transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-j-mood:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-j-mood[aria-pressed="true"] { border-color: var(--primary); background: var(--primary-soft); }
+html[data-layout="chronicle"] .lx-ch-j-weather {
+    width: 100%; max-width: 360px; box-sizing: border-box; height: 34px; padding: 0 2px;
+    background: transparent; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; box-shadow: none;
+    font-family: var(--font-body); font-size: 14px; color: var(--text); text-transform: none;
+}
+html[data-layout="chronicle"] .lx-ch-j-weather::placeholder { color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-j-weather:focus { outline: none; border-bottom-color: var(--primary); }
+
+html[data-layout="chronicle"] .lx-ch-j-quick {
+    margin-top: 20px; padding: 2px 0 2px 14px; border-left: 2px solid var(--border-strong);
+    transition: border-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-j-quick:focus-within { border-left-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-j-quick-l { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
+html[data-layout="chronicle"] .lx-ch-j-quick textarea {
+    display: block; width: 100%; box-sizing: border-box; min-height: 26px; margin-top: 2px; padding: 2px 0; resize: none; overflow: hidden;
+    background: none; border: 0; border-radius: 0; box-shadow: none; outline: none;
+    font-family: var(--font-body); font-size: 15px; line-height: 1.5; color: var(--text); text-transform: none;
+}
+html[data-layout="chronicle"] .lx-ch-j-quick textarea::placeholder { color: var(--text-dim); }
+
+html[data-layout="chronicle"] .lx-ch-j-bodywrap {
+    margin: 28px 0 0 -18px; padding-left: 16px; border-left: 2px solid transparent; transition: border-color 150ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-j-bodywrap:focus-within { border-left-color: color-mix(in srgb, var(--primary) 60%, transparent); }
+html[data-layout="chronicle"] .lx-ch-j-body {
+    display: block; width: 100%; box-sizing: border-box; min-height: 240px; padding: 0; resize: none; overflow: hidden;
+    background: none; border: 0; border-radius: 0; box-shadow: none; outline: none;
+    font-family: var(--font-display); font-size: 18px; line-height: 1.75; font-weight: 400; color: var(--text); text-transform: none;
+}
+html[data-layout="chronicle"] .lx-ch-j-body::placeholder { color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-j-foot { margin-top: 12px; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; min-height: 16px; }
+
+html[data-layout="chronicle"] .lx-ch-j-photos { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+html[data-layout="chronicle"] .lx-ch-j-photo { position: relative; width: 96px; height: 96px; }
+html[data-layout="chronicle"] .lx-ch-j-photo > a, html[data-layout="chronicle"] .lx-ch-j-photo > .lx-ch-j-photo-load {
+    display: block; width: 100%; height: 100%; border: 1px solid var(--border); border-radius: var(--r-2, 0px); overflow: hidden; background: var(--bg-elevated);
+}
+html[data-layout="chronicle"] .lx-ch-j-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+html[data-layout="chronicle"] .lx-ch-j-photo > a:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+html[data-layout="chronicle"] .lx-ch-j-photo > .lx-ch-j-photo-load { display: flex; align-items: center; justify-content: center; }
+html[data-layout="chronicle"] .lx-ch-j-photo-x {
+    position: absolute; top: -8px; right: -8px; width: 26px; height: 26px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 50%; color: var(--text-muted); cursor: pointer;
+}
+html[data-layout="chronicle"] .lx-ch-j-photo-x:hover { color: var(--danger); border-color: var(--danger); }
+html[data-layout="chronicle"] .lx-ch-j-photo-add {
+    width: 96px; height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    background: none; border: 1px dashed var(--border-strong); border-radius: var(--r-2, 0px);
+    color: var(--text-muted); font-size: 13px; cursor: pointer;
+    transition: color 120ms ease-out, border-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-j-photo-add:hover { color: var(--text); border-color: var(--text-muted); }
+
+html[data-layout="chronicle"] .lx-ch-j-where { margin-top: 40px; }
+html[data-layout="chronicle"] .lx-ch-j-where .lx-ch-section-head { margin-bottom: 14px; }
+html[data-layout="chronicle"] .lx-ch-j-map {
+    position: relative; height: 280px; border: 1px solid var(--border); border-radius: var(--r-3, 0px); overflow: hidden;
+    background: var(--surface-0, var(--bg-elevated)); margin-top: 14px;
+}
+html[data-layout="chronicle"] .lx-ch-j-map .maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-map .maplibregl-ctrl-attrib a { color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-map .maplibregl-ctrl-group { background: var(--bg); border: 1px solid var(--border); box-shadow: none; border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-j-where-places { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+html[data-layout="chronicle"] .lx-ch-j-where-none { font-size: 14px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-link { color: var(--link); text-decoration: none; border-radius: var(--r-1, 0px); }
+html[data-layout="chronicle"] .lx-ch-j-link:hover { text-decoration: underline; }
+html[data-layout="chronicle"] .lx-ch-j-day-err { padding: 24px 0; }
+
+/* ── Recap panel ──────────────────────────────────────────────── */
+html[data-layout="chronicle"] .lx-ch-j-recap {
+    position: fixed; right: 0; z-index: 1500;
+    top: var(--nav-h, 0px); bottom: var(--bottom-nav-height, 0px);
+    width: min(440px, 100vw); display: none; flex-direction: column;
+    background: var(--bg-elevated); border-left: 1px solid var(--border-strong);
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.22);
+}
+html[data-layout="chronicle"] .lx-ch-j-recap.open { display: flex; }
+html[data-layout="chronicle"] .lx-ch-j-recap-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    padding: 20px 20px 14px 24px; border-bottom: 1px solid var(--border);
+}
+html[data-layout="chronicle"] .lx-ch-j-recap-title { font-family: var(--font-display); font-size: 22px; font-weight: 500; line-height: 1.2; color: var(--text); text-transform: none; margin: 0; }
+html[data-layout="chronicle"] .lx-ch-j-recap-title:focus { outline: none; }
+html[data-layout="chronicle"] .lx-ch-j-recap-span { margin-top: 4px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-recap-close {
+    flex: none; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center;
+    background: none; border: 0; border-radius: var(--r-2, 0px); color: var(--text-muted); cursor: pointer;
+}
+html[data-layout="chronicle"] .lx-ch-j-recap-close:hover { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-j-recap-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px 32px; font-size: 15px; line-height: 1.65; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-j-recap-body p { margin: 0 0 14px; }
+html[data-layout="chronicle"] .lx-ch-j-recap-sec { font-family: var(--font-display); font-size: 17px; font-weight: 500; text-transform: none; letter-spacing: 0; margin: 24px 0 8px; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-j-recap-sec:first-child { margin-top: 0; }
+html[data-layout="chronicle"] .lx-ch-j-recap-note { color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-recap-error { color: var(--danger); }
+html[data-layout="chronicle"] .lx-ch-j-recap-loading { display: flex; align-items: center; gap: 12px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-recap-loading .spinner { flex: none; margin: 0; }
+html[data-layout="chronicle"] .lx-ch-j-recap-facts { margin-top: 20px; border-top: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-j-recap-fact {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 16px; align-items: baseline;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+html[data-layout="chronicle"] .lx-ch-j-recap-fact .l { font-size: 14px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-recap-fact .v { font-family: var(--font-mono); font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-j-recap-fact .e { grid-column: 1 / -1; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); text-align: right; }
+html[data-layout="chronicle"] .lx-ch-j-recap-foot { margin-top: 20px; font-size: 13px; line-height: 1.55; color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-j-recap-foot a { color: var(--link); }
+
+/* ── Tablet and phone: one column, the open day first ─────────── */
+@media (max-width: 900px) {
+    html[data-layout="chronicle"] .lx-ch-j {
+        display: block; height: auto; min-height: 0;
+    }
+    html[data-layout="chronicle"] .lx-ch-j-editor { overflow: visible; }
+    html[data-layout="chronicle"] .lx-ch-j-index { overflow: visible; border-right: 0; border-top: 1px solid var(--border); padding: 0 24px 40px; }
+    html[data-layout="chronicle"] .lx-ch-j-strip { position: static; padding: 12px 24px 0; }
+    html[data-layout="chronicle"] .lx-ch-j-day { padding: 24px 24px 56px; }
+}
+@media (max-width: 768px) {
+    html[data-layout="chronicle"] .lx-ch-j-index { padding: 0 16px 32px; }
+    html[data-layout="chronicle"] .lx-ch-j-strip { padding: 8px 8px 0 16px; }
+    html[data-layout="chronicle"] .lx-ch-j-day { padding: 20px 16px 40px; }
+    html[data-layout="chronicle"] .lx-ch-j-weekday { font-size: 32px; }
+    html[data-layout="chronicle"] .lx-ch-j-title { font-size: 24px; }
+    html[data-layout="chronicle"] .lx-ch-j-body { font-size: 17px; }
+    html[data-layout="chronicle"] .lx-ch-j-meta { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    html[data-layout="chronicle"] .lx-ch-j-meta .lx-ch-j-label { margin-top: 6px; }
+    html[data-layout="chronicle"] .lx-ch-j-mood { width: 44px; height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-j-weather { height: 44px; max-width: none; font-size: 16px; }
+    html[data-layout="chronicle"] .lx-ch-j-acts .lx-ch-btn { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-j-iconbtn { min-width: 44px; height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-j-search input { height: 44px; font-size: 16px; }
+    html[data-layout="chronicle"] .lx-ch-j-search-clear { height: 42px; width: 44px; }
+    html[data-layout="chronicle"] .lx-ch-j-quick textarea { font-size: 16px; }
+    html[data-layout="chronicle"] .lx-ch-j-map { height: 240px; }
+    html[data-layout="chronicle"] .lx-ch-j-recap { width: 100vw; border-left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html[data-layout="chronicle"] .lx-ch-j * { transition: none !important; }
+}
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none !important; }
+{% endblock %}
+
+{% block content %}
+{% comment %}Inline icon paths are repeated in the script (ICON); keep them in step.{% endcomment %}
+<div class="lx-ch-j" id="lx-ch-j" data-tile-qs="{{ CARTO_TILE_QS }}">
+
+    <section class="lx-ch-j-editor" id="lx-ch-j-editor" aria-label="Journal entry">
+        <div class="lx-ch-j-strip">
+            <div class="lx-ch-j-strip-head">
+                <div class="lx-ch-j-monthlabel" id="lx-ch-j-monthlabel">&nbsp;</div>
+                <div class="lx-ch-j-strip-nav">
+                    <button type="button" class="lx-ch-j-iconbtn" id="lx-ch-j-prev" aria-label="Previous month"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+                    <button type="button" class="lx-ch-j-iconbtn" id="lx-ch-j-today">Today</button>
+                    <button type="button" class="lx-ch-j-iconbtn" id="lx-ch-j-next" aria-label="Next month"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+                </div>
+            </div>
+            <div class="lx-ch-j-days" id="lx-ch-j-days" role="group" aria-label="Days of the month"></div>
+        </div>
+
+        <article class="lx-ch-j-day is-loading" id="lx-ch-j-day" aria-busy="true" aria-labelledby="lx-ch-j-weekday">
+            <div class="lx-ch-j-day-top">
+                <span class="lx-ch-kicker" id="lx-ch-j-kicker">&nbsp;</span>
+                <span class="lx-ch-j-save" id="lx-ch-j-save" role="status" aria-live="polite"></span>
+            </div>
+            <h2 class="lx-ch-j-weekday" id="lx-ch-j-weekday"><span id="lx-ch-j-wd">&nbsp;</span><span id="lx-ch-j-dt"></span></h2>
+
+            <div class="lx-ch-j-day-err" id="lx-ch-j-dayerr" hidden>
+                <div class="lx-ch-empty">
+                    <div class="lx-ch-empty-title">This day didn&rsquo;t open</div>
+                    <p>Roamly couldn&rsquo;t load this entry. Nothing was changed.</p>
+                    <button type="button" class="lx-ch-btn" id="lx-ch-j-dayretry">Try again</button>
+                </div>
+            </div>
+
+            <div id="lx-ch-j-form">
+                <div class="lx-ch-j-acts">
+                    <button type="button" class="lx-ch-btn" id="lx-ch-j-fav" aria-pressed="false"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg><span id="lx-ch-j-favtxt">Star</span></button>
+                    <span class="lx-ch-j-datewrap">
+                        <button type="button" class="lx-ch-btn" id="lx-ch-j-move"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>Move to another day</button>
+                        <input type="date" class="lx-ch-j-dateinput rly-native" id="lx-ch-j-dateinput" tabindex="-1" aria-label="Move this entry to another day">
+                    </span>
+                    <button type="button" class="lx-ch-btn lx-ch-j-del" id="lx-ch-j-delete"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/></svg>Delete entry</button>
+                </div>
+
+                <fieldset class="lx-ch-j-fields" id="lx-ch-j-fields" disabled>
+                    <legend class="rly-sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);">Journal entry</legend>
+                    <input type="text" class="lx-ch-j-title" id="lx-ch-j-title" placeholder="Give the day a title" maxlength="300" aria-label="Title" autocomplete="off">
+
+                    <div class="lx-ch-j-meta">
+                        <span class="lx-ch-j-label" id="lx-ch-j-moodlabel">Mood</span>
+                        <div class="lx-ch-j-moods" id="lx-ch-j-moods" role="group" aria-labelledby="lx-ch-j-moodlabel"></div>
+                        <label class="lx-ch-j-label" for="lx-ch-j-weather">Weather</label>
+                        <input type="text" class="lx-ch-j-weather" id="lx-ch-j-weather" placeholder="Sunny, 22&deg;" maxlength="60" autocomplete="off">
+                    </div>
+
+                    <div class="lx-ch-j-quick">
+                        <label class="lx-ch-j-quick-l" for="lx-ch-j-quick"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>Quick note, shown on the map</label>
+                        <textarea id="lx-ch-j-quick" rows="1" maxlength="2000" placeholder="What you did, in a line"></textarea>
+                    </div>
+
+                    <div class="lx-ch-j-bodywrap">
+                        <textarea class="lx-ch-j-body" id="lx-ch-j-body" placeholder="What happened today?" aria-label="Entry"></textarea>
+                    </div>
+                    <div class="lx-ch-j-foot" id="lx-ch-j-wordcount" aria-live="off"></div>
+
+                    <div class="lx-ch-j-photos" id="lx-ch-j-photos" aria-label="Photos"></div>
+                    <input type="file" id="lx-ch-j-photoinput" accept="image/*" multiple hidden>
+                </fieldset>
+
+                <section class="lx-ch-j-where" id="lx-ch-j-where" aria-label="Where you were">
+                    <div class="lx-ch-section-head">
+                        <h3 class="lx-ch-section-title">Where you were</h3>
+                        <a class="lx-ch-j-link" id="lx-ch-j-maplink" href="{% url 'tracker:map' %}">Open on the map</a>
+                    </div>
+                    <div class="lx-ch-j-where-none" id="lx-ch-j-wherenone">Loading the day&rsquo;s track&hellip;</div>
+                    <div id="lx-ch-j-wheredata" hidden>
+                        <div class="lx-ch-stats" id="lx-ch-j-mapstats"></div>
+                        <div class="lx-ch-j-where-places" id="lx-ch-j-places"></div>
+                        <div class="lx-ch-j-map" id="lx-ch-j-map" role="img" aria-label="Map of the day&rsquo;s track"></div>
+                    </div>
+                </section>
+            </div>
+        </article>
+    </section>
+
+    <section class="lx-ch-j-index" id="lx-ch-j-index" aria-label="Your entries">
+        <div class="lx-ch-j-head">
+            <h1 class="lx-ch-j-h1">Journals</h1>
+            <div class="lx-ch-j-cog" id="lx-ch-j-cog">
+                <button type="button" class="lx-ch-j-iconbtn" id="lx-ch-j-cogbtn" aria-label="Journal settings" aria-haspopup="true" aria-expanded="false" aria-controls="lx-ch-j-pop"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></button>
+                <div class="lx-ch-j-pop" id="lx-ch-j-pop" role="group" aria-label="Journal settings" hidden>
+                    <div class="lx-ch-j-pop-title">Journal settings</div>
+                    <label class="lx-ch-j-opt"><input type="checkbox" data-setting="auto_title"><span>AI title<small>Titles an untitled day when you move on from it</small></span></label>
+                    <label class="lx-ch-j-opt"><input type="checkbox" data-setting="auto_mood"><span>AI mood emoji<small>Picks an emoji for how the day felt, if you didn&rsquo;t</small></span></label>
+                    <label class="lx-ch-j-opt"><input type="checkbox" data-setting="auto_weather"><span>Fetch the weather<small>Fills a blank weather field from Open-Meteo, using the day&rsquo;s rough location</small></span></label>
+                    <div class="lx-ch-j-pop-note" id="lx-ch-j-popnote" hidden></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="lx-ch-j-stats" id="lx-ch-j-stats" aria-busy="true">
+            {% for i in "123456" %}
+            <div class="lx-ch-j-stat" aria-hidden="true"><div class="skeleton" style="width:2.6rem;height:1.1rem;margin-bottom:6px;"></div><div class="skeleton" style="width:3.6rem;height:0.7rem;"></div></div>
+            {% endfor %}
+        </div>
+
+        <div class="lx-ch-j-search">
+            <svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+            <input type="text" id="lx-ch-j-search" placeholder="Search entries" aria-label="Search entries" autocomplete="off">
+            <button type="button" class="lx-ch-j-search-clear" id="lx-ch-j-searchclear" aria-label="Clear search" hidden><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
+        <button type="button" class="lx-ch-btn lx-ch-j-recapbtn" id="lx-ch-j-recaptoggle" aria-expanded="false" aria-controls="lx-ch-j-recap">
+            <svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 1.7 1.7.8-1.7.8L19 20l-.8-1.7-1.7-.8 1.7-.8z"/></svg>
+            <span>Recap my past few days</span>
+            <svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+        </button>
+        <div class="lx-ch-j-filters" id="lx-ch-j-filters" role="group" aria-label="Filter entries">
+            <button type="button" class="lx-ch-chip is-active" data-filter="all" aria-pressed="true">All</button>
+            <button type="button" class="lx-ch-chip" data-filter="starred" aria-pressed="false">Starred</button>
+        </div>
+
+        <div id="lx-ch-j-listwrap">
+            <div class="lx-ch-j-listhead" id="lx-ch-j-listhead" hidden></div>
+            <div class="lx-ch-j-list" id="lx-ch-j-list" aria-busy="true">
+                {% for i in "1234" %}
+                <div class="lx-ch-j-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-line"></div><div class="skeleton lx-ch-skel-line is-mid"></div></div>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+</div>
+
+<!-- AI recap: closed on every page load, and nothing in it is kept -->
+<aside class="lx-ch-j-recap" id="lx-ch-j-recap" aria-labelledby="lx-ch-j-recaptitle">
+    <div class="lx-ch-j-recap-head">
+        <div>
+            <h2 class="lx-ch-j-recap-title" id="lx-ch-j-recaptitle" tabindex="-1">Your past few days</h2>
+            <div class="lx-ch-j-recap-span" id="lx-ch-j-recapspan"></div>
+        </div>
+        <button type="button" class="lx-ch-j-recap-close" id="lx-ch-j-recapclose" aria-label="Close recap"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="lx-ch-j-recap-body" id="lx-ch-j-recapbody" aria-live="polite"></div>
+</aside>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    'use strict';
+
+    function init() {
+        const root = document.getElementById('lx-ch-j');
+        if (!root) return;
+        const $ = id => document.getElementById(id);
+
+        const csrfToken = '{{ csrf_token }}';
+        const AI_READY = {{ AI_ASK_ENABLED|yesno:"true,false" }};
+        const CH = window.RoamlyChronicle || { selectedDate: null, setDate: function () {}, onDate: function () { return function () {}; } };
+        const TZ = new Date().getTimezoneOffset();
+        const FEED_STEP = 20;
+        const MOODS = [
+            ['\u{1F600}', 'Grinning'], ['\u{1F642}', 'Content'], ['\u{1F610}', 'Neutral'], ['\u{1F614}', 'Sad'],
+            ['\u{1F622}', 'Crying'], ['\u{1F621}', 'Angry'], ['\u{1F634}', 'Sleepy'], ['\u{1F973}', 'Celebrating'],
+            ['\u{1F60D}', 'Loving'], ['\u{1F914}', 'Thinking'], ['\u{1F60E}', 'Cool'], ['\u{1F912}', 'Unwell'],
+        ];
+        const ICON = {
+            pen: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+            star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+            plus: '<path d="M12 5v14M5 12h14"/>',
+            x: '<path d="M6 6l12 12M18 6L6 18"/>',
+        };
+        const ic = (name, size) => '<svg class="lx-ch-j-i" viewBox="0 0 24 24" width="' + (size || 14) + '" height="' + (size || 14) + '" aria-hidden="true">' + (ICON[name] || '') + '</svg>';
+
+        // ── Helpers ───────────────────────────────────────────────────
+        const pad = n => String(n).padStart(2, '0');
+        const isoOf = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+        const todayStr = () => isoOf(new Date());
+        function parse(iso) {
+            if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+            const p = iso.split('-');
+            const d = new Date(+p[0], +p[1] - 1, +p[2], 12, 0, 0);
+            return isNaN(d.getTime()) || isoOf(d) !== iso ? null : d;
+        }
+        function fmt(iso, opts) {
+            const d = parse(iso);
+            if (!d) return '';
+            try { return d.toLocaleDateString(undefined, opts); } catch (e) { return iso; }
+        }
+        const fmtLong = iso => fmt(iso, { day: 'numeric', month: 'long', year: 'numeric' });
+        const monthName = (y, m) => { try { return new Date(y, m - 1, 1, 12).toLocaleDateString(undefined, { month: 'long' }); } catch (e) { return String(m); } };
+        function dayDiff(a, b) {
+            const pa = a.split('-'), pb = b.split('-');
+            return Math.round((Date.UTC(+pa[0], +pa[1] - 1, +pa[2]) - Date.UTC(+pb[0], +pb[1] - 1, +pb[2])) / 86400000);
+        }
+        function esc(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+        function toast(msg, type) { if (window.roamlyToast) window.roamlyToast(msg, type ? { type: type } : undefined); }
+        function reduced() {
+            try {
+                if (window.RoamlyStyle && typeof window.RoamlyStyle.reducedMotion === 'function') return !!window.RoamlyStyle.reducedMotion();
+            } catch (e) {}
+            return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+        }
+        let miles = false;
+        try { miles = localStorage.getItem('roamly_speed_unit') === 'mph'; } catch (e) {}
+        function fmtDist(km) {
+            const v = miles ? km * 0.621371 : km;
+            return (v < 10 ? v.toFixed(1) : Math.round(v).toLocaleString()) + (miles ? ' mi' : ' km');
+        }
+        const splitLayout = () => !(window.matchMedia && window.matchMedia('(max-width: 900px)').matches);
+
+        const editorEl = $('lx-ch-j-editor'), dayEl = $('lx-ch-j-day');
+        const titleEl = $('lx-ch-j-title'), bodyEl = $('lx-ch-j-body'), quickEl = $('lx-ch-j-quick'), weatherEl = $('lx-ch-j-weather');
+        const fieldsEl = $('lx-ch-j-fields'), formEl = $('lx-ch-j-form');
+        const saveEl = $('lx-ch-j-save');
+        const listEl = $('lx-ch-j-list'), listHead = $('lx-ch-j-listhead');
+
+        // ── State ─────────────────────────────────────────────────────
+        let viewYear, viewMonth;
+        let monthEntries = {};
+        let currentDate = null;
+        let loaded = false;               // the open day's entry has arrived: only then may anything be saved
+        let dirty = false, editedThisOpen = false;
+        let saveTimer = 0, inflight = null, daySeq = 0, monthSeq = 0;
+        let currentMood = '', currentFav = false, currentPhotos = 0;
+        let journalSettings = null;
+        let feedEntries = [], feedShown = FEED_STEP, feedLoaded = false, feedFailed = false;
+        let onlyStarred = false;
+        let searchState = null;           // {q, entries, count} while a search is showing
+        let searchTimer = 0, searchSeq = 0;
+        let titleBackfillDone = false;
+        let monthToasted = false;
+
+        // ── Stats ─────────────────────────────────────────────────────
+        function loadStats() {
+            const el = $('lx-ch-j-stats');
+            fetch('/api/journals/stats/').then(r => { if (!r.ok) throw new Error('stats'); return r.json(); }).then(s => {
+                const chips = [
+                    [s.current_streak, 'day streak'], [s.longest_streak, 'longest streak'], [s.total_entries, 'entries'],
+                    [s.this_year, 'this year'], [(s.total_words || 0).toLocaleString(), 'words'], [s.total_photos, 'photos'],
+                ];
+                el.removeAttribute('aria-busy');
+                el.innerHTML = chips.map(c => '<div class="lx-ch-j-stat"><div class="lx-ch-j-stat-v">' + esc(c[0]) + '</div><div class="lx-ch-j-stat-l">' + esc(c[1]) + '</div></div>').join('');
+            }).catch(() => {
+                el.removeAttribute('aria-busy');
+                el.innerHTML = '<div class="lx-ch-j-statserr">Your journal totals didn’t load. <button type="button" class="lx-ch-j-link" id="lx-ch-j-statsretry" style="background:none;border:0;padding:0;cursor:pointer;font:inherit;">Try again</button></div>';
+                const b = $('lx-ch-j-statsretry');
+                if (b) b.addEventListener('click', loadStats);
+            });
+        }
+
+        // ── Month strip ───────────────────────────────────────────────
+        function loadMonth() {
+            const seq = ++monthSeq;
+            const y = viewYear, m = viewMonth;
+            fetch('/api/journals/?year=' + y + '&month=' + m).then(r => { if (!r.ok) throw new Error('month'); return r.json(); }).then(data => {
+                if (seq !== monthSeq) return;
+                monthEntries = {};
+                (data.entries || []).forEach(e => { monthEntries[e.date] = e; });
+                renderStrip(false);
+            }).catch(() => {
+                if (seq !== monthSeq) return;
+                if (!monthToasted) { monthToasted = true; toast('The calendar didn’t load.', 'error'); }
+            });
+        }
+
+        function renderStrip(center) {
+            const daysEl = $('lx-ch-j-days');
+            const prevScroll = daysEl.scrollLeft;
+            const af = document.activeElement;
+            const hadFocus = af && af.classList && af.classList.contains('lx-ch-j-cell') && daysEl.contains(af) ? af.getAttribute('data-date') : null;
+            $('lx-ch-j-monthlabel').textContent = monthName(viewYear, viewMonth) + ' ' + viewYear;
+            daysEl.setAttribute('aria-label', 'Days of ' + monthName(viewYear, viewMonth) + ' ' + viewYear);
+            const n = new Date(viewYear, viewMonth, 0).getDate();
+            const today = todayStr();
+            const prefix = viewYear + '-' + pad(viewMonth) + '-';
+            const stop = (currentDate && currentDate.indexOf(prefix) === 0) ? currentDate : (today.indexOf(prefix) === 0 ? today : prefix + '01');
+            let h = '';
+            for (let d = 1; d <= n; d++) {
+                const ds = prefix + pad(d);
+                const e = monthEntries[ds];
+                const future = ds > today;
+                const cls = ['lx-ch-j-cell'];
+                if (e) cls.push('has-entry');
+                if (ds === today) cls.push('is-today');
+                if (ds === currentDate) cls.push('is-selected');
+                let label = fmt(ds, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+                if (e) {
+                    label += e.title ? ', ' + e.title : ', has an entry';
+                    if (e.is_favorite) label += ', starred';
+                    if (e.photo_count) label += ', ' + e.photo_count + (e.photo_count === 1 ? ' photo' : ' photos');
+                }
+                const wd = (fmt(ds, { weekday: 'narrow' }) || '').slice(0, 2);
+                h += '<button type="button" class="' + cls.join(' ') + '" data-date="' + ds + '"'
+                    + ' tabindex="' + (ds === stop && !future ? '0' : '-1') + '"'
+                    + (ds === currentDate ? ' aria-pressed="true"' : ' aria-pressed="false"')
+                    + (ds === today ? ' aria-current="date"' : '')
+                    + (future ? ' disabled' : '')
+                    + ' aria-label="' + esc(label) + '"' + (e && e.title ? ' title="' + esc(e.title) + '"' : '') + '>'
+                    + (e && e.is_favorite ? '<span class="lx-ch-j-cell-fav" aria-hidden="true">' + ic('star', 8) + '</span>' : '')
+                    + (e && e.photo_count ? '<span class="lx-ch-j-cell-ph" aria-hidden="true"></span>' : '')
+                    + '<span class="lx-ch-j-cell-w" aria-hidden="true">' + esc(wd) + '</span>'
+                    + '<span class="lx-ch-j-cell-n" aria-hidden="true">' + d + '</span>'
+                    + '<span class="lx-ch-j-cell-m" aria-hidden="true">' + (e ? (e.mood ? esc(e.mood) : '<span class="lx-ch-j-cell-dot"></span>') : '') + '</span>'
+                    + '</button>';
+            }
+            daysEl.innerHTML = h;
+            daysEl.scrollLeft = prevScroll;
+            if (hadFocus) {
+                const again = daysEl.querySelector('.lx-ch-j-cell[data-date="' + hadFocus + '"]');
+                if (again && !again.disabled) again.focus({ preventScroll: true });
+            }
+            if (center) centerCell();
+        }
+        function centerCell() {
+            const daysEl = $('lx-ch-j-days');
+            const cell = daysEl.querySelector('.lx-ch-j-cell.is-selected') || daysEl.querySelector('.lx-ch-j-cell.is-today');
+            if (!cell) { daysEl.scrollLeft = 0; return; }
+            const left = cell.offsetLeft - (daysEl.clientWidth - cell.offsetWidth) / 2;
+            try { daysEl.scrollTo({ left: Math.max(0, left), behavior: reduced() ? 'auto' : 'smooth' }); }
+            catch (e) { daysEl.scrollLeft = Math.max(0, left); }
+        }
+        function shiftMonth(delta) {
+            viewMonth += delta;
+            if (viewMonth < 1) { viewMonth = 12; viewYear--; }
+            if (viewMonth > 12) { viewMonth = 1; viewYear++; }
+            monthEntries = {};
+            renderStrip(false);
+            $('lx-ch-j-days').scrollLeft = 0;
+            loadMonth();
+        }
+        $('lx-ch-j-prev').addEventListener('click', () => shiftMonth(-1));
+        $('lx-ch-j-next').addEventListener('click', () => shiftMonth(1));
+        $('lx-ch-j-today').addEventListener('click', () => selectDay(todayStr()));
+        $('lx-ch-j-days').addEventListener('click', e => {
+            const b = e.target.closest ? e.target.closest('.lx-ch-j-cell') : null;
+            if (b && !b.disabled) selectDay(b.getAttribute('data-date'));
+        });
+        $('lx-ch-j-days').addEventListener('keydown', e => {
+            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(e.key) < 0) return;
+            const cells = Array.prototype.slice.call($('lx-ch-j-days').querySelectorAll('.lx-ch-j-cell:not(:disabled)'));
+            const i = cells.indexOf(document.activeElement);
+            if (i < 0 || !cells.length) return;
+            e.preventDefault();
+            const next = e.key === 'Home' ? 0 : e.key === 'End' ? cells.length - 1 : Math.max(0, Math.min(cells.length - 1, i + (e.key === 'ArrowRight' ? 1 : -1)));
+            cells.forEach(c => c.tabIndex = -1);
+            cells[next].tabIndex = 0;
+            cells[next].focus();
+        });
+
+        // ── Index (entries list + search) ─────────────────────────────
+        function trackSnapshot(pts) {
+            let minLa = 90, maxLa = -90, minLo = 180, maxLo = -180;
+            pts.forEach(p => { minLa = Math.min(minLa, p[0]); maxLa = Math.max(maxLa, p[0]); minLo = Math.min(minLo, p[1]); maxLo = Math.max(maxLo, p[1]); });
+            const k = Math.cos(((minLa + maxLa) / 2) * Math.PI / 180);
+            const w = Math.max((maxLo - minLo) * k, 1e-5), h = Math.max(maxLa - minLa, 1e-5);
+            const s = 84 / Math.max(w, h), ox = (100 - w * s) / 2, oy = (100 - h * s) / 2;
+            const xy = p => (ox + (p[1] - minLo) * k * s).toFixed(1) + ',' + (oy + (maxLa - p[0]) * s).toFixed(1);
+            const last = xy(pts[pts.length - 1]).split(',');
+            return '<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">'
+                + '<polyline points="' + pts.map(xy).join(' ') + '" fill="none" stroke="var(--primary)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'
+                + '<circle cx="' + last[0] + '" cy="' + last[1] + '" r="3.6" fill="var(--primary)"/></svg>';
+        }
+
+        function itemHtml(e) {
+            const quick = (e.quick_note || '').trim().split('\n')[0];
+            const foot = [];
+            if (e.word_count) foot.push(e.word_count.toLocaleString() + (e.word_count === 1 ? ' word' : ' words'));
+            if (e.photo_count) foot.push(e.photo_count + (e.photo_count === 1 ? ' photo' : ' photos'));
+            if (e.location_name) foot.push(e.location_name);
+            const title = e.title
+                ? '<span class="lx-ch-j-item-t">' + esc(e.title) + '</span>'
+                : '<span class="lx-ch-j-item-t is-pending">' + ((quick || e.snippet) ? 'Untitled' : 'Empty day') + '</span>';
+            let thumb = '';
+            if (e.cover) thumb = '<span class="lx-ch-j-thumb" style="background-image:url(\'' + esc(encodeURI(e.cover).replace(/'/g, '%27')) + '\')"></span>';
+            else if (Array.isArray(e.track) && e.track.length > 1) thumb = '<span class="lx-ch-j-thumb">' + trackSnapshot(e.track) + '</span>';
+            const sel = e.date === currentDate;
+            return '<li><a class="lx-ch-j-item' + (sel ? ' is-selected' : '') + '" href="/journals/?date=' + e.date + '" data-date="' + e.date + '"'
+                + (sel ? ' aria-current="true"' : '') + '>'
+                + '<span class="lx-ch-j-item-day"><span class="lx-ch-j-item-n">' + (+e.date.slice(8)) + '</span>'
+                + '<span class="lx-ch-j-item-w">' + esc(fmt(e.date, { weekday: 'short' })) + '</span>'
+                + (e.mood ? '<span class="lx-ch-j-item-mood">' + esc(e.mood) + '</span>' : '') + '</span>'
+                + '<span class="lx-ch-j-item-main">' + title
+                + (quick ? '<span class="lx-ch-j-item-q">' + ic('pen', 12) + '<span>' + esc(quick) + '</span></span>' : '')
+                + (e.snippet && e.snippet !== quick ? '<span class="lx-ch-j-item-s">' + esc(e.snippet) + '</span>' : '')
+                + (foot.length ? '<span class="lx-ch-j-item-f">' + esc(foot.join(' · ')) + '</span>' : '')
+                + '</span>'
+                + '<span class="lx-ch-j-item-side">' + (e.is_favorite ? '<span class="lx-ch-j-item-star" title="Starred">' + ic('star', 14) + '</span>' : '') + thumb + '</span>'
+                + '</a></li>';
+        }
+
+        function renderIndex() {
+            listEl.removeAttribute('aria-busy');
+            if (searchState) {
+                listHead.hidden = false;
+                listHead.textContent = searchState.error ? '' : searchState.count + (searchState.count === 1 ? ' result' : ' results');
+                if (searchState.error) {
+                    listEl.innerHTML = '<div class="lx-ch-empty"><div class="lx-ch-empty-title">Search didn’t run</div><p>Check your connection and try again.</p><button type="button" class="lx-ch-btn" data-act="retry-search">Try again</button></div>';
+                } else if (!searchState.entries.length) {
+                    listEl.innerHTML = '<div class="lx-ch-empty"><div class="lx-ch-empty-title">No matches</div><p>Nothing in your journal matches “' + esc(searchState.q) + '”. Try a word from the title, the place or the weather.</p></div>';
+                } else {
+                    listEl.innerHTML = '<ul class="lx-ch-j-ul">' + searchState.entries.map(itemHtml).join('') + '</ul>';
+                }
+                return;
+            }
+            listHead.hidden = true;
+            if (feedFailed) {
+                listEl.innerHTML = '<div class="lx-ch-empty"><div class="lx-ch-empty-title">Entries didn’t load</div><p>Roamly couldn’t reach your journal.</p><button type="button" class="lx-ch-btn" data-act="retry-feed">Try again</button></div>';
+                return;
+            }
+            if (!feedLoaded) return;
+            const all = onlyStarred ? feedEntries.filter(e => e.is_favorite) : feedEntries;
+            if (!all.length) {
+                listEl.innerHTML = onlyStarred
+                    ? '<div class="lx-ch-empty"><div class="lx-ch-empty-title">No starred days</div><p>Star a day with the button above its title and it will collect here.</p></div>'
+                    : '<div class="lx-ch-empty"><div class="lx-ch-empty-title">Nothing written yet</div><p>Today’s page is open. Start with a line about the day and it is saved as you type.</p></div>';
+                return;
+            }
+            const shown = all.slice(0, feedShown);
+            const counts = {};
+            all.forEach(e => { const k = e.date.slice(0, 7); counts[k] = (counts[k] || 0) + 1; });
+            let html = '', month = null, open = false;
+            shown.forEach(e => {
+                const k = e.date.slice(0, 7);
+                if (k !== month) {
+                    if (open) html += '</ul></section>';
+                    const y = +k.slice(0, 4), m = +k.slice(5);
+                    html += '<section><h3 class="lx-ch-j-month">' + esc(monthName(y, m) + ' ' + y) + '<small>' + counts[k] + (counts[k] === 1 ? ' entry' : ' entries') + '</small></h3><ul class="lx-ch-j-ul">';
+                    month = k; open = true;
+                }
+                html += itemHtml(e);
+            });
+            if (open) html += '</ul></section>';
+            if (all.length > feedShown) html += '<button type="button" class="lx-ch-btn lx-ch-j-more" data-act="more">Show older entries</button>';
+            listEl.innerHTML = html;
+        }
+
+        function markSelected(scroll) {
+            let target = null;
+            listEl.querySelectorAll('.lx-ch-j-item').forEach(a => {
+                const on = a.getAttribute('data-date') === currentDate;
+                a.classList.toggle('is-selected', on);
+                if (on) { a.setAttribute('aria-current', 'true'); target = a; } else a.removeAttribute('aria-current');
+            });
+            if (scroll && target && splitLayout()) { try { target.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
+        }
+
+        listEl.addEventListener('click', e => {
+            const t = e.target;
+            const act = t.closest ? t.closest('[data-act]') : null;
+            if (act) {
+                const a = act.getAttribute('data-act');
+                if (a === 'more') { feedShown += FEED_STEP; renderIndex(); }
+                else if (a === 'retry-feed') { loadRecent(); }
+                else if (a === 'retry-search') { runSearch($('lx-ch-j-search').value); }
+                return;
+            }
+            const link = t.closest ? t.closest('a.lx-ch-j-item') : null;
+            if (!link) return;
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return;
+            e.preventDefault();
+            selectDay(link.getAttribute('data-date'), { reveal: true });
+        });
+
+        function loadRecent() {
+            feedFailed = false;
+            fetch('/api/journals/?tz=' + TZ).then(r => { if (!r.ok) throw new Error('recent'); return r.json(); }).then(data => {
+                feedEntries = data.entries || [];
+                feedLoaded = true;
+                renderIndex();
+                backfillTitles();
+            }).catch(() => {
+                feedFailed = true;
+                renderIndex();
+            });
+        }
+
+        $('lx-ch-j-filters').addEventListener('click', e => {
+            const b = e.target.closest ? e.target.closest('[data-filter]') : null;
+            if (!b) return;
+            onlyStarred = b.getAttribute('data-filter') === 'starred';
+            $('lx-ch-j-filters').querySelectorAll('[data-filter]').forEach(x => {
+                const on = x === b;
+                x.classList.toggle('is-active', on);
+                x.setAttribute('aria-pressed', on ? 'true' : 'false');
+            });
+            feedShown = FEED_STEP;
+            renderIndex();
+        });
+
+        // Untitled days with something written get an AI title, a few at a time,
+        // once per page load, and only when "AI title" is on (it sends text out).
+        function backfillTitles() {
+            if (titleBackfillDone || !journalSettings || !journalSettings.ai_available || !journalSettings.auto_title) return;
+            if (!feedEntries.some(e => !e.title && (e.snippet || (e.quick_note || '').trim()))) return;
+            titleBackfillDone = true;
+            const round = () => fetch('/api/journals/title-missing/', { method: 'POST', headers: { 'X-CSRFToken': csrfToken } })
+                .then(r => r.ok ? r.json() : null)
+                .then(d => {
+                    if (!d) return;
+                    const dates = Object.keys(d.titled || {});
+                    dates.forEach(ds => {
+                        const e = feedEntries.find(x => x.date === ds);
+                        if (e) e.title = d.titled[ds];
+                        if (monthEntries[ds]) monthEntries[ds].title = d.titled[ds];
+                        if (ds === currentDate && loaded && !dirty && !titleEl.value) titleEl.value = d.titled[ds];
+                    });
+                    if (dates.length) { renderIndex(); renderStrip(false); }
+                    if (dates.length && d.remaining > 0) round();
+                }).catch(() => {});
+            round();
+        }
+
+        // Search ──
+        const searchInput = $('lx-ch-j-search'), searchClear = $('lx-ch-j-searchclear');
+        function setSearchChrome(on) {
+            $('lx-ch-j-filters').hidden = on;
+            $('lx-ch-j-recaptoggle').hidden = on;
+        }
+        function runSearch(q) {
+            if (!q.trim()) { clearSearch(false); return; }
+            const seq = ++searchSeq;
+            fetch('/api/journals/search/?q=' + encodeURIComponent(q)).then(r => { if (!r.ok) throw new Error('search'); return r.json(); }).then(data => {
+                if (seq !== searchSeq) return;
+                searchState = { q: q.trim(), entries: data.entries || [], count: data.count || 0 };
+                setSearchChrome(true);
+                renderIndex();
+            }).catch(() => {
+                if (seq !== searchSeq) return;
+                searchState = { q: q.trim(), entries: [], count: 0, error: true };
+                setSearchChrome(true);
+                renderIndex();
+            });
+        }
+        function clearSearch(focus) {
+            searchSeq++;
+            clearTimeout(searchTimer);
+            searchInput.value = '';
+            searchClear.hidden = true;
+            searchState = null;
+            setSearchChrome(false);
+            renderIndex();
+            if (focus) searchInput.focus();
+        }
+        searchInput.addEventListener('input', () => {
+            const q = searchInput.value;
+            searchClear.hidden = !q;
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => runSearch(q), 300);
+        });
+        searchClear.addEventListener('click', () => clearSearch(true));
+
+        // ── Settings popover ──────────────────────────────────────────
+        const cogBtn = $('lx-ch-j-cogbtn'), cogPop = $('lx-ch-j-pop');
+        function setCog(open) {
+            cogPop.hidden = !open;
+            cogBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+        cogBtn.addEventListener('click', e => { e.stopPropagation(); setCog(cogPop.hidden); });
+        document.addEventListener('click', e => { if (!cogPop.hidden && !$('lx-ch-j-cog').contains(e.target)) setCog(false); });
+        function renderJournalSettings() {
+            const s = journalSettings;
+            if (!s) return;
+            cogPop.querySelectorAll('input[data-setting]').forEach(box => {
+                const ai = box.dataset.setting !== 'auto_weather';
+                box.checked = !!s[box.dataset.setting];
+                box.disabled = ai && !s.ai_available;
+                box.closest('.lx-ch-j-opt').classList.toggle('is-off', box.disabled);
+            });
+            const note = $('lx-ch-j-popnote');
+            note.hidden = !!s.ai_available;
+            note.textContent = s.ai_available ? '' : 'The AI options use the provider from your AI Ask settings. Set one up in Settings to turn them on.';
+        }
+        cogPop.querySelectorAll('input[data-setting]').forEach(box => box.addEventListener('change', () => {
+            fetch('/api/journals/settings/', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify({ [box.dataset.setting]: box.checked }),
+            }).then(r => { if (!r.ok) throw new Error('settings'); return r.json(); }).then(s => {
+                journalSettings = s; renderJournalSettings(); backfillTitles();
+            }).catch(() => {
+                box.checked = !box.checked;
+                toast('Could not save that setting.', 'error');
+            });
+        }));
+        fetch('/api/journals/settings/').then(r => r.ok ? r.json() : null).then(s => {
+            if (s) { journalSettings = s; renderJournalSettings(); backfillTitles(); }
+        }).catch(() => {});
+
+        // ── AI recap ──────────────────────────────────────────────────
+        // The panel is the whole opt-in: opening it is what asks the provider,
+        // each time, and closing it throws the recap away. Nothing is kept.
+        const recapPanel = $('lx-ch-j-recap'), recapBody = $('lx-ch-j-recapbody'), recapSpan = $('lx-ch-j-recapspan');
+        const recapToggle = $('lx-ch-j-recaptoggle');
+        let recapAbort = null;
+        const recapParas = paras => (paras || []).map(p => '<p>' + esc(p) + '</p>').join('');
+        function recapShort(iso) { return fmt(iso, { day: 'numeric', month: 'short' }); }
+        function renderRecap(r) {
+            recapSpan.textContent = recapShort(r.from) + ' – ' + recapShort(r.to);
+            if (r.status === 'empty') {
+                recapBody.innerHTML = '<p class="lx-ch-j-recap-note">Nothing was recorded in the past ' + esc(r.days) + ' days, so there is nothing to recap.</p>';
+                return;
+            }
+            let html = '<div class="lx-ch-j-recap-sec">Recap</div>' + recapParas(r.summary);
+            if (r.has_earlier) {
+                if (r.comparison && r.comparison.length) html += '<div class="lx-ch-j-recap-sec">Compared with before</div>' + recapParas(r.comparison);
+            } else {
+                html += '<p class="lx-ch-j-recap-note">Not enough earlier data to compare these days with yet.</p>';
+            }
+            const earlierLabel = r.weeks_compared === 1 ? 'same days last week' : 'average of ' + r.weeks_compared + ' earlier weeks';
+            html += '<div class="lx-ch-j-recap-facts">' + (r.facts || []).map(f =>
+                '<div class="lx-ch-j-recap-fact"><span class="l">' + esc(f.label) + '</span><span class="v">' + esc(f.value) + '</span>'
+                + (f.earlier ? '<span class="e">' + esc(f.earlier) + ' · ' + esc(earlierLabel) + '</span>' : '') + '</div>').join('') + '</div>';
+            let source = 'From your location history';
+            if (r.journals_used) source += ' and ' + r.journals_used + ' journal ' + (r.journals_used === 1 ? 'entry' : 'entries');
+            html += '<p class="lx-ch-j-recap-foot">' + source + '. Written by your AI provider and not saved.'
+                + (r.journals_allowed ? '' : ' Journal text is left out unless you allow it in <a href="/settings/#notifications">AI Ask settings</a>.') + '</p>';
+            recapBody.innerHTML = html;
+        }
+        function recapSetupNote() {
+            recapBody.innerHTML = '<p class="lx-ch-j-recap-note">Recaps use the AI provider from your AI Ask settings, the same one as the summary emails.</p>'
+                + '<p><a class="lx-ch-j-link" href="/settings/#notifications">Set up AI Ask in Settings</a></p>';
+        }
+        function recapError(message) {
+            recapBody.innerHTML = '<p class="lx-ch-j-recap-error">' + esc(message) + '</p><button type="button" class="lx-ch-btn" id="lx-ch-j-recapretry">Try again</button>';
+            $('lx-ch-j-recapretry').addEventListener('click', loadRecap);
+        }
+        function loadRecap() {
+            if (recapAbort) recapAbort.abort();
+            const abort = recapAbort = new AbortController();
+            recapBody.innerHTML = '<div class="lx-ch-j-recap-loading"><span class="spinner"></span><span>Reading your past few days…</span></div>';
+            fetch('/api/journals/recap/', { method: 'POST', headers: { 'X-CSRFToken': csrfToken }, signal: abort.signal })
+                .then(r => r.json().catch(() => ({})).then(d => ({ ok: r.ok, data: d })))
+                .then(res => {
+                    if (abort !== recapAbort) return;
+                    if (res.ok) renderRecap(res.data);
+                    else if (res.data.setup) recapSetupNote();
+                    else recapError(res.data.error || 'Could not write your recap.');
+                })
+                .catch(e => {
+                    if (e.name !== 'AbortError' && abort === recapAbort) recapError('Could not reach Roamly. Check your connection.');
+                });
+        }
+        function openRecap() {
+            recapPanel.classList.add('open');
+            recapToggle.setAttribute('aria-expanded', 'true');
+            $('lx-ch-j-recaptitle').focus({ preventScroll: true });
+            if (AI_READY) loadRecap(); else recapSetupNote();
+        }
+        function closeRecap() {
+            if (recapAbort) recapAbort.abort();
+            recapAbort = null;
+            recapPanel.classList.remove('open');
+            recapToggle.setAttribute('aria-expanded', 'false');
+            recapBody.innerHTML = '';
+            recapSpan.textContent = '';
+            if (!recapToggle.hidden) recapToggle.focus({ preventScroll: true });
+        }
+        recapToggle.addEventListener('click', () => { if (recapPanel.classList.contains('open')) closeRecap(); else openRecap(); });
+        $('lx-ch-j-recapclose').addEventListener('click', closeRecap);
+
+        // ── Open day: form helpers ────────────────────────────────────
+        function sizeText(el) {
+            if (!el) return;
+            el.style.height = 'auto';
+            el.style.height = el.scrollHeight + 'px';
+        }
+        function updateWordCount() {
+            const w = bodyEl.value.trim().split(/\s+/).filter(Boolean).length;
+            $('lx-ch-j-wordcount').textContent = w ? w.toLocaleString() + (w === 1 ? ' word' : ' words') : '';
+        }
+        function renderMoods() {
+            $('lx-ch-j-moods').innerHTML = MOODS.map(m =>
+                '<button type="button" class="lx-ch-j-mood" data-mood="' + m[0] + '" aria-pressed="' + (m[0] === currentMood ? 'true' : 'false') + '" aria-label="' + m[1] + '" title="' + m[1] + '">' + m[0] + '</button>').join('');
+        }
+        $('lx-ch-j-moods').addEventListener('click', e => {
+            const b = e.target.closest ? e.target.closest('[data-mood]') : null;
+            if (!b || !loaded) return;
+            const m = b.getAttribute('data-mood');
+            currentMood = currentMood === m ? '' : m;
+            renderMoods();
+            scheduleSave();
+        });
+        function setFav(v) {
+            currentFav = !!v;
+            const b = $('lx-ch-j-fav');
+            b.setAttribute('aria-pressed', currentFav ? 'true' : 'false');
+            $('lx-ch-j-favtxt').textContent = currentFav ? 'Starred' : 'Star';
+        }
+        $('lx-ch-j-fav').addEventListener('click', () => { if (!loaded) return; setFav(!currentFav); scheduleSave(); });
+
+        function setPill(state) {
+            saveEl.className = 'lx-ch-j-save' + (state ? ' is-' + state : '');
+            saveEl.textContent = '';
+            if (state === 'saving') saveEl.textContent = 'Saving…';
+            else if (state === 'saved') saveEl.textContent = 'Saved';
+            else if (state === 'failed') {
+                saveEl.appendChild(document.createTextNode('Not saved'));
+                const b = document.createElement('button');
+                b.type = 'button'; b.textContent = 'Try again';
+                b.addEventListener('click', () => { flushSave(); });
+                saveEl.appendChild(b);
+            }
+        }
+
+        // ── Autosave ──────────────────────────────────────────────────
+        function scheduleSave() {
+            if (!loaded) return;
+            dirty = true;
+            editedThisOpen = true;
+            setPill('saving');
+            clearTimeout(saveTimer);
+            saveTimer = setTimeout(flushSave, 800);
+        }
+        // Only what changed is saved, and only once the day's entry has loaded
+        // (saving the empty form over an entry that had not arrived yet would
+        // erase it). Resolves true once nothing is left unsaved. Saves run one
+        // at a time so a slow one can never land after a newer one.
+        function flushSave() {
+            clearTimeout(saveTimer);
+            if (!currentDate || !loaded) return Promise.resolve(true);
+            if (inflight) return inflight.then(() => flushSave());
+            if (!dirty) return Promise.resolve(true);
+            dirty = false;
+            const date = currentDate;
+            const payload = {
+                title: titleEl.value, body: bodyEl.value, quick_note: quickEl.value,
+                mood: currentMood, weather: weatherEl.value, is_favorite: currentFav,
+            };
+            inflight = fetch('/api/journals/' + date + '/save/', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify(payload),
+            }).then(r => {
+                // r.ok matters: a 500 returns an HTML page that would otherwise read as saved.
+                if (!r.ok) throw new Error('save failed');
+                return r.json();
+            }).then(() => {
+                inflight = null;
+                try { syncLocal(date, payload); } catch (e) { if (window.console) console.error(e); }
+                if (date === currentDate) setPill(dirty ? 'saving' : 'saved');
+                return dirty ? flushSave() : true;
+            }).catch(() => {
+                inflight = null;
+                dirty = true;
+                if (date === currentDate) setPill('failed');
+                toast('Could not save this entry. Your text is still here. Use “Try again” beside the date.', 'error');
+                return false;
+            });
+            return inflight;
+        }
+
+        // Keep the strip and index in step with what was just saved, without a refetch.
+        function syncLocal(date, p) {
+            const body = p.body || '';
+            const snippet = body.trim().split('\n')[0].slice(0, 140);
+            const patch = {
+                title: p.title, snippet: snippet, quick_note: p.quick_note, mood: p.mood, weather: p.weather,
+                is_favorite: p.is_favorite, word_count: body.split(/\s+/).filter(Boolean).length,
+            };
+            const blank = !p.title && !body.trim() && !p.quick_note && !p.mood && !p.is_favorite && !p.weather;
+            const inMonth = date.slice(0, 7) === viewYear + '-' + pad(viewMonth);
+            if (monthEntries[date]) Object.assign(monthEntries[date], patch);
+            else if (inMonth && !blank) monthEntries[date] = Object.assign({ date: date, photo_count: currentDate === date ? currentPhotos : 0 }, patch);
+            let item = feedEntries.find(x => x.date === date);
+            if (item) Object.assign(item, patch);
+            else if (!blank) {
+                item = Object.assign({ date: date, photo_count: currentPhotos, cover: null, location_name: '', track: null }, patch);
+                feedEntries.push(item);
+                feedEntries.sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
+            }
+            renderStrip(false);
+            if (!searchState) { renderIndex(); markSelected(false); }
+        }
+
+        function needsAi() {
+            return !!(journalSettings && journalSettings.ai_available
+                && ((journalSettings.auto_title && !titleEl.value.trim()) || (journalSettings.auto_mood && !currentMood))
+                && (bodyEl.value.trim() || quickEl.value.trim()));
+        }
+
+        // Leaving a day (to another day) is what closing the editor was in the
+        // classic page: flush, refresh the lists, then the AI fill-in. Resolves
+        // false when the user chose to stay because the day would not save.
+        async function leaveDay() {
+            if (!currentDate) return true;
+            const date = currentDate, edited = editedThisOpen, ai = needsAi();
+            const ok = await flushSave();
+            if (!ok) {
+                const leave = window.roamlyConfirm
+                    ? await window.roamlyConfirm('This entry has not saved yet. If you leave now, your latest changes are lost.', { danger: true, confirmText: 'Leave anyway' })
+                    : true;
+                if (!leave) return false;
+                dirty = false;
+            }
+            editedThisOpen = false;
+            if (edited) { loadStats(); }
+            if (ok && edited && ai) autofillEntry(date);
+            return true;
+        }
+
+        // After the save has landed, never from the autosave (that fires on every pause).
+        function autofillEntry(date) {
+            fetch('/api/journals/' + date + '/autofill/', { method: 'POST', headers: { 'X-CSRFToken': csrfToken } })
+                .then(r => r.json().catch(() => ({})).then(d => ({ ok: r.ok, d: d })))
+                .then(res => {
+                    if (!res.ok) { toast(res.d.error || 'The AI title could not be generated.', 'error'); return; }
+                    const d = res.d;
+                    if (!d.title && !d.mood) return;
+                    [monthEntries[date], feedEntries.find(x => x.date === date)].forEach(e => {
+                        if (!e) return;
+                        if (d.title && !e.title) e.title = d.title;
+                        if (d.mood && !e.mood) e.mood = d.mood;
+                    });
+                    renderStrip(false); if (!searchState) { renderIndex(); markSelected(false); }
+                    if (currentDate === date && loaded && !dirty) {
+                        if (d.title && !titleEl.value) titleEl.value = d.title;
+                        if (d.mood && !currentMood) { currentMood = d.mood; renderMoods(); }
+                    }
+                    toast(((d.mood || '') + ' ' + (d.title || 'Mood added')).trim());
+                }).catch(() => {});
+        }
+
+        // Into the field only: it is saved with the entry, so just opening a day creates nothing.
+        function fillWeather(date) {
+            if (!journalSettings || !journalSettings.auto_weather) return;
+            if (weatherEl.value) return;
+            fetch('/api/journals/' + date + '/weather/').then(r => r.ok ? r.json() : {}).then(d => {
+                if (d.weather && currentDate === date && !weatherEl.value) weatherEl.value = d.weather;
+            }).catch(() => {});
+        }
+
+        // ── Open a day ────────────────────────────────────────────────
+        function relativeKicker(date) {
+            const n = dayDiff(todayStr(), date);
+            if (n === 0) return 'Today';
+            if (n === 1) return 'Yesterday';
+            if (n > 1 && n <= 45) return n + ' days ago';
+            return fmt(date, { month: 'long', year: 'numeric' });
+        }
+        function setHeading(date) {
+            $('lx-ch-j-kicker').textContent = relativeKicker(date);
+            $('lx-ch-j-wd').textContent = fmt(date, { weekday: 'long' });
+            $('lx-ch-j-dt').textContent = fmt(date, { day: 'numeric', month: 'long', year: 'numeric' });
+            $('lx-ch-j-dateinput').value = date;
+            $('lx-ch-j-dateinput').max = todayStr();
+            $('lx-ch-j-maplink').href = '/map/?start=' + date + '&end=' + date;
+        }
+        function syncChrome(date) {
+            try {
+                const u = new URL(location.href);
+                if (date === todayStr()) u.searchParams.delete('date'); else u.searchParams.set('date', date);
+                history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+            } catch (e) {}
+            try { CH.setDate(date === todayStr() ? null : date, 'journals'); } catch (e) {}
+        }
+
+        async function selectDay(date, o) {
+            o = o || {};
+            if (!parse(date)) return;
+            if (date > todayStr()) date = todayStr();
+            if (date === currentDate && !o.force) {
+                if (o.reveal && !splitLayout()) editorEl.scrollIntoView({ block: 'start', behavior: reduced() ? 'auto' : 'smooth' });
+                return;
+            }
+            if (currentDate && !(await leaveDay())) return;
+            currentDate = date;
+            const y = +date.slice(0, 4), m = +date.slice(5, 7);
+            const monthChanged = y !== viewYear || m !== viewMonth;
+            if (monthChanged) { viewYear = y; viewMonth = m; monthEntries = {}; }
+            renderStrip(true);
+            if (monthChanged) loadMonth();
+            markSelected(true);
+            syncChrome(date);
+            if (o.reveal && !splitLayout()) editorEl.scrollIntoView({ block: 'start', behavior: reduced() ? 'auto' : 'smooth' });
+            else if (splitLayout()) editorEl.scrollTop = 0;
+            await loadDay(date);
+        }
+
+        function resetForm() {
+            titleEl.value = ''; bodyEl.value = ''; quickEl.value = ''; weatherEl.value = '';
+            currentMood = ''; renderMoods(); setFav(false);
+            $('lx-ch-j-photos').innerHTML = '';
+            $('lx-ch-j-wordcount').textContent = '';
+            setPill('');
+            sizeText(bodyEl); sizeText(quickEl);
+        }
+
+        function loadDay(date) {
+            const seq = ++daySeq;
+            loaded = false; dirty = false; editedThisOpen = false;
+            clearTimeout(saveTimer);
+            resetForm();
+            setHeading(date);
+            dayEl.classList.add('is-loading');
+            dayEl.setAttribute('aria-busy', 'true');
+            fieldsEl.disabled = true;
+            $('lx-ch-j-dayerr').hidden = true;
+            formEl.hidden = false;
+            setWhere(null, true);
+            return fetch('/api/journals/' + date + '/?tz=' + TZ).then(r => { if (!r.ok) throw new Error('day'); return r.json(); }).then(data => {
+                if (seq !== daySeq) return;
+                const en = data.entry || {};
+                titleEl.value = en.title || '';
+                bodyEl.value = en.body || '';
+                quickEl.value = en.quick_note || '';
+                weatherEl.value = en.weather || '';
+                currentMood = en.mood || '';
+                renderMoods();
+                setFav(en.is_favorite);
+                renderPhotos(en.photos || []);
+                updateWordCount();
+                loaded = true;
+                fieldsEl.disabled = false;
+                dayEl.classList.remove('is-loading');
+                dayEl.removeAttribute('aria-busy');
+                sizeText(bodyEl); sizeText(quickEl);
+                setWhere(data.track || null, false);
+                fillWeather(date);
+            }).catch(() => {
+                if (seq !== daySeq) return;
+                dayEl.classList.remove('is-loading');
+                dayEl.removeAttribute('aria-busy');
+                formEl.hidden = true;
+                $('lx-ch-j-dayerr').hidden = false;
+            });
+        }
+        $('lx-ch-j-dayretry').addEventListener('click', () => { if (currentDate) loadDay(currentDate); });
+
+        titleEl.addEventListener('input', scheduleSave);
+        weatherEl.addEventListener('input', scheduleSave);
+        quickEl.addEventListener('input', () => { sizeText(quickEl); scheduleSave(); });
+        bodyEl.addEventListener('input', () => { sizeText(bodyEl); updateWordCount(); scheduleSave(); });
+        let rzT = 0;
+        window.addEventListener('resize', () => {
+            cancelAnimationFrame(rzT);
+            rzT = requestAnimationFrame(() => { sizeText(bodyEl); sizeText(quickEl); });
+        });
+
+        // ── Move to another day ───────────────────────────────────────
+        const dateInput = $('lx-ch-j-dateinput');
+        $('lx-ch-j-move').addEventListener('click', () => {
+            if (!loaded) return;
+            try { dateInput.showPicker(); } catch (e) { dateInput.focus(); dateInput.click(); }
+        });
+        dateInput.addEventListener('change', () => moveEntry(dateInput.value));
+        async function moveEntry(target) {
+            const from = currentDate;
+            if (!target || target === from || !parse(target)) { dateInput.value = from; return; }
+            if (target > todayStr()) { dateInput.value = from; toast('An entry can’t be moved to a day that hasn’t happened yet.', 'error'); return; }
+            await flushSave();
+            if (dirty) { dateInput.value = from; return; }       // the save failed: don't move what isn't stored
+            let r = null;
+            try {
+                r = await fetch('/api/journals/' + from + '/move/', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify({ date: target }),
+                });
+            } catch (e) { r = null; }
+            if (r && r.status === 404) { editedThisOpen = false; selectDay(target); return; }   // nothing saved yet: just a different day
+            const d = r ? await r.json().catch(() => ({})) : {};
+            if (!r || !r.ok) {
+                dateInput.value = from;
+                const msg = d.error || 'Could not move this entry.';
+                if (window.roamlyAlert) window.roamlyAlert(msg); else toast(msg, 'error');
+                return;
+            }
+            editedThisOpen = false;           // the old day no longer exists: nothing to AI-fill there
+            await selectDay(d.date);
+            refreshLists();
+            toast('Moved to ' + fmtLong(d.date));
+        }
+
+        // ── Delete ────────────────────────────────────────────────────
+        $('lx-ch-j-delete').addEventListener('click', async () => {
+            if (!loaded) return;
+            const ok = window.roamlyConfirm ? await window.roamlyConfirm('Delete this journal entry? This cannot be undone.', { danger: true }) : window.confirm('Delete this journal entry?');
+            if (!ok) return;
+            const date = currentDate;
+            clearTimeout(saveTimer); dirty = false;       // or the pending autosave recreates it
+            fetch('/api/journals/' + date + '/delete/', { method: 'POST', headers: { 'X-CSRFToken': csrfToken } })
+                .then(r => { if (!r.ok) throw new Error('delete'); })
+                .then(() => {
+                    editedThisOpen = false;
+                    refreshLists();
+                    if (currentDate === date) loadDay(date);
+                    toast('Entry deleted');
+                })
+                .catch(() => toast('Could not delete this entry.', 'error'));
+        });
+
+        // ── Photos ────────────────────────────────────────────────────
+        const photoInput = $('lx-ch-j-photoinput');
+        function renderPhotos(photos) {
+            const el = $('lx-ch-j-photos');
+            el.textContent = '';
+            currentPhotos = photos.length;
+            photos.forEach(p => {
+                const wrap = document.createElement('div');
+                wrap.className = 'lx-ch-j-photo';
+                const a = document.createElement('a');
+                const full = p.url || p.thumbnail;
+                if (full) { a.href = full; a.target = '_blank'; a.rel = 'noopener'; }
+                a.setAttribute('aria-label', p.caption ? 'Open photo: ' + p.caption : 'Open photo');
+                const img = document.createElement('img');
+                img.src = p.thumbnail || full || '';
+                img.alt = p.caption || '';
+                img.loading = 'lazy';
+                a.appendChild(img);
+                const x = document.createElement('button');
+                x.type = 'button'; x.className = 'lx-ch-j-photo-x'; x.setAttribute('aria-label', 'Remove photo');
+                x.innerHTML = ic('x', 12);
+                x.addEventListener('click', () => deletePhoto(p.id));
+                wrap.appendChild(a); wrap.appendChild(x);
+                el.appendChild(wrap);
+            });
+            const add = document.createElement('button');
+            add.type = 'button'; add.className = 'lx-ch-j-photo-add';
+            add.innerHTML = ic('plus', 20) + '<span>Add photos</span>';
+            add.addEventListener('click', () => photoInput.click());
+            el.appendChild(add);
+        }
+        function reloadPhotos(date) {
+            return fetch('/api/journals/' + date + '/?tz=' + TZ).then(r => r.ok ? r.json() : null).then(data => {
+                if (data && currentDate === date) renderPhotos((data.entry && data.entry.photos) || []);
+            }).catch(() => {});
+        }
+        photoInput.addEventListener('change', () => {
+            if (!photoInput.files.length || !currentDate || !loaded) return;
+            const date = currentDate;
+            const fd = new FormData();
+            Array.prototype.forEach.call(photoInput.files, f => fd.append('photos', f));
+            const holder = document.createElement('div');
+            holder.className = 'lx-ch-j-photo';
+            holder.innerHTML = '<div class="lx-ch-j-photo-load"><span class="spinner"></span></div>';
+            $('lx-ch-j-photos').insertBefore(holder, $('lx-ch-j-photos').firstChild);
+            fetch('/api/journals/' + date + '/photos/', { method: 'POST', headers: { 'X-CSRFToken': csrfToken }, body: fd })
+                .then(r => { if (!r.ok) throw new Error('upload'); return r.json(); })
+                .then(() => { photoInput.value = ''; return reloadPhotos(date); })
+                .then(() => refreshLists())
+                .catch(() => {
+                    photoInput.value = '';
+                    if (holder.parentNode) holder.parentNode.removeChild(holder);
+                    toast('Could not upload those photos.', 'error');
+                });
+        });
+        function deletePhoto(id) {
+            const date = currentDate;
+            fetch('/api/journals/photos/' + id + '/delete/', { method: 'POST', headers: { 'X-CSRFToken': csrfToken } })
+                .then(r => { if (!r.ok) throw new Error('photo delete'); })
+                .then(() => reloadPhotos(date))
+                .then(() => refreshLists())
+                .catch(() => toast('Could not remove that photo.', 'error'));
+        }
+
+        // ── Where you were (the day's map) ────────────────────────────
+        let jmap = null, mapReady = false, pendingTrack = null, drawSeq = 0, mapFailed = false;
+        const probe = document.createElement('canvas');
+        probe.width = probe.height = 1;
+        const pctx = probe.getContext ? probe.getContext('2d', { willReadFrequently: true }) : null;
+        function token(name, fb) {
+            const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+            if (!v || !pctx) return fb;
+            try {
+                pctx.clearRect(0, 0, 1, 1);
+                pctx.fillStyle = fb; pctx.fillStyle = v;
+                pctx.fillRect(0, 0, 1, 1);
+                const p = pctx.getImageData(0, 0, 1, 1).data;
+                return 'rgb(' + p[0] + ',' + p[1] + ',' + p[2] + ')';
+            } catch (e) { return fb; }
+        }
+        const EMPTY = { type: 'FeatureCollection', features: [] };
+        function ensureMap() {
+            if (jmap || mapFailed) return !!jmap;
+            const holder = $('lx-ch-j-map');
+            if (!window.maplibregl) { mapFailed = true; return false; }
+            const light = document.documentElement.getAttribute('data-theme') === 'light';
+            const tiles = 'https://basemaps.cartocdn.com/' + (light ? 'light_all' : 'dark_all') + '/{z}/{x}/{y}.png' + (root.getAttribute('data-tile-qs') || '');
+            try {
+                jmap = new maplibregl.Map({
+                    container: holder,
+                    style: { version: 8, sources: { base: { type: 'raster', tiles: [tiles], tileSize: 256, maxzoom: 19, attribution: '© OpenStreetMap contributors © CARTO' } },
+                             layers: [{ id: 'base', type: 'raster', source: 'base' }] },
+                    center: [0, 20], zoom: 1, attributionControl: false, dragRotate: false, pitchWithRotate: false,
+                });
+                jmap.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+                jmap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+                if (jmap.touchZoomRotate && jmap.touchZoomRotate.disableRotation) jmap.touchZoomRotate.disableRotation();
+            } catch (e) { jmap = null; mapFailed = true; return false; }
+            const C = { primary: token('--primary', '#e8763d'), bg: token('--bg', '#14160f'), start: token('--clay-sky', '#7ba3b8') };
+            jmap.on('load', () => {
+                jmap.addSource('day', { type: 'geojson', data: EMPTY });
+                jmap.addSource('ends', { type: 'geojson', data: EMPTY });
+                jmap.addLayer({ id: 'day-casing', type: 'line', source: 'day', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': C.bg, 'line-width': 6.5, 'line-opacity': 0.85 } });
+                jmap.addLayer({ id: 'day-line', type: 'line', source: 'day', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': C.primary, 'line-width': 3.5 } });
+                jmap.addLayer({ id: 'ends-start', type: 'circle', source: 'ends', filter: ['==', ['get', 'kind'], 'start'], paint: { 'circle-radius': 6, 'circle-color': C.start, 'circle-stroke-width': 2, 'circle-stroke-color': C.bg } });
+                jmap.addLayer({ id: 'ends-end', type: 'circle', source: 'ends', filter: ['==', ['get', 'kind'], 'end'], paint: { 'circle-radius': 6, 'circle-color': C.primary, 'circle-stroke-width': 2, 'circle-stroke-color': C.bg } });
+                mapReady = true;
+                if (pendingTrack) { const t = pendingTrack; pendingTrack = null; drawTrack(t); }
+            });
+            jmap.on('error', () => {});   // a failed tile must not reach the page's error toast
+            return true;
+        }
+        function drawTrack(track) {
+            if (!mapReady) { pendingTrack = track; return; }
+            const seq = ++drawSeq;
+            try { jmap.resize(); } catch (e) {}
+            const segs = track.segments && track.segments.length ? track.segments : null;
+            // Only chronological segments are drawn: a flat point list would join
+            // points across tracking gaps and read as spaghetti.
+            const lines = segs ? { type: 'Feature', properties: {}, geometry: { type: 'MultiLineString', coordinates: segs } } : null;
+            const startPt = track.start || (track.points && track.points[0]);
+            const endPt = track.end || (track.points && track.points[track.points.length - 1]);
+            const ends = { type: 'FeatureCollection', features: (startPt && endPt) ? [
+                { type: 'Feature', properties: { kind: 'start' }, geometry: { type: 'Point', coordinates: startPt } },
+                { type: 'Feature', properties: { kind: 'end' }, geometry: { type: 'Point', coordinates: endPt } },
+            ] : [] };
+            try {
+                jmap.getSource('day').setData(lines ? { type: 'FeatureCollection', features: [lines] } : EMPTY);
+                jmap.getSource('ends').setData(ends);
+                const b = new maplibregl.LngLatBounds();
+                (track.points || []).forEach(c => b.extend(c));
+                if (seq === drawSeq && !b.isEmpty()) jmap.fitBounds(b, { padding: 40, maxZoom: 14, duration: reduced() ? 0 : 300 });
+            } catch (e) {}
+        }
+        function setWhere(track, loading) {
+            const none = $('lx-ch-j-wherenone'), data = $('lx-ch-j-wheredata');
+            if (loading) { none.hidden = false; none.textContent = 'Loading the day’s track…'; data.hidden = true; return; }
+            if (!track || !(track.point_count > 0)) {
+                none.hidden = false; none.textContent = 'No tracked location for this day.';
+                data.hidden = true;
+                return;
+            }
+            none.hidden = true; data.hidden = false;
+            const places = Array.isArray(track.places) ? track.places : [];
+            $('lx-ch-j-mapstats').innerHTML =
+                '<div class="lx-ch-stat"><span class="lx-ch-stat-value">' + esc(fmtDist(track.distance_km || 0)) + '</span><span class="lx-ch-stat-label">distance</span></div>'
+                + '<div class="lx-ch-stat"><span class="lx-ch-stat-value">' + places.length + '</span><span class="lx-ch-stat-label">' + (places.length === 1 ? 'place' : 'places') + '</span></div>'
+                + '<div class="lx-ch-stat"><span class="lx-ch-stat-value">' + (track.point_count || 0).toLocaleString() + '</span><span class="lx-ch-stat-label">points</span></div>';
+            $('lx-ch-j-places').innerHTML = places.slice(0, 8).map(p => '<span class="lx-ch-chip">' + esc(p.name) + '</span>').join('');
+            if (ensureMap()) {
+                $('lx-ch-j-map').style.display = '';
+                drawTrack(track);
+            } else {
+                $('lx-ch-j-map').style.display = 'none';
+            }
+        }
+
+        // ── Lists, shortcuts, leaving the page ────────────────────────
+        function refreshLists() { loadMonth(); loadRecent(); loadStats(); }
+
+        document.addEventListener('keydown', e => {
+            if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S') && currentDate && loaded) {
+                e.preventDefault();
+                flushSave();
+                return;
+            }
+            if (e.key !== 'Escape') return;
+            if (!cogPop.hidden) { setCog(false); cogBtn.focus(); return; }
+            if (recapPanel.classList.contains('open')) { closeRecap(); return; }
+            if (document.activeElement === searchInput && searchInput.value) clearSearch(false);
+        });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState !== 'hidden' || !loaded) return;
+            flushSave();      // keep the text safe; the AI fill-in waits until you move on from the day
+        });
+        window.addEventListener('pagehide', () => { if (dirty && loaded) flushSave(); });
+        window.addEventListener('beforeunload', e => {
+            if (dirty && loaded) { e.preventDefault(); e.returnValue = ''; }
+        });
+
+        // ── Start ─────────────────────────────────────────────────────
+        let first = null;
+        try {
+            const q = new URLSearchParams(location.search).get('date');
+            if (q && parse(q)) first = q;
+        } catch (e) {}
+        // Plain /journals/ opens today, as the classic page did. The shared date
+        // context is only written to (syncChrome), never read: the timeline sets
+        // it as you scroll, so reading it would open some past day.
+        if (!first || first > todayStr()) first = todayStr();
+        viewYear = +first.slice(0, 4); viewMonth = +first.slice(5, 7);
+        renderStrip(true);
+        loadMonth();
+        renderMoods();
+        loadStats();
+        loadRecent();
+        selectDay(first, { force: true });
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
+})();
+</script>
+{% endblock %}

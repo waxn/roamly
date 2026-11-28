@@ -71,6 +71,7 @@ from .email_utils import email_enabled, gen_code, send_code_email, send_invite_e
 from .dwell_utils import bridges_gap, credit_gap, credit_gap_in_place
 from .tz_utils import aware_local
 from . import cell_utils
+from .layouts import layout_templates
 from . import activity_track
 from .image_utils import resize_image, resize_photo
 from . import geoip_utils
@@ -1800,7 +1801,7 @@ def logout_view(request):
 @login_required
 def map_view(request):
     devices = Device.objects.filter(user=request.user)
-    return render(request, 'tracker/map.html', {
+    return render(request, layout_templates(request, 'map'), {
         'devices': devices,
         'has_postgis': HAS_POSTGIS,
         'basemaps': _user_basemaps(request),
@@ -2073,19 +2074,19 @@ def raw_recap_email_api(request, pk):
 
 @login_required
 def stats_view(request):
-    return render(request, 'tracker/stats.html')
+    return render(request, layout_templates(request, 'stats'))
 
 
 @login_required
 def visits_view(request):
-    return render(request, 'tracker/visits.html')
+    return render(request, layout_templates(request, 'visits'))
 
 
 @login_required
 def adventures_view(request):
     devices = Device.objects.filter(user=request.user)
     adventures = Adventure.objects.filter(device__user=request.user)
-    return render(request, 'tracker/adventures.html', {'devices': devices, 'adventures': adventures})
+    return render(request, layout_templates(request, 'adventures'), {'devices': devices, 'adventures': adventures})
 
 
 @login_required
@@ -2122,7 +2123,7 @@ def adventure_plan_view(request, trip_id):
 
 @login_required
 def places_view(request):
-    return render(request, 'tracker/places.html', {'has_postgis': HAS_POSTGIS})
+    return render(request, layout_templates(request, 'places'), {'has_postgis': HAS_POSTGIS})
 
 
 @login_required
@@ -2881,7 +2882,14 @@ def profile_appearance_api(request):
             return JsonResponse({'error': 'Invalid request.'}, status=400)
         if not isinstance(data, dict):
             return JsonResponse({'error': 'Invalid request.'}, status=400)
-        profile.appearance = {} if data.get('reset') else ap.sanitize(data)
+        if data.get('reset'):
+            profile.appearance = {}
+        else:
+            # A look change that doesn't name a layout must not flip the UI
+            # back to Classic: layout is not part of a look.
+            if 'layout' not in data and profile.appearance:
+                data = dict(data, layout=ap.sanitize(profile.appearance)['layout'])
+            profile.appearance = ap.sanitize(data)
         profile.save(update_fields=['appearance'])
     app = ap.sanitize(profile.appearance) if profile.appearance else ap.sanitize({})
     return JsonResponse({'appearance': app, 'preset': ap.matching_preset(app), 'stored': bool(profile.appearance)})
@@ -12829,7 +12837,7 @@ _YEAR_AGO_LIMIT = 20        # provider calls per account per hour; cache hits do
 
 @login_required
 def journals_view(request):
-    return render(request, 'tracker/journals.html')
+    return render(request, layout_templates(request, 'journals'))
 
 
 @login_required
@@ -16203,7 +16211,7 @@ def _health_preferred(user):
 
 @login_required
 def health_view(request):
-    return render(request, 'tracker/health.html')
+    return render(request, layout_templates(request, 'health'))
 
 
 # ── Health ingest (called by the Android app) ────────────────────────────────

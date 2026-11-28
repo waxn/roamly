@@ -1,0 +1,750 @@
+{% extends "tracker/base.html" %}
+{% load static %}
+{% block title %}Home · Roamly{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block map_css %}{% endblock %}
+{% block map_js %}{% endblock %}
+{% block content %}
+{% comment %}
+  Hearth's card home. One fetch (GET /api/layout/home/, tracker/layout_home.py)
+  paints every card except the quick note, which reads and writes the notes API
+  for the browser's own local day. Cards are declared in CARDS below (id, span,
+  tablet span) so a future "edit layout" only has to reorder that array.
+  Each card goes skeleton -> content, or -> its own error with Retry
+  (?only=<its keys>), independently of the others.
+{% endcomment %}
+<div class="lx-he-page lx-he-home">
+    <header class="lx-he-greet">
+        <div>
+            <h1 class="lx-he-greet-title" id="lx-he-greet-title">Hello, {{ user.username }}</h1>
+            <span class="lx-he-greet-date" id="lx-he-greet-date">&nbsp;</span>
+        </div>
+        <div class="lx-he-sync" id="lx-he-sync" role="status">
+            <span class="lx-he-sync-dot" aria-hidden="true"></span>
+            <span id="lx-he-sync-text"><span class="skeleton lx-he-skel-line" style="width:9rem;display:inline-block;vertical-align:middle;"></span></span>
+        </div>
+    </header>
+    {{ user.username|json_script:"lx-he-username" }}
+    <script>
+    (function () {
+        /* Greeting and date by the browser's clock, before first paint. */
+        var name = '';
+        try { name = JSON.parse(document.getElementById('lx-he-username').textContent) || ''; } catch (e) {}
+        var h = new Date().getHours();
+        var part = h < 5 ? 'Good evening' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+        var t = document.getElementById('lx-he-greet-title');
+        if (t) t.textContent = name ? part + ', ' + name : part;
+        var d = document.getElementById('lx-he-greet-date');
+        if (d) d.textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    })();
+    </script>
+
+    <div class="lx-he-grid" id="lx-he-cards" aria-busy="true"></div>
+</div>
+
+<script src="{% static 'tracker/icons.js' %}"></script>
+<script>
+(function () {
+    'use strict';
+    var grid = document.getElementById('lx-he-cards');
+    if (!grid) return;
+
+    var API = "{% url 'tracker:layout_home_api' %}";
+    var URLS = {
+        map: "{% url 'tracker:map' %}",
+        health: "{% url 'tracker:health' %}",
+        activities: "{% url 'tracker:activities' %}",
+        adventures: "{% url 'tracker:adventures' %}",
+        journals: "{% url 'tracker:journals' %}",
+        stats: "{% url 'tracker:stats' %}",
+        achievements: "{% url 'tracker:achievements' %}",
+        settings: "{% url 'tracker:settings' %}"
+    };
+
+    /* Declared, not hard-wired: order, width (12-col desktop) and tablet width
+       (2-col). `keys` are the API sections the card reads; `own` cards fetch
+       for themselves. */
+    var CARDS = [
+        { id: 'today', kicker: 'Today', span: 8, md: 2, keys: ['today'], link: { label: 'Open on map', href: URLS.map } },
+        { id: 'health', kicker: 'Health', span: 4, md: 1, keys: ['health'], link: { label: 'View all', href: URLS.health } },
+        { id: 'recent', kicker: 'Last outing', span: 4, md: 1, keys: ['recent'], link: { label: 'View all', href: URLS.activities } },
+        { id: 'on_this_day', kicker: 'On this day', span: 4, md: 1, keys: ['on_this_day'] },
+        { id: 'note', kicker: 'Today’s note', span: 4, md: 1, own: true, link: { label: 'Journals', href: URLS.journals } },
+        { id: 'stats', kicker: 'This year', span: 7, md: 2, keys: ['stats'], link: { label: 'View all', href: URLS.stats } },
+        { id: 'people', kicker: 'Devices & family', span: 5, md: 2, keys: ['devices', 'family'] }
+    ];
+
+    /* ── Formatting ─────────────────────────────────────────────────────── */
+    var IMPERIAL = false;
+    try { IMPERIAL = localStorage.getItem('roamly_speed_unit') === 'mph'; } catch (e) {}
+    var KM_PER_MI = 1.609344;
+
+    function isNum(v) { return typeof v === 'number' && isFinite(v); }
+    function fmtNum(v, digits) {
+        try { return new Intl.NumberFormat(undefined, { maximumFractionDigits: digits || 0, minimumFractionDigits: 0 }).format(v); }
+        catch (e) { return String(Math.round(v)); }
+    }
+    function dist(km) {
+        if (!isNum(km)) return { value: '—', unit: '' };
+        var v = IMPERIAL ? km / KM_PER_MI : km;
+        return { value: fmtNum(v, v < 10 ? 1 : 0), unit: IMPERIAL ? 'mi' : 'km' };
+    }
+    function distText(km) { var d = dist(km); return d.unit ? d.value + ' ' + d.unit : d.value; }
+    function dur(s) {
+        if (!isNum(s) || s < 0) return '—';
+        var m = Math.round(s / 60), h = Math.floor(m / 60);
+        return h ? h + 'h ' + String(m % 60).padStart(2, '0') + 'm' : m + 'm';
+    }
+    function parse(iso) { var d = iso ? new Date(iso) : null; return d && !isNaN(d.getTime()) ? d : null; }
+    function clock(iso) {
+        var d = parse(iso);
+        return d ? d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: IMPERIAL }) : '—';
+    }
+    function dayLabel(iso, withYear) {
+        var d = iso && iso.length === 10 ? new Date(iso + 'T12:00:00') : parse(iso);
+        if (!d || isNaN(d.getTime())) return '';
+        var o = { weekday: 'short', day: 'numeric', month: 'short' };
+        if (withYear) o.year = 'numeric';
+        return d.toLocaleDateString(undefined, o);
+    }
+    function ago(iso) {
+        var d = parse(iso);
+        if (!d) return '';
+        var s = Math.max(0, (Date.now() - d.getTime()) / 1000);
+        if (s < 60) return 'just now';
+        if (s < 3600) return Math.floor(s / 60) + ' min ago';
+        if (s < 86400) return Math.floor(s / 3600) + ' h ago';
+        if (s < 2 * 86400) return 'yesterday';
+        if (s < 7 * 86400) return Math.floor(s / 86400) + ' days ago';
+        return dayLabel(iso, new Date().getFullYear() !== d.getFullYear());
+    }
+    function localDay(d) {
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    /* ── DOM helpers (text only ever goes in via textContent) ───────────── */
+    function el(tag, cls, text) {
+        var n = document.createElement(tag);
+        if (cls) n.className = cls;
+        if (text != null) n.textContent = text;
+        return n;
+    }
+    function add(parent) {
+        for (var i = 1; i < arguments.length; i++) {
+            var c = arguments[i];
+            if (c == null || c === false) continue;
+            parent.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+        }
+        return parent;
+    }
+    function link(href, cls, text) { var a = el('a', cls, text); a.href = href; return a; }
+    function icon(name, size) {
+        var s = el('span');
+        s.setAttribute('aria-hidden', 'true');
+        s.style.display = 'inline-flex';
+        if (window.RoamlyIcons && typeof window.RoamlyIcons.svg === 'function') s.innerHTML = window.RoamlyIcons.svg(name, size || 18);
+        return s;
+    }
+    function stat(value, unit, label, mod) {
+        var w = el('div', 'lx-he-stat' + (mod ? ' ' + mod : ''));
+        var v = el('div', 'lx-he-stat-value', value);
+        if (unit) add(v, el('span', 'lx-he-stat-unit', unit));
+        return add(w, v, label ? el('div', 'lx-he-stat-label', label) : null);
+    }
+    function empty(title, text, action) {
+        return add(el('div', 'lx-he-empty'), el('div', 'lx-he-empty-title', title),
+            text ? el('div', 'lx-he-empty-text', text) : null, action || null);
+    }
+    function fill(node, kids) {
+        while (node.firstChild) node.removeChild(node.firstChild);
+        (kids || []).forEach(function (k) { if (k) node.appendChild(k); });
+    }
+
+    /* ── Route plate: a projected shape {w, h, segments} as an inline SVG ── */
+    var SVGNS = 'http://www.w3.org/2000/svg';
+    function svgEl(tag, attrs) {
+        var n = document.createElementNS(SVGNS, tag);
+        Object.keys(attrs || {}).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+        return n;
+    }
+    function route(shape, emptyText, flat, label) {
+        var plate = el('div', 'lx-he-route' + (flat ? ' is-flat' : ''));
+        var segs = shape && Array.isArray(shape.segments) ? shape.segments.filter(function (s) { return Array.isArray(s) && s.length; }) : [];
+        if (!segs.length || !isNum(shape.w) || !isNum(shape.h)) {
+            add(plate, el('div', 'lx-he-route-empty', emptyText));
+            return plate;
+        }
+        var pad = 10;
+        var svg = svgEl('svg', {
+            viewBox: (-pad) + ' ' + (-pad) + ' ' + (shape.w + 2 * pad) + ' ' + (shape.h + 2 * pad),
+            preserveAspectRatio: 'xMidYMid meet', role: 'img', 'aria-label': label || 'Route'
+        });
+        var r = Math.max(shape.w, shape.h) / 40 + 0.6;
+        segs.forEach(function (s) {
+            var pts = s.filter(function (p) { return Array.isArray(p) && isNum(p[0]) && isNum(p[1]); });
+            if (pts.length > 1) {
+                svg.appendChild(svgEl('polyline', { 'class': 'lx-he-route-line', points: pts.map(function (p) { return p[0] + ',' + p[1]; }).join(' ') }));
+            }
+        });
+        var first = segs[0][0], lastSeg = segs[segs.length - 1], last = lastSeg[lastSeg.length - 1];
+        if (first && isNum(first[0])) svg.appendChild(svgEl('circle', { 'class': 'lx-he-route-start', cx: first[0], cy: first[1], r: r }));
+        if (last && isNum(last[0])) svg.appendChild(svgEl('circle', { 'class': 'lx-he-route-end', cx: last[0], cy: last[1], r: r }));
+        plate.appendChild(svg);
+        return plate;
+    }
+
+    /* ── Mini bar chart ─────────────────────────────────────────────────── */
+    function bars(items, opts) {
+        // items: [{value, label, title, current}]
+        var wrap = el('div');
+        var max = 0;
+        items.forEach(function (it) { if (isNum(it.value) && it.value > max) max = it.value; });
+        var row = el('div', 'lx-he-bars' + (opts && opts.short ? ' is-short' : ''));
+        row.setAttribute('role', 'img');
+        row.setAttribute('aria-label', (opts && opts.label ? opts.label + ': ' : '') + items.map(function (it) { return it.title; }).join(', '));
+        var axis = el('div', 'lx-he-bars-axis');
+        axis.setAttribute('aria-hidden', 'true');
+        items.forEach(function (it) {
+            var v = isNum(it.value) ? it.value : 0;
+            var b = el('span', (it.current ? 'is-current' : '') + (v <= 0 ? ' is-zero' : ''));
+            b.style.height = max > 0 ? Math.max(3, Math.round(v / max * 100)) + '%' : '3%';
+            b.title = it.title;
+            row.appendChild(b);
+            axis.appendChild(el('span', '', it.label));
+        });
+        return add(wrap, row, axis);
+    }
+
+    /* ── Skeletons, errors ──────────────────────────────────────────────── */
+    function skel(id) {
+        function line(cls) { return el('span', 'skeleton lx-he-skel-line' + (cls ? ' ' + cls : '')); }
+        var stack = el('div', 'lx-he-skel-stack');
+        add(stack, el('span', 'skeleton lx-he-skel-stat'), line('is-sm'));
+        if (id === 'today') {
+            var g = el('div', 'lx-he-today');
+            add(g, add(el('div', 'lx-he-skel-stack'), el('span', 'skeleton lx-he-skel-stat'), line('is-sm'), line(), line('is-sm')),
+                el('span', 'skeleton lx-he-skel-box'));
+            return g;
+        }
+        if (id === 'recent' || id === 'stats') add(stack, el('span', 'skeleton lx-he-skel-box'));
+        else add(stack, line(), line('is-lg'), line());
+        return stack;
+    }
+    function errorState(card, message) {
+        var btn = el('button', 'lx-he-btn', 'Retry');
+        btn.type = 'button';
+        btn.addEventListener('click', function () { retry(card); });
+        return add(el('div', 'lx-he-error'), el('div', '', message || 'This card didn’t load.'), btn);
+    }
+
+    /* ── Card shells ────────────────────────────────────────────────────── */
+    var shells = {};
+    CARDS.forEach(function (c, i) {
+        var sec = el('section', 'lx-he-card lx-he-enter');
+        sec.id = 'lx-he-card-' + c.id;
+        sec.style.setProperty('--span', c.span);
+        sec.style.setProperty('--span-md', c.md);
+        sec.style.setProperty('--i', i);
+        sec.setAttribute('aria-labelledby', 'lx-he-k-' + c.id);
+        sec.setAttribute('aria-busy', 'true');
+        var head = el('div', 'lx-he-card-head');
+        var k = el('h2', 'lx-he-kicker', c.kicker);
+        k.id = 'lx-he-k-' + c.id;
+        add(head, k);
+        var headLink = null;
+        if (c.link) {
+            headLink = link(c.link.href, 'lx-he-card-link', c.link.label + ' ');
+            var arrow = el('span', '', '→');
+            arrow.setAttribute('aria-hidden', 'true');
+            add(head, add(headLink, arrow));
+        }
+        var body = el('div', 'lx-he-card-body');
+        body.appendChild(skel(c.id));
+        add(sec, head, body);
+        grid.appendChild(sec);
+        shells[c.id] = { card: c, sec: sec, body: body, headLink: headLink, foot: null };
+    });
+
+    function setFoot(s, node) {
+        if (s.foot) { s.foot.remove(); s.foot = null; }
+        if (node) { s.foot = node; s.sec.appendChild(node); }
+    }
+    function paint(id, fn) {
+        var s = shells[id];
+        if (!s) return;
+        try {
+            var out = fn(s) || {};
+            fill(s.body, out.body || []);
+            setFoot(s, out.foot || null);
+        } catch (e) {
+            if (window.console) console.error('Hearth card failed to render:', id, e);
+            fill(s.body, [errorState(s.card, 'This card couldn’t be shown.')]);
+            setFoot(s, null);
+        }
+        s.sec.removeAttribute('aria-busy');
+    }
+    function foot() {
+        var f = el('div', 'lx-he-card-foot');
+        for (var i = 0; i < arguments.length; i++) if (arguments[i]) f.appendChild(arguments[i]);
+        return f;
+    }
+    function isErr(v) { return !!v && typeof v === 'object' && !Array.isArray(v) && v.error === true; }
+
+    /* ── Card renderers. Each returns {body: [nodes], foot: node|null}. ── */
+    var RENDER = {};
+
+    RENDER.today = function (s, d) {
+        if (isErr(d.today) || !d.today) return { body: [errorState(s.card)] };
+        var t = d.today;
+        if (s.headLink && t.map_url) s.headLink.href = t.map_url;
+        var km = dist(t.distance_km);
+        var figs = el('div', 'lx-he-today-figs');
+        var top = el('div', 'lx-he-stack');
+        add(top, stat(km.value, km.unit, 'Distance so far', 'is-lg'));
+        var row = el('div', 'lx-he-stats');
+        add(row, stat(dur(t.moving_s), '', 'Moving', 'is-sm'),
+            stat(fmtNum(t.place_count || 0), '', (t.place_count === 1 ? 'Place' : 'Places'), 'is-sm'));
+        add(figs, top, row);
+        var places = Array.isArray(t.places) ? t.places : [];
+        if (places.length) {
+            var chips = el('div', 'lx-he-chips');
+            places.slice(0, 4).forEach(function (p) { chips.appendChild(el('span', 'lx-he-chip', p)); });
+            if (t.place_count > 4) chips.appendChild(el('span', 'lx-he-chip', '+' + (t.place_count - 4)));
+            figs.appendChild(chips);
+        }
+        var g = add(el('div', 'lx-he-today'), figs,
+            route(t.shape, t.point_count ? 'Not enough movement to draw a track.' : 'No points recorded today yet.', false, 'Today’s track'));
+        var f = t.point_count
+            ? foot(el('span', '', 'First fix ' + clock(t.first_at) + '  ·  latest ' + clock(t.last_at)),
+                   el('span', '', fmtNum(t.point_count) + (t.point_count === 1 ? ' point' : ' points')))
+            : foot(el('span', '', 'Points from your phone or tracker appear here as they arrive.'));
+        return { body: [g], foot: f };
+    };
+
+    var KIND_ICON = { ride: 'bike', run: 'run', walk: 'walk', hike: 'hike', row: 'row', trip: 'suitcase', other: 'route' };
+    RENDER.recent = function (s, d) {
+        if (isErr(d.recent)) return { body: [errorState(s.card)] };
+        var r = d.recent;
+        if (!r) {
+            return { body: [empty('No outings yet',
+                'Record a ride, walk or run in the Roamly app, or create an adventure, and the latest one shows here.',
+                link(URLS.adventures, 'lx-he-btn', 'Plan an adventure'))] };
+        }
+        if (s.headLink) s.headLink.href = r.source === 'adventure' ? URLS.adventures : URLS.activities;
+        var title = link(r.url || URLS.activities, 'lx-he-recent-title');
+        title.style.textDecoration = 'none';
+        add(title, add(el('span', 'lx-he-row-ico'), icon(KIND_ICON[r.kind] || 'route', 16)), el('span', '', r.title || 'Untitled'));
+        var when = el('div', 'lx-he-row-meta', dayLabel(r.start, true) + '  ·  ' + clock(r.start));
+        var head = add(el('div', 'lx-he-stack is-tight'), title, when);
+        var plate = route(r.shape, 'No route to draw for this one.', true, 'Route of ' + (r.title || 'the outing'));
+        var row = el('div', 'lx-he-stats');
+        var km = dist(r.distance_km);
+        add(row, stat(km.value, km.unit, 'Distance', 'is-sm'),
+            stat(dur(isNum(r.moving_s) && r.moving_s > 0 ? r.moving_s : r.elapsed_s), '', isNum(r.moving_s) && r.moving_s > 0 ? 'Moving' : 'Duration', 'is-sm'));
+        if (isNum(r.elevation_gain_m) && r.elevation_gain_m > 0) {
+            var up = IMPERIAL ? r.elevation_gain_m * 3.28084 : r.elevation_gain_m;
+            add(row, stat(fmtNum(up), IMPERIAL ? 'ft' : 'm', 'Climb', 'is-sm'));
+        }
+        return { body: [head, plate, row] };
+    };
+
+    var otdIndex = 0;
+    RENDER.on_this_day = function (s, d) {
+        if (isErr(d.on_this_day)) return { body: [errorState(s.card)] };
+        var o = d.on_this_day;
+        var years = o && Array.isArray(o.years) ? o.years : [];
+        if (!years.length) {
+            return { body: [empty('Nothing from earlier years yet',
+                'Once your history reaches back a year, this card shows what you did on today’s date in years past.')] };
+        }
+        if (otdIndex >= years.length) otdIndex = 0;
+        var wrap = el('div', 'lx-he-stack');
+        var content = el('div', 'lx-he-stack');
+        content.setAttribute('aria-live', 'polite');
+        var seg = el('div', 'lx-he-seg');
+        seg.setAttribute('role', 'group');
+        seg.setAttribute('aria-label', 'Choose a year');
+        var older = el('button', '', '‹'), newer = el('button', '', '›'), label = el('button', '');
+        older.type = newer.type = label.type = 'button';
+        older.setAttribute('aria-label', 'Earlier year');
+        newer.setAttribute('aria-label', 'Later year');
+        label.setAttribute('aria-pressed', 'true');
+        label.tabIndex = -1;
+        add(seg, older, label, newer);
+        var when = el('span', 'lx-he-otd-when');
+        var head = add(el('div', 'lx-he-otd-head'), when, seg);
+
+        function show(initial) {
+            var y = years[otdIndex];
+            label.textContent = String(y.year);
+            when.textContent = (y.years_ago === 1 ? '1 year ago' : y.years_ago + ' years ago') + ' · ' + dayLabel(y.date);
+            older.disabled = otdIndex >= years.length - 1;
+            newer.disabled = otdIndex <= 0;
+            var kids = [];
+            if (y.recap && y.recap.headline) {
+                kids.push(el('p', 'lx-he-otd-headline', y.recap.headline));
+                if (y.recap.summary) kids.push(el('p', 'lx-he-otd-text', y.recap.summary));
+            } else if (y.journal && (y.journal.title || y.journal.excerpt)) {
+                kids.push(el('p', 'lx-he-otd-headline', y.journal.title || y.journal.excerpt));
+                if (y.journal.title && y.journal.excerpt) kids.push(el('p', 'lx-he-otd-text', y.journal.excerpt));
+            } else {
+                var cities = Array.isArray(y.cities) ? y.cities : [];
+                kids.push(el('p', 'lx-he-otd-headline', cities.length ? cities.slice(0, 2).join(' and ') : 'A day on record'));
+            }
+            var chips = el('div', 'lx-he-chips');
+            if (isNum(y.distance_km) && y.distance_km > 0) chips.appendChild(el('span', 'lx-he-chip', distText(y.distance_km)));
+            (Array.isArray(y.cities) ? y.cities : []).forEach(function (c) { chips.appendChild(el('span', 'lx-he-chip', c)); });
+            if (y.journal && y.journal.mood) chips.appendChild(el('span', 'lx-he-chip', y.journal.mood));
+            if (chips.childNodes.length) kids.push(chips);
+            fill(content, kids);
+            var f = foot(link(y.map_url || URLS.map, 'lx-he-card-link', 'Open that day on the map'),
+                y.journal ? el('span', '', 'Has a journal entry') : null);
+            if (!initial) setFoot(s, f);
+            return f;
+        }
+        older.addEventListener('click', function () { if (otdIndex < years.length - 1) { otdIndex++; show(false); } });
+        newer.addEventListener('click', function () { if (otdIndex > 0) { otdIndex--; show(false); } });
+        seg.addEventListener('keydown', function (e) {
+            if (e.key === 'ArrowLeft' && !older.disabled) { e.preventDefault(); older.click(); }
+            else if (e.key === 'ArrowRight' && !newer.disabled) { e.preventDefault(); newer.click(); }
+        });
+        add(wrap, head, content);
+        return { body: [wrap], foot: show(true) };
+    };
+
+    RENDER.stats = function (s, d) {
+        if (isErr(d.stats) || !d.stats) return { body: [errorState(s.card)] };
+        var st = d.stats;
+        var kids = [];
+        if (st.pending) {
+            kids.push(empty('Your numbers are being calculated',
+                'Stats are computed in the background after your first points arrive, usually within a few minutes. Reload to check.'));
+        } else {
+            var row = el('div', 'lx-he-stats');
+            var km = dist(st.ytd_km);
+            add(row, stat(km.value, km.unit, 'Travelled in ' + new Date().getFullYear()),
+                stat(isNum(st.countries_ytd) ? fmtNum(st.countries_ytd) : '—', '', (st.countries_ytd === 1 ? 'Country' : 'Countries') + (isNum(st.countries) ? ' · ' + fmtNum(st.countries) + ' all time' : '')),
+                stat(isNum(st.cities_ytd) ? fmtNum(st.cities_ytd) : '—', '', st.cities_ytd === 1 ? 'City' : 'Cities'),
+                stat(isNum(st.streak_days) ? fmtNum(st.streak_days) : '—', '', st.streak_days === 1 ? 'Day moving in a row' : 'Days moving in a row'));
+            kids.push(row);
+            var months = Array.isArray(st.months) ? st.months : [];
+            if (months.length) {
+                var nowKey = localDay(new Date()).slice(0, 7);
+                kids.push(bars(months.map(function (m) {
+                    var dt = new Date((m.month || '') + '-01T12:00:00');
+                    var valid = !isNaN(dt.getTime());
+                    var name = valid ? dt.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : String(m.month);
+                    return {
+                        value: isNum(m.km) ? m.km : 0,
+                        label: valid ? dt.toLocaleDateString(undefined, { month: 'narrow' }) : '',
+                        title: name + ' ' + distText(m.km),
+                        current: m.month === nowKey
+                    };
+                }), { label: 'Distance per month, last 12 months' }));
+            }
+        }
+        var badges = Array.isArray(st.badges) ? st.badges : [];
+        var sub = el('div', 'lx-he-subhead', 'Latest badges');
+        if (badges.length) {
+            var wrap = el('div', 'lx-he-badges');
+            badges.forEach(function (b) {
+                var a = link(URLS.achievements, 'lx-he-badge');
+                a.setAttribute('data-tier', String(b.tier || 1));
+                a.title = (b.name || 'Badge') + (b.tier_name ? ' · ' + b.tier_name : '') + (b.unlocked_at ? ' · ' + dayLabel(b.unlocked_at, true) : '');
+                add(a, add(el('span', 'lx-he-badge-ico'), icon(b.icon || 'medal', 14)), el('span', '', b.name || 'Badge'));
+                wrap.appendChild(a);
+            });
+            kids.push(add(el('div', 'lx-he-stack is-tight'), sub, wrap));
+        } else {
+            kids.push(add(el('div', 'lx-he-stack is-tight'), sub,
+                add(el('div', 'lx-he-empty-text', 'No badges yet. '), link(URLS.achievements, '', 'See what you can earn'))));
+        }
+        var f = st.computed_at
+            ? foot(el('span', '', 'Updated ' + ago(st.computed_at) + '. Today is added at the next nightly refresh.'))
+            : null;
+        return { body: kids, foot: f };
+    };
+
+    var WORKOUT_ICON = { biking: 'bike', running: 'run', walking: 'walk', hiking: 'hike', rowing: 'row', swimming: 'swim', yoga: 'yoga',
+                         ride: 'bike', run: 'run', walk: 'walk', hike: 'hike', row: 'row' };
+    RENDER.health = function (s, d) {
+        if (isErr(d.health)) return { body: [errorState(s.card)] };
+        var h = d.health;
+        if (!h) {
+            return { body: [empty('Connect Health Connect',
+                'Steps, walking distance and active calories sync from Health Connect through the Roamly Android app.',
+                link(URLS.settings + '#data', 'lx-he-btn', 'Open settings'))] };
+        }
+        var t = h.today || {};
+        var kids = [];
+        kids.push(stat(isNum(t.steps) ? fmtNum(t.steps) : '—', '', isNum(t.steps) ? 'Steps today' : 'No steps recorded today', 'is-lg'));
+        var row = el('div', 'lx-he-stats');
+        add(row, stat(isNum(t.distance_m) ? dist(t.distance_m / 1000).value : '—', isNum(t.distance_m) ? dist(t.distance_m / 1000).unit : '', 'Walked', 'is-sm'),
+            stat(isNum(t.active_kcal) ? fmtNum(t.active_kcal) : '—', isNum(t.active_kcal) ? 'kcal' : '', 'Active', 'is-sm'));
+        kids.push(row);
+        var week = Array.isArray(h.week) ? h.week : [];
+        if (week.length) {
+            kids.push(bars(week.map(function (w) {
+                var dt = new Date(w.date + 'T12:00:00');
+                var ok = !isNaN(dt.getTime());
+                return {
+                    value: isNum(w.steps) ? w.steps : 0,
+                    label: ok ? dt.toLocaleDateString(undefined, { weekday: 'narrow' }) : '',
+                    title: (ok ? dt.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) : w.date) + ' ' + fmtNum(w.steps || 0) + ' steps',
+                    current: w.date === t.date
+                };
+            }), { short: true, label: 'Steps, last 7 days' }));
+        }
+        var w = h.last_workout;
+        if (w) {
+            var r = link(w.url || URLS.health, 'lx-he-row');
+            var meta = [dayLabel(w.start), dur(w.duration_s)];
+            if (isNum(w.distance_m) && w.distance_m > 0) meta.push(distText(w.distance_m / 1000));
+            add(r, add(el('span', 'lx-he-row-ico'), icon(WORKOUT_ICON[w.slug] || 'dumbbell', 16)),
+                add(el('span', 'lx-he-row-main'), el('span', 'lx-he-row-title', w.title || 'Workout'), el('span', 'lx-he-row-meta', meta.join('  ·  '))));
+            kids.push(r);
+        }
+        return { body: kids, foot: h.last_sync ? foot(el('span', '', 'Synced ' + ago(h.last_sync))) : null };
+    };
+
+    function battery(pct) {
+        if (!isNum(pct)) return null;
+        var b = el('span', 'lx-he-batt');
+        b.setAttribute('aria-label', 'Battery ' + pct + '%');
+        var bar = el('span', 'lx-he-batt-bar' + (pct <= 15 ? ' is-low' : ''));
+        bar.setAttribute('aria-hidden', 'true');
+        var fillEl = el('i');
+        fillEl.style.setProperty('--lvl', String(Math.max(0, Math.min(100, pct)) / 100));
+        bar.appendChild(fillEl);
+        return add(b, bar, el('span', '', pct + '%'));
+    }
+    function liveDot(iso) {
+        var dt = parse(iso);
+        var live = dt && Date.now() - dt.getTime() < 15 * 60 * 1000;
+        var dot = el('span', 'lx-he-dot' + (live ? ' is-live' : ''));
+        dot.setAttribute('aria-hidden', 'true');
+        return dot;
+    }
+    RENDER.people = function (s, d) {
+        var devErr = isErr(d.devices), famErr = isErr(d.family);
+        if (devErr && famErr) return { body: [errorState(s.card)] };
+        var devices = Array.isArray(d.devices) ? d.devices : [];
+        var family = Array.isArray(d.family) ? d.family : [];
+        if (!devErr && !famErr && !devices.length && !family.length) {
+            return { body: [empty('No devices yet',
+                'Install the Roamly app or pair a tracker, and each device shows here with when it last checked in.',
+                link(URLS.settings + '#account', 'lx-he-btn', 'Set up a device'))] };
+        }
+        var kids = [];
+        var dl = el('div');
+        kids.push(el('div', 'lx-he-subhead', 'Your devices'));
+        if (devErr) dl.appendChild(errorState(s.card, 'Devices didn’t load.'));
+        else if (!devices.length) dl.appendChild(el('div', 'lx-he-empty-text', 'No devices on this account.'));
+        devices.forEach(function (dv) {
+            var r = el('div', 'lx-he-row');
+            var meta = dv.last_seen ? 'Seen ' + ago(dv.last_seen) + (dv.place ? '  ·  ' + dv.place : '') : 'No points yet';
+            add(r, liveDot(dv.last_seen),
+                add(el('span', 'lx-he-row-main'), el('span', 'lx-he-row-title', dv.name || 'Device'), el('span', 'lx-he-row-meta', meta)),
+                battery(dv.battery) ? add(el('span', 'lx-he-row-aside'), battery(dv.battery)) : null);
+            dl.appendChild(r);
+        });
+        kids.push(dl);
+        if (famErr || family.length) {
+            kids.push(el('div', 'lx-he-subhead', 'Family'));
+            var fl = el('div');
+            if (famErr) fl.appendChild(errorState(s.card, 'Family didn’t load.'));
+            family.forEach(function (m) {
+                var r = el('div', 'lx-he-row');
+                var where = m.place ? (m.at_place ? 'At ' + m.place : 'Near ' + m.place) : '';
+                var meta = m.last_seen ? [where, ago(m.last_seen)].filter(Boolean).join('  ·  ') : 'Hasn’t shared a location yet';
+                var av = el('span', 'lx-he-avatar', (m.name || '?').charAt(0).toUpperCase());
+                av.setAttribute('aria-hidden', 'true');
+                add(r, av,
+                    add(el('span', 'lx-he-row-main'), el('span', 'lx-he-row-title', m.name || 'Member'), el('span', 'lx-he-row-meta', meta)),
+                    battery(m.battery) ? add(el('span', 'lx-he-row-aside'), battery(m.battery)) : null);
+                fl.appendChild(r);
+            });
+            kids.push(fl);
+        }
+        return { body: kids };
+    };
+
+    /* ── Sync status in the header ──────────────────────────────────────── */
+    var lastSync, lastSyncText = null;
+    function paintSync() {
+        var box = document.getElementById('lx-he-sync'), txt = document.getElementById('lx-he-sync-text');
+        if (!box || !txt || lastSync === undefined) return;
+        // A live region: only touch it when the words change, so a screen
+        // reader is not told "Last point 5 min ago" every minute for nothing.
+        var iso0 = lastSync && !isErr(lastSync) ? lastSync.last_point_at : null;
+        var key = isErr(lastSync) ? 'err' : (parse(iso0) ? 'Last point ' + ago(iso0) : 'none');
+        if (key === lastSyncText) return;
+        lastSyncText = key;
+        while (txt.firstChild) txt.removeChild(txt.firstChild);
+        if (isErr(lastSync)) { box.removeAttribute('data-fresh'); txt.textContent = 'Sync status unavailable'; return; }
+        var iso = lastSync && lastSync.last_point_at;
+        var dt = parse(iso);
+        if (!dt) {
+            box.removeAttribute('data-fresh');
+            add(txt, 'No points yet  ·  ', link(URLS.settings + '#account', '', 'Connect a device'));
+            return;
+        }
+        var age = Date.now() - dt.getTime();
+        box.setAttribute('data-fresh', age < 15 * 60 * 1000 ? 'live' : age < 6 * 3600 * 1000 ? 'recent' : 'stale');
+        txt.textContent = 'Last point ' + ago(iso);
+        txt.title = dt.toLocaleString();
+    }
+
+    /* ── Loading ────────────────────────────────────────────────────────── */
+    function fetchHome(only) {
+        var q = 'tz_offset=' + encodeURIComponent(String(new Date().getTimezoneOffset()));
+        if (only && only.length) q += '&only=' + encodeURIComponent(only.join(','));
+        var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+        var timer = ctl ? setTimeout(function () { ctl.abort(); }, 25000) : null;
+        return fetch(API + '?' + q, { credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: ctl ? ctl.signal : undefined })
+            .then(function (r) {
+                if (timer) clearTimeout(timer);
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            }, function (e) { if (timer) clearTimeout(timer); throw e; })
+            .then(function (j) {
+                if (!j || typeof j !== 'object') throw new Error('Bad response');
+                return j;
+            });
+    }
+    function paintFrom(data, ids) {
+        ids.forEach(function (id) {
+            var fn = RENDER[id];
+            if (fn) paint(id, function (s) { return fn(s, data); });
+        });
+        if ('sync' in data) { lastSync = data.sync; paintSync(); }
+    }
+    function apiCards() { return CARDS.filter(function (c) { return !c.own; }); }
+
+    function loadAll() {
+        fetchHome(null).then(function (data) {
+            paintFrom(data, apiCards().map(function (c) { return c.id; }));
+        }).catch(function () {
+            apiCards().forEach(function (c) {
+                paint(c.id, function (s) { return { body: [errorState(s.card, navigator.onLine === false ? 'You’re offline. Retry when you’re connected.' : 'This card didn’t load.')] }; });
+            });
+            lastSync = { error: true };
+            paintSync();
+        }).then(function () { grid.removeAttribute('aria-busy'); });
+    }
+    function retry(card) {
+        var s = shells[card.id];
+        if (!s) return;
+        if (card.own) { if (card.id === 'note') loadNote(); return; }
+        s.sec.setAttribute('aria-busy', 'true');
+        fill(s.body, [skel(card.id)]);
+        setFoot(s, null);
+        fetchHome(card.keys).then(function (data) { paintFrom(data, [card.id]); })
+            .catch(function () { paint(card.id, function (sh) { return { body: [errorState(sh.card)] }; }); });
+    }
+
+    /* ── Quick note: the browser's local day, notes API (docs/claude/quick-notes.md) ── */
+    var DRAFT_KEY = 'roamly_note_draft';
+    function csrf() {
+        var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+        return m ? decodeURIComponent(m[1]) : (window.__RLY_CSRF__ || '');
+    }
+    function readDraft(day) {
+        try {
+            var d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+            return d && d.date === day && typeof d.text === 'string' ? d.text : null;
+        } catch (e) { return null; }
+    }
+    function writeDraft(day, text) {
+        // Shared with the map's note pill: never drop a draft for another day.
+        try {
+            if (text == null) { if (readDraft(day) != null) localStorage.removeItem(DRAFT_KEY); }
+            else localStorage.setItem(DRAFT_KEY, JSON.stringify({ date: day, text: text }));
+        } catch (e) {}
+    }
+    function loadNote() {
+        var s = shells.note;
+        if (!s) return;
+        var day = localDay(new Date());
+        s.sec.setAttribute('aria-busy', 'true');
+        fill(s.body, [skel('note')]);
+        fetch('/api/notes/' + day + '/', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function (j) { paint('note', function () { return noteBody(day, j && typeof j.note === 'string' ? j.note : ''); }); })
+            .catch(function () { paint('note', function (sh) { return { body: [errorState(sh.card, 'Today’s note didn’t load.')] }; }); });
+    }
+    function noteBody(day, saved) {
+        var form = el('form', 'lx-he-note-form');
+        form.noValidate = true;
+        var lab = el('label', 'lx-he-sr', 'What did you do today?');
+        lab.htmlFor = 'lx-he-note-input';
+        var ta = el('textarea', 'lx-he-note-input rly-native');
+        ta.id = 'lx-he-note-input';
+        ta.maxLength = 2000;
+        ta.rows = 3;
+        ta.placeholder = 'What did you do today?';
+        var draft = readDraft(day);
+        ta.value = draft != null ? draft : saved;
+        var status = el('span', 'lx-he-note-status');
+        status.setAttribute('role', 'status');
+        var btn = el('button', 'lx-he-btn is-primary');
+        btn.type = 'submit';
+        var current = saved, busy = false, msg = null, msgErr = false;
+        function sync() {
+            var v = ta.value.trim();
+            var dirty = v !== current.trim();
+            btn.textContent = !v && current ? 'Remove' : 'Save';
+            btn.disabled = busy || !dirty;
+            status.className = 'lx-he-note-status' + (msgErr ? ' is-error' : '');
+            status.textContent = msg != null ? msg
+                : dirty ? 'Not saved yet'
+                : current ? 'Saved' : 'Shows on the map and in Journals';
+        }
+        ta.addEventListener('input', function () {
+            msg = null; msgErr = false;
+            writeDraft(day, ta.value.trim() === current.trim() ? null : ta.value);
+            sync();
+        });
+        ta.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                if (!btn.disabled) submit();
+            }
+        });
+        function submit() {
+            var v = ta.value.trim();
+            if (busy || v === current.trim()) return;
+            busy = true; msg = 'Saving…'; msgErr = false;
+            sync();
+            fetch('/api/notes/' + day + '/', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf(), Accept: 'application/json' },
+                body: JSON.stringify({ note: v })
+            }).then(function (r) {
+                return r.json().catch(function () { return null; }).then(function (j) {
+                    if (!r.ok) throw new Error((j && typeof j.error === 'string' && j.error) || 'Couldn’t save the note.');
+                    return j;
+                });
+            }).then(function (j) {
+                current = j && typeof j.note === 'string' ? j.note : v;
+                ta.value = current;
+                writeDraft(day, null);
+                msg = current ? 'Saved at ' + clock(new Date().toISOString()) : 'Note removed';
+            }).catch(function (e) {
+                msgErr = true;
+                msg = (e && e.message ? e.message : 'Couldn’t save the note.') + ' Your text is kept here.';
+            }).then(function () { busy = false; sync(); });
+        }
+        form.addEventListener('submit', function (e) { e.preventDefault(); submit(); });
+        add(form, lab, ta, add(el('div', 'lx-he-note-actions'), status, btn));
+        sync();
+        return { body: [form] };
+    }
+
+    loadAll();
+    loadNote();
+    // Relative times ("4 min ago") stay honest while the page sits open.
+    setInterval(paintSync, 60000);
+})();
+</script>
+{% endblock %}
