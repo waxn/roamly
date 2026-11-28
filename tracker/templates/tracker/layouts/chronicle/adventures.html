@@ -169,6 +169,7 @@ html[data-layout="chronicle"] .lx-ch-adv-menu > a:hover, html[data-layout="chron
 html[data-layout="chronicle"] .lx-ch-adv-menu > a:focus-visible, html[data-layout="chronicle"] .lx-ch-adv-menu > button:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
 html[data-layout="chronicle"] .lx-ch-adv-menu .is-danger { color: var(--danger); }
 html[data-layout="chronicle"] .lx-ch-adv-menu .lx-ch-adv-ico { color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-ico { flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ── Modals (create, settings, post) ── */
 html[data-layout="chronicle"] .lx-ch-adv-modal-overlay { position: fixed; inset: 0; z-index: 3000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.55); }
@@ -428,7 +429,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-cover[data-state="q
 {% endblock %}
 
 {% block content %}
-<div class="lx-ch-page lx-ch-adv" id="lx-ch-adv" data-tile-qs="{{ CARTO_TILE_QS }}">
+<div class="lx-ch-page lx-ch-page--wide lx-ch-adv" id="lx-ch-adv" data-tile-qs="{{ CARTO_TILE_QS }}">
     <span hidden>{% csrf_token %}</span>
     <header class="lx-ch-adv-head">
         <div>
@@ -1146,6 +1147,8 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-cover[data-state="q
                 if (a && !a.textContent) { try { a.textContent = 'Map tiles ' + (new DOMParser().parseFromString(curRaster().attribution, 'text/html').body.textContent || '').replace(/\s+/g, ' ').trim(); } catch (e) { /* no line */ } }
                 if (job.cover.isConnected) paintCover(job.cover, url);
             }).catch(() => {
+                try { if (r.map) r.map.remove(); } catch (e) { /* gone */ }
+                r.map = null;
                 if (job.cover.isConnected) failCover(job.cover, job.t);
             }).then(() => { r.busy = false; drain(); });
         }
@@ -1585,7 +1588,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-cover[data-state="q
         const on = show === undefined ? pop.hidden : show;
         pop.hidden = !on;
         btn.setAttribute('aria-expanded', on ? 'true' : 'false');
-        if (on) { syncViewPop(); const f = pop.querySelector('button, input'); if (f && !reduced()) { /* keep focus on the trigger; the popover is reachable by Tab */ } }
+        if (on) syncViewPop();
     }
     function setBasemap(id) {
         const b = BASEMAPS.find((x) => x.id === id);
@@ -1640,7 +1643,8 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-cover[data-state="q
         } else {
             const b = activeBasemap(); shownBasemapId = b.id;
             try {
-                tripMap = new window.maplibregl.Map({ container: 'trip-map', style: cloneStyle(b.style), center: [0, 20], zoom: 2, attributionControl: false, padding: mapPadding() });
+                tripMap = new window.maplibregl.Map({ container: 'trip-map', style: cloneStyle(b.style), center: [0, 20], zoom: 2, attributionControl: false });
+                try { tripMap.setPadding(mapPadding()); } catch (e) { /* older MapLibre */ }
                 tripMap.addControl(new window.maplibregl.AttributionControl({ compact: true }), 'bottom-right');
                 tripMap.addControl(new window.maplibregl.NavigationControl(), 'bottom-right');
                 tripMap.on('style.load', () => { styleReady = true; applyProjection(); if (currentTripData) { renderTripOnMap(currentTripData, tripFitted); if (composeLocation) drawBlurbPin(composeLocation.lat, composeLocation.lng); } });
