@@ -22,6 +22,7 @@ html[data-layout="chronicle"] .lx-ch-adv-modal-overlay[hidden] { display: none !
 /* Page head */
 html[data-layout="chronicle"] .lx-ch-adv-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 html[data-layout="chronicle"] .lx-ch-adv-head .lx-ch-lede { margin-top: 8px; }
+html[data-layout="chronicle"] .lx-ch-adv-head-act { display: flex; align-items: center; gap: 8px; }
 
 /* Controls (shared by toolbar, modals, panel) */
 html[data-layout="chronicle"] .lx-ch-adv-input {
@@ -48,10 +49,12 @@ html[data-layout="chronicle"] .lx-ch-adv-err { font-size: 13px; color: var(--dan
 
 /* Toolbar */
 html[data-layout="chronicle"] .lx-ch-adv-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 28px 0 0; }
-html[data-layout="chronicle"] .lx-ch-adv-search { flex: 0 1 220px; min-width: 150px; }
+html[data-layout="chronicle"] .lx-ch-adv-search { flex: 1 1 220px; max-width: 340px; min-width: 150px; }
 html[data-layout="chronicle"] .lx-ch-adv-bar .lx-ch-adv-select { width: auto; flex: 0 0 auto; max-width: 100%; }
 html[data-layout="chronicle"] .lx-ch-adv-sort { margin-left: auto; }
-html[data-layout="chronicle"] .lx-ch-adv-count { margin-top: 12px; min-height: 18px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-adv-count { margin-top: 12px; min-height: 18px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-adv-count .lx-ch-adv-link { font-family: var(--font-body); }
+html[data-layout="chronicle"] .lx-ch-adv-attrib { margin: 24px 0 0; font-size: 11px; line-height: 1.5; color: var(--text-dim); }
 
 /* Trip blogs (a quiet strip above the chronicle) */
 html[data-layout="chronicle"] .lx-ch-adv-blogs { margin-top: 32px; }
@@ -89,7 +92,7 @@ html[data-layout="chronicle"] .lx-ch-adv-entry[data-status="planned"] .lx-ch-adv
 
 html[data-layout="chronicle"] .lx-ch-adv-yearrow { align-items: end; padding-top: 28px; }
 html[data-layout="chronicle"] .lx-ch-adv-list > .lx-ch-adv-yearrow:first-child { padding-top: 12px; }
-html[data-layout="chronicle"] .lx-ch-adv-year { grid-column: 1; justify-self: end; padding-right: 0; font-family: var(--font-display); font-size: 17px; font-weight: 500; line-height: 1.2; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-adv-year { grid-column: 1; justify-self: end; font-family: var(--font-display); font-size: 17px; font-weight: 500; line-height: 1.2; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 html[data-layout="chronicle"] .lx-ch-adv-yearcount { grid-column: 3; padding-bottom: 2px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 html[data-layout="chronicle"] .lx-ch-adv-yearrow .lx-ch-adv-rail { grid-column: 2; grid-row: 1; align-self: stretch; }
 html[data-layout="chronicle"] .lx-ch-adv-yearrow .lx-ch-adv-year { grid-row: 1; }
@@ -98,15 +101,12 @@ html[data-layout="chronicle"] .lx-ch-adv-when { padding-top: 24px; text-align: r
 html[data-layout="chronicle"] .lx-ch-adv-day { display: block; font-family: var(--font-display); font-size: 36px; line-height: 1; font-weight: 500; letter-spacing: -0.02em; color: var(--text); font-variant-numeric: tabular-nums; }
 html[data-layout="chronicle"] .lx-ch-adv-mon { display: block; margin-top: 4px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
 
+/* The whole entry is one target (the title button stretches over it); the menu sits above. */
 html[data-layout="chronicle"] .lx-ch-adv-body {
     position: relative; min-width: 0;
-    display: grid; grid-template-columns: minmax(0, 1fr) 208px; column-gap: 24px; align-items: start;
-    padding: 24px 12px 26px; margin: 0 -12px;
-    border-bottom: 1px solid var(--border);
-    border-radius: var(--r-2, 0px);
-    transition: background-color 150ms ease-out;
+    display: grid; grid-template-columns: minmax(0, 1fr) 264px; column-gap: 28px; align-items: start;
+    padding: 24px 0 28px; border-bottom: 1px solid var(--border);
 }
-html[data-layout="chronicle"] .lx-ch-adv-body:hover { background: color-mix(in srgb, var(--text) 3%, transparent); }
 html[data-layout="chronicle"] .lx-ch-adv-main { min-width: 0; }
 html[data-layout="chronicle"] .lx-ch-adv-kick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 22px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 html[data-layout="chronicle"] .lx-ch-adv-status { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-body); font-size: 12px; color: var(--text-muted); }
@@ -114,39 +114,61 @@ html[data-layout="chronicle"] .lx-ch-adv-status::before { content: ''; width: 7p
 html[data-layout="chronicle"] .lx-ch-adv-status[data-s="active"] { color: var(--text); }
 html[data-layout="chronicle"] .lx-ch-adv-status[data-s="active"]::before { background: var(--primary); border-color: var(--primary); }
 html[data-layout="chronicle"] .lx-ch-adv-status[data-s="planned"]::before { border-style: dashed; border-color: var(--primary); }
-html[data-layout="chronicle"] .lx-ch-adv-name { margin: 4px 0 0; font-family: var(--font-display); font-size: 26px; line-height: 1.15; font-weight: 500; letter-spacing: -0.015em; color: var(--text); text-transform: none; overflow-wrap: anywhere; }
-html[data-layout="chronicle"] .lx-ch-adv-name a { color: inherit; text-decoration: none; }
-html[data-layout="chronicle"] .lx-ch-adv-name a::after { content: ''; position: absolute; inset: 0; border-radius: var(--r-2, 0px); }
-html[data-layout="chronicle"] .lx-ch-adv-name a:focus-visible { outline: none; }
-html[data-layout="chronicle"] .lx-ch-adv-name a:focus-visible::after { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
-html[data-layout="chronicle"] .lx-ch-adv-desc { margin: 6px 0 0; max-width: 56ch; font-family: var(--font-display); font-size: 16px; line-height: 1.55; color: var(--text-muted); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-transform: none; }
-html[data-layout="chronicle"] .lx-ch-adv-facts { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 14px; font-size: 13px; color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-adv-fact b { font-family: var(--font-mono); font-size: 13px; font-weight: 400; color: var(--text); font-variant-numeric: tabular-nums; }
-html[data-layout="chronicle"] .lx-ch-adv-acts { position: relative; z-index: 2; display: flex; flex-wrap: wrap; gap: 4px 4px; margin: 12px 0 0 -8px; }
-html[data-layout="chronicle"] .lx-ch-adv-act {
-    display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 8px;
-    background: none; border: 0; border-radius: var(--r-2, 0px); cursor: pointer;
-    font-family: var(--font-body); font-size: 13px; font-weight: 500; color: var(--text-muted); text-decoration: none;
+html[data-layout="chronicle"] .lx-ch-adv-kebab {
+    position: relative; z-index: 2; flex: none; margin: -6px -8px -6px auto; width: 32px; height: 32px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: none; border: 0; border-radius: var(--r-2, 0px); cursor: pointer; color: var(--text-muted);
     transition: color 120ms ease-out, background-color 120ms ease-out;
 }
-html[data-layout="chronicle"] .lx-ch-adv-act:hover { color: var(--text); background: var(--lx-ch-tint); }
-html[data-layout="chronicle"] .lx-ch-adv-act:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
-html[data-layout="chronicle"] .lx-ch-adv-act svg, html[data-layout="chronicle"] .lx-ch-adv-ico { flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+html[data-layout="chronicle"] .lx-ch-adv-kebab:hover, html[data-layout="chronicle"] .lx-ch-adv-kebab[aria-expanded="true"] { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-adv-kebab:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-adv-name { margin: 4px 0 0; font-family: var(--font-display); font-size: 28px; line-height: 1.15; font-weight: 500; letter-spacing: -0.015em; color: var(--text); text-transform: none; overflow-wrap: anywhere; }
+html[data-layout="chronicle"] .lx-ch-adv-open { display: inline; padding: 0; margin: 0; background: none; border: 0; cursor: pointer; font: inherit; letter-spacing: inherit; color: inherit; text-align: left; text-transform: none; }
+html[data-layout="chronicle"] .lx-ch-adv-open::after { content: ''; position: absolute; inset: 0; z-index: 1; border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-adv-open:focus-visible { outline: none; }
+html[data-layout="chronicle"] .lx-ch-adv-open:focus-visible::after { outline: 2px solid var(--lx-ch-ring); outline-offset: 4px; }
+html[data-layout="chronicle"] .lx-ch-adv-body:hover .lx-ch-adv-open { text-decoration: underline; text-decoration-color: var(--border-strong); text-decoration-thickness: 1px; text-underline-offset: 6px; }
+html[data-layout="chronicle"] .lx-ch-adv-body:hover .lx-ch-adv-cover { border-color: var(--border-strong); }
+html[data-layout="chronicle"] .lx-ch-adv-desc { margin: 8px 0 0; max-width: 56ch; font-family: var(--font-display); font-size: 16px; line-height: 1.55; color: var(--text-muted); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-transform: none; }
+html[data-layout="chronicle"] .lx-ch-adv-facts { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 16px; font-size: 13px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-fact b { font-family: var(--font-mono); font-size: 13px; font-weight: 400; color: var(--text); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-adv-fact[data-est] b { color: var(--text-muted); }
 
+/* Cover: a real map of the route on the user's basemap (rendered offscreen, shown as an image). */
 html[data-layout="chronicle"] .lx-ch-adv-cover {
-    position: relative; width: 208px; height: 140px; overflow: hidden; pointer-events: none;
+    position: relative; width: 264px; height: 172px; overflow: hidden; pointer-events: none;
     background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--r-3, 0px);
+    transition: border-color 150ms ease-out;
 }
-html[data-layout="chronicle"] .lx-ch-adv-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+html[data-layout="chronicle"] .lx-ch-adv-cimg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity 220ms ease-out; }
+html[data-layout="chronicle"] .lx-ch-adv-cimg:not([src]) { visibility: hidden; }
+html[data-layout="chronicle"] .lx-ch-adv-cover[data-state="ready"] .lx-ch-adv-cimg { opacity: 1; }
+html[data-layout="chronicle"] .lx-ch-adv-cover[data-state="queued"]::after,
+html[data-layout="chronicle"] .lx-ch-adv-cover[data-state="busy"]::after { content: ''; position: absolute; inset: 0; background: var(--lx-ch-tint); animation: lx-ch-adv-pulse 1.4s ease-in-out infinite; }
+@keyframes lx-ch-adv-pulse { 50% { opacity: 0.35; } }
 html[data-layout="chronicle"] .lx-ch-adv-sketch { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 html[data-layout="chronicle"] .lx-ch-adv-sketch .ln { fill: none; stroke: var(--primary); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 html[data-layout="chronicle"] .lx-ch-adv-sketch .a { fill: var(--bg-elevated); stroke: var(--primary); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 html[data-layout="chronicle"] .lx-ch-adv-sketch .b { fill: var(--primary); stroke: none; }
 html[data-layout="chronicle"] .lx-ch-adv-cover-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-adv-offmap { position: fixed; left: -10000px; top: 0; width: 264px; height: 172px; pointer-events: none; }
 
 html[data-layout="chronicle"] .lx-ch-adv-skel { display: grid; grid-template-columns: 72px 24px minmax(0, 1fr); column-gap: 8px; }
-html[data-layout="chronicle"] .lx-ch-adv-skel > div { padding: 28px 0; border-bottom: 1px solid var(--border); grid-column: 3; }
+html[data-layout="chronicle"] .lx-ch-adv-skel > div { display: grid; grid-template-columns: minmax(0, 1fr) 264px; column-gap: 28px; padding: 28px 0; border-bottom: 1px solid var(--border); grid-column: 3; }
+html[data-layout="chronicle"] .lx-ch-adv-skel .lx-ch-skel-cover { height: 172px; border-radius: var(--r-3, 0px); }
 html[data-layout="chronicle"] .lx-ch-adv-empty { grid-column: 1 / -1; }
+
+/* Menus (card, panel) */
+html[data-layout="chronicle"] .lx-ch-adv-menu { position: fixed; z-index: 1100; min-width: 208px; padding: 6px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--r-3, 0px); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28); }
+html[data-layout="chronicle"] .lx-ch-adv-menu > a, html[data-layout="chronicle"] .lx-ch-adv-menu > button {
+    display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 12px; margin: 0;
+    background: none; border: 0; border-radius: var(--r-2, 0px); cursor: pointer; text-align: left; text-decoration: none;
+    font-family: var(--font-body); font-size: 14px; color: var(--text);
+}
+html[data-layout="chronicle"] .lx-ch-adv-menu > a:hover, html[data-layout="chronicle"] .lx-ch-adv-menu > button:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-adv-menu > a:focus-visible, html[data-layout="chronicle"] .lx-ch-adv-menu > button:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
+html[data-layout="chronicle"] .lx-ch-adv-menu .is-danger { color: var(--danger); }
+html[data-layout="chronicle"] .lx-ch-adv-menu .lx-ch-adv-ico { color: var(--text-muted); }
 
 /* ── Modals (create, settings, post) ── */
 html[data-layout="chronicle"] .lx-ch-adv-modal-overlay { position: fixed; inset: 0; z-index: 3000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.55); }
@@ -168,41 +190,75 @@ html[data-layout="chronicle"] .lx-ch-adv-modal-foot .grp { display: flex; gap: 8
 html[data-layout="chronicle"] .lx-ch-adv-sect { margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); font-family: var(--font-display); font-size: 16px; font-weight: 500; color: var(--text); }
 html[data-layout="chronicle"] .lx-ch-adv-sect:first-child { margin-top: 0; }
 
-/* ── Full-screen map view ── */
-html[data-layout="chronicle"] .lx-ch-adv-full { position: fixed; inset: 0; z-index: 2000; background: var(--bg); --lx-adv-clear: 0px; --lx-adv-clearl: 412px; }
-html[data-layout="chronicle"] .lx-ch-adv-full.side-right { --lx-adv-clear: 412px; --lx-adv-clearl: 0px; }
+/* ── Map workspace: fills the page beside the sidebar ── */
+html[data-layout="chronicle"] .lx-ch-adv-full {
+    position: fixed; top: 0; right: 0; bottom: 0; left: var(--lx-ch-side, 0px); z-index: 900; background: var(--bg);
+    --lx-adv-pw: clamp(340px, 30vw, 408px); --lx-adv-clearl: calc(var(--lx-adv-pw) + 32px); --lx-adv-sheet: 52dvh;
+}
+html[data-layout="chronicle"] .lx-ch-adv-full.is-collapsed { --lx-adv-clearl: 0px; }
 html[data-layout="chronicle"] #trip-map { position: absolute; inset: 0; width: 100%; height: 100%; }
 html[data-layout="chronicle"] #trip-map-loading-bar { position: absolute; top: 0; left: 0; right: 0; height: 2px; z-index: 20; overflow: hidden; display: none; pointer-events: none; }
 html[data-layout="chronicle"] #trip-map-loading-bar.active { display: block; }
 html[data-layout="chronicle"] #trip-map-loading-bar::after { content: ''; position: absolute; top: 0; left: -60%; width: 60%; height: 100%; background: var(--primary); animation: lx-ch-adv-sweep 1.4s infinite cubic-bezier(0.4, 0, 0.2, 1); }
 @keyframes lx-ch-adv-sweep { 0% { left: -60%; } 100% { left: 160%; } }
-html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-bottom-right { right: var(--lx-adv-clear); }
 html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-bottom-left { left: var(--lx-adv-clearl); }
 html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-group { background: var(--bg); border: 1px solid var(--border); box-shadow: none; border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-group button + button { border-top: 1px solid var(--border); }
 html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--text-muted); }
 html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-attrib a { color: var(--text-muted); }
 html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-popup-content { background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-2, 0px); padding: 8px 12px; font-family: var(--font-body); font-size: 13px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); }
 html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-popup-tip { border-top-color: var(--bg-elevated); border-bottom-color: var(--bg-elevated); }
 html[data-layout="chronicle"] .lx-ch-adv-pop-t { font-weight: 600; }
 html[data-layout="chronicle"] .lx-ch-adv-pop-s { margin-top: 2px; font-size: 12px; color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-adv-style { position: absolute; top: 16px; right: calc(16px + var(--lx-adv-clear)); z-index: 10; }
-html[data-layout="chronicle"] .lx-ch-adv-style.lx-ch-seg { background: var(--bg); }
-html[data-layout="chronicle"] #adv-map-info { position: absolute; bottom: 24px; right: calc(64px + var(--lx-adv-clear)); z-index: 10; padding: 6px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-pill, 999px); font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); pointer-events: none; display: none; }
-html[data-layout="chronicle"] .lx-ch-adv-hint { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 12; display: none; padding: 8px 16px; background: var(--primary); color: var(--on-primary, #fff); border-radius: var(--r-pill, 999px); font-size: 13px; font-weight: 500; white-space: nowrap; pointer-events: none; }
+html[data-layout="chronicle"] #adv-map-info { position: absolute; bottom: 24px; right: 64px; z-index: 10; padding: 6px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-pill, 999px); font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); pointer-events: none; display: none; }
+html[data-layout="chronicle"] .lx-ch-adv-hint { position: absolute; top: 16px; left: calc(var(--lx-adv-clearl) + (100% - var(--lx-adv-clearl)) / 2); transform: translateX(-50%); z-index: 12; display: none; padding: 8px 16px; background: var(--primary); color: var(--on-primary, #fff); border-radius: var(--r-pill, 999px); font-size: 13px; font-weight: 500; white-space: nowrap; pointer-events: none; }
 html[data-layout="chronicle"] .lx-ch-adv-hint.active { display: block; }
 html[data-layout="chronicle"] .lx-ch-adv-hint + .lx-ch-adv-hint { top: 56px; }
-html[data-layout="chronicle"] .lx-ch-adv-backfloat { position: absolute; top: 16px; left: 16px; z-index: 11; }
 
+/* Basemap trouble: a quiet bar with a retry, never a blank map without explanation */
+html[data-layout="chronicle"] .lx-ch-adv-banner { position: absolute; top: 16px; left: var(--lx-adv-clearl); right: 200px; z-index: 12; display: flex; justify-content: center; pointer-events: none; }
+html[data-layout="chronicle"] .lx-ch-adv-banner > div { pointer-events: auto; display: inline-flex; align-items: center; gap: 12px; padding: 6px 6px 6px 14px; background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: var(--r-3, 0px); font-size: 13px; color: var(--text); }
+
+/* Map tools (top right) and the view-settings popover */
+html[data-layout="chronicle"] .lx-ch-adv-maptools { position: absolute; top: 16px; right: 16px; z-index: 13; display: flex; gap: 8px; }
+html[data-layout="chronicle"] .lx-ch-adv-maptool {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 0 12px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-2, 0px); cursor: pointer;
+    font-family: var(--font-body); font-size: 13px; font-weight: 500; color: var(--text);
+    transition: border-color 120ms ease-out, background-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-adv-maptool--icon { width: 36px; padding: 0; }
+html[data-layout="chronicle"] .lx-ch-adv-maptool:hover { border-color: var(--border-strong); }
+html[data-layout="chronicle"] .lx-ch-adv-maptool[aria-expanded="true"] { border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-adv-maptool:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-adv-viewpop { position: absolute; top: 60px; right: 16px; z-index: 14; width: 320px; max-height: calc(100% - 84px); overflow-y: auto; overscroll-behavior: contain; padding: 16px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--r-3, 0px); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3); scrollbar-width: thin; }
+html[data-layout="chronicle"] .lx-ch-adv-vp-sec + .lx-ch-adv-vp-sec { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-adv-vp-h { margin: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-adv-bm { display: flex; flex-wrap: wrap; gap: 6px; }
+html[data-layout="chronicle"] .lx-ch-adv-bm-grp { width: 100%; margin: 6px 0 0; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-adv-sw { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; font-size: 14px; color: var(--text); cursor: pointer; }
+html[data-layout="chronicle"] .lx-ch-adv-switch { appearance: none; -webkit-appearance: none; flex: none; position: relative; width: 34px; height: 20px; margin: 0; border-radius: var(--r-pill, 999px); background: var(--border-strong); cursor: pointer; transition: background-color 150ms ease-out; }
+html[data-layout="chronicle"] .lx-ch-adv-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--bg); transition: transform 150ms ease-out; }
+html[data-layout="chronicle"] .lx-ch-adv-switch:checked { background: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-adv-switch:checked::after { transform: translateX(14px); background: var(--on-primary, #fff); }
+html[data-layout="chronicle"] .lx-ch-adv-switch:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+
+/* Side panel: details live here, and it folds away to give the map the whole window */
 html[data-layout="chronicle"] .lx-ch-adv-panel {
-    position: absolute; left: 16px; top: 16px; bottom: 16px; width: 380px; z-index: 10;
+    position: absolute; left: 16px; top: 16px; bottom: 16px; width: var(--lx-adv-pw); z-index: 10;
     display: flex; flex-direction: column; overflow: hidden;
     background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--r-3, 0px);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
 }
-html[data-layout="chronicle"] .lx-ch-adv-full.side-right .lx-ch-adv-panel { left: auto; right: 16px; }
-html[data-layout="chronicle"] .lx-ch-adv-phead { flex: none; padding: 16px 16px 12px; }
-html[data-layout="chronicle"] .lx-ch-adv-ptitle-row { display: flex; align-items: center; gap: 4px; }
-html[data-layout="chronicle"] .lx-ch-adv-ptitle { flex: 1; min-width: 0; margin: 0; font-family: var(--font-display); font-size: 22px; line-height: 1.2; font-weight: 500; letter-spacing: -0.01em; color: var(--text); text-transform: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-html[data-layout="chronicle"] .lx-ch-adv-pmeta { margin-top: 4px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-adv-full.is-collapsed .lx-ch-adv-panel { bottom: auto; }
+html[data-layout="chronicle"] .lx-ch-adv-full.is-collapsed .lx-ch-adv-tabs,
+html[data-layout="chronicle"] .lx-ch-adv-full.is-collapsed .lx-ch-adv-tabpanel { display: none; }
+html[data-layout="chronicle"] .lx-ch-adv-phead { flex: none; padding: 12px 8px 12px 12px; }
+html[data-layout="chronicle"] .lx-ch-adv-ptitle-row { display: flex; align-items: center; gap: 2px; }
+html[data-layout="chronicle"] .lx-ch-adv-ptitle { flex: 1; min-width: 0; margin: 0 0 0 4px; font-family: var(--font-display); font-size: 22px; line-height: 1.2; font-weight: 500; letter-spacing: -0.01em; color: var(--text); text-transform: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-adv-pmeta { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 4px 0 0 44px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-adv-perr { margin: 8px 0 0 44px; font-size: 13px; color: var(--danger); }
+html[data-layout="chronicle"] .lx-ch-adv-perr .lx-ch-adv-link { margin-left: 8px; }
 html[data-layout="chronicle"] .lx-ch-adv-tabs { flex: none; display: flex; padding: 0 8px; border-bottom: 1px solid var(--border); }
 html[data-layout="chronicle"] .lx-ch-adv-tab { position: relative; flex: 1; min-height: 40px; padding: 0 4px; background: none; border: 0; cursor: pointer; font-family: var(--font-body); font-size: 14px; font-weight: 500; color: var(--text-muted); transition: color 150ms ease-out; }
 html[data-layout="chronicle"] .lx-ch-adv-tab::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--primary); transform: scaleX(0); transition: transform 180ms var(--lx-ch-ease); }
@@ -301,43 +357,60 @@ html[data-layout="chronicle"] .lx-ch-adv-photopreview img { width: 44px; height:
 
 /* ── Tablet / phone ── */
 @media (max-width: 1100px) {
-    html[data-layout="chronicle"] .lx-ch-adv-body { grid-template-columns: minmax(0, 1fr) 168px; column-gap: 16px; }
-    html[data-layout="chronicle"] .lx-ch-adv-cover { width: 168px; height: 120px; }
+    html[data-layout="chronicle"] .lx-ch-adv-body { grid-template-columns: minmax(0, 1fr) 200px; column-gap: 20px; }
+    html[data-layout="chronicle"] .lx-ch-adv-cover { width: 200px; height: 136px; }
+    html[data-layout="chronicle"] .lx-ch-adv-skel > div { grid-template-columns: minmax(0, 1fr) 200px; column-gap: 20px; }
+    html[data-layout="chronicle"] .lx-ch-adv-skel .lx-ch-skel-cover { height: 136px; }
     html[data-layout="chronicle"] .lx-ch-adv-entry, html[data-layout="chronicle"] .lx-ch-adv-yearrow, html[data-layout="chronicle"] .lx-ch-adv-skel { grid-template-columns: 56px 20px minmax(0, 1fr); column-gap: 6px; }
     html[data-layout="chronicle"] .lx-ch-adv-day { font-size: 30px; }
+    html[data-layout="chronicle"] .lx-ch-adv-name { font-size: 25px; }
+}
+@media (max-width: 1000px) {
+    html[data-layout="chronicle"] .lx-ch-adv-full { --lx-adv-pw: 300px; }
 }
 @media (max-width: 768px) {
+    html[data-layout="chronicle"] .lx-ch-adv-head-act { width: 100%; }
+    html[data-layout="chronicle"] .lx-ch-adv-head-act .lx-ch-btn { flex: 1; }
     html[data-layout="chronicle"] .lx-ch-adv-sort { margin-left: 0; }
-    html[data-layout="chronicle"] .lx-ch-adv-search { flex: 1 1 100%; }
+    html[data-layout="chronicle"] .lx-ch-adv-search { flex: 1 1 100%; max-width: none; }
     html[data-layout="chronicle"] .lx-ch-adv-input { min-height: 44px; font-size: 16px; }
     html[data-layout="chronicle"] .lx-ch-adv-input--sm { min-height: 40px; }
     html[data-layout="chronicle"] .lx-ch-adv-grid3, html[data-layout="chronicle"] .lx-ch-adv-grid2 { grid-template-columns: 1fr; }
-    html[data-layout="chronicle"] .lx-ch-adv-head .lx-ch-btn { width: 100%; }
     html[data-layout="chronicle"] .lx-ch-adv-entry, html[data-layout="chronicle"] .lx-ch-adv-yearrow, html[data-layout="chronicle"] .lx-ch-adv-skel { display: block; }
     html[data-layout="chronicle"] .lx-ch-adv-when, html[data-layout="chronicle"] .lx-ch-adv-rail { display: none; }
     html[data-layout="chronicle"] .lx-ch-adv-year { padding: 0; display: inline-block; font-size: 20px; color: var(--text); }
     html[data-layout="chronicle"] .lx-ch-adv-yearrow { display: flex; align-items: baseline; justify-content: space-between; padding-top: 24px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
     html[data-layout="chronicle"] .lx-ch-adv-yearrow .lx-ch-adv-rail { display: none; }
-    html[data-layout="chronicle"] .lx-ch-adv-body { display: flex; flex-direction: column; gap: 14px; padding: 20px 8px 22px; margin: 0 -8px; }
+    html[data-layout="chronicle"] .lx-ch-adv-body { display: flex; flex-direction: column; gap: 14px; padding: 20px 0 22px; }
     html[data-layout="chronicle"] .lx-ch-adv-cover { order: -1; width: 100%; height: auto; aspect-ratio: 16 / 9; }
+    html[data-layout="chronicle"] .lx-ch-adv-skel > div { display: block; padding: 20px 0; }
+    html[data-layout="chronicle"] .lx-ch-adv-skel .lx-ch-skel-cover { height: auto; aspect-ratio: 16 / 9; margin-bottom: 14px; }
     html[data-layout="chronicle"] .lx-ch-adv-name { font-size: 24px; }
-    html[data-layout="chronicle"] .lx-ch-adv-act { min-height: 44px; padding: 0 12px; }
-    html[data-layout="chronicle"] .lx-ch-adv-acts { margin-left: -12px; }
-    html[data-layout="chronicle"] .lx-ch-adv-skel > div { padding: 20px 0; }
+    html[data-layout="chronicle"] .lx-ch-adv-kebab { width: 44px; height: 44px; margin: -12px -12px -12px auto; }
+    html[data-layout="chronicle"] .lx-ch-adv-menu > a, html[data-layout="chronicle"] .lx-ch-adv-menu > button { min-height: 44px; }
     html[data-layout="chronicle"] .lx-ch-adv-modal-overlay { align-items: flex-end; padding: 0; }
     html[data-layout="chronicle"] .lx-ch-adv-modal { max-width: none; max-height: 92vh; max-height: 92dvh; border-radius: var(--r-4, 0px) var(--r-4, 0px) 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px)); }
     html[data-layout="chronicle"] .lx-ch-adv-modal-foot { flex-wrap: wrap; }
     html[data-layout="chronicle"] .lx-ch-adv-x { width: 44px; height: 44px; }
-    html[data-layout="chronicle"] .lx-ch-adv-full { --lx-adv-clear: 0px !important; --lx-adv-clearl: 0px !important; }
-    html[data-layout="chronicle"] .lx-ch-adv-panel, html[data-layout="chronicle"] .lx-ch-adv-full.side-right .lx-ch-adv-panel { left: 0; right: 0; top: auto; bottom: 0; width: 100%; height: 56vh; height: 56dvh; border-width: 1px 0 0; border-radius: var(--r-4, 0px) var(--r-4, 0px) 0 0; }
+    /* Workspace: the map fills the space above the dock, the panel is a bottom sheet */
+    html[data-layout="chronicle"] .lx-ch-adv-full { left: 0; bottom: var(--bottom-nav-height, 0px); --lx-adv-clearl: 0px; --lx-adv-sheet: 52dvh; }
+    html[data-layout="chronicle"] .lx-ch-adv-full.is-collapsed { --lx-adv-sheet: 92px; }
+    html[data-layout="chronicle"] .lx-ch-adv-panel { left: 0; right: 0; top: auto; bottom: 0; width: 100%; height: var(--lx-adv-sheet); border-width: 1px 0 0; border-radius: var(--r-4, 0px) var(--r-4, 0px) 0 0; }
+    html[data-layout="chronicle"] .lx-ch-adv-full.is-collapsed .lx-ch-adv-panel { bottom: 0; }
+    html[data-layout="chronicle"] .lx-ch-adv-phead { padding: 8px 4px 8px 8px; }
+    html[data-layout="chronicle"] .lx-ch-adv-pmeta, html[data-layout="chronicle"] .lx-ch-adv-perr { margin-left: 8px; }
+    html[data-layout="chronicle"] .lx-ch-adv-full.is-collapsed .lx-ch-adv-pmeta { flex-wrap: nowrap; overflow: hidden; white-space: nowrap; }
     html[data-layout="chronicle"] .lx-ch-adv-tab { min-height: 44px; }
-    html[data-layout="chronicle"] .lx-ch-adv-style { top: 10px; right: 10px; }
-    html[data-layout="chronicle"] #adv-map-info { bottom: calc(56dvh + 12px); right: 12px; }
-    html[data-layout="chronicle"] .lx-ch-adv-backfloat { top: 10px; left: 10px; }
-    html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-bottom-right { bottom: 56dvh; }
-    html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-bottom-left { bottom: 56dvh; }
-    html[data-layout="chronicle"] .lx-ch-adv-hint { top: 56px; max-width: calc(100% - 24px); white-space: normal; text-align: center; }
-    html[data-layout="chronicle"] .lx-ch-adv-hint + .lx-ch-adv-hint { top: 100px; }
+    html[data-layout="chronicle"] .lx-ch-adv-maptools { top: 10px; right: 10px; }
+    html[data-layout="chronicle"] .lx-ch-adv-maptool { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-adv-maptool--icon { width: 44px; }
+    html[data-layout="chronicle"] .lx-ch-adv-viewpop { top: 62px; left: 10px; right: 10px; width: auto; max-height: calc(100% - var(--lx-adv-sheet) - 76px); }
+    html[data-layout="chronicle"] .lx-ch-adv-sw { min-height: 44px; }
+    html[data-layout="chronicle"] #adv-map-info { bottom: calc(var(--lx-adv-sheet) + 12px); right: 12px; }
+    html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-bottom-right, html[data-layout="chronicle"] .lx-ch-adv-full .maplibregl-ctrl-bottom-left { bottom: var(--lx-adv-sheet); }
+    html[data-layout="chronicle"] .lx-ch-adv-banner { left: 10px; right: 10px; top: 62px; }
+    html[data-layout="chronicle"] .lx-ch-adv-hint { top: 62px; left: 50%; max-width: calc(100% - 24px); white-space: normal; text-align: center; }
+    html[data-layout="chronicle"] .lx-ch-adv-hint + .lx-ch-adv-hint { top: 106px; }
     html[data-layout="chronicle"] .lx-ch-adv-del { width: 44px; height: 44px; }
     html[data-layout="chronicle"] .lx-ch-adv-pin { min-height: 44px; }
     html[data-layout="chronicle"] .lx-ch-adv-link { padding: 12px 8px; margin: -12px -8px; }
@@ -346,10 +419,12 @@ html[data-layout="chronicle"] .lx-ch-adv-photopreview img { width: 44px; height:
 }
 @media (prefers-reduced-motion: reduce) {
     html[data-layout="chronicle"] .lx-ch-adv-entry.is-new { animation: none; }
-    html[data-layout="chronicle"] .lx-ch-adv-tab::after { transition: none; }
+    html[data-layout="chronicle"] .lx-ch-adv-tab::after, html[data-layout="chronicle"] .lx-ch-adv-cimg, html[data-layout="chronicle"] .lx-ch-adv-switch, html[data-layout="chronicle"] .lx-ch-adv-switch::after { transition: none; }
+    html[data-layout="chronicle"] .lx-ch-adv-cover[data-state="queued"]::after, html[data-layout="chronicle"] .lx-ch-adv-cover[data-state="busy"]::after { animation: none; }
     html[data-layout="chronicle"] #trip-map-loading-bar::after { animation: none; left: 0; width: 100%; opacity: 0.5; }
 }
 html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { animation: none; }
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-cover[data-state="queued"]::after, html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-cover[data-state="busy"]::after { animation: none; }
 {% endblock %}
 
 {% block content %}
@@ -361,16 +436,19 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
             <h1 class="lx-ch-title">Adventures</h1>
             <p class="lx-ch-lede">An adventure pulls the points you recorded between two dates into a story you can edit, plan and share. Newest first.</p>
         </div>
-        <button type="button" class="lx-ch-btn lx-ch-btn--primary" data-act="new">New adventure</button>
+        <div class="lx-ch-adv-head-act">
+            <button type="button" class="lx-ch-btn" id="tbl-new-btn" data-act="blog-new" aria-expanded="false" aria-controls="tbl-form">New trip blog</button>
+            <button type="button" class="lx-ch-btn lx-ch-btn--primary" data-act="new">New adventure</button>
+        </div>
     </header>
+    <div id="adv-devmap" hidden>{% for device in devices %}<i data-name="{{ device.name|default:device.device_id }}" data-did="{{ device.device_id }}"></i>{% endfor %}</div>
 
     {% comment %} Trip blogs: shared travel blogs that friends and family follow through share links
        (see trip_blog_views). Listed here because a trip is an adventure; the featured one also gets
-       a "Trip" item in the nav. {% endcomment %}
-    <section class="lx-ch-section lx-ch-adv-blogs" id="trip-blogs" aria-labelledby="tbl-title">
+       a "Trip" item in the nav. The section only appears once there is a blog or the form is open. {% endcomment %}
+    <section class="lx-ch-section lx-ch-adv-blogs" id="trip-blogs" aria-labelledby="tbl-title" hidden>
         <div class="lx-ch-section-head">
             <h2 class="lx-ch-section-title" id="tbl-title">Trip blogs</h2>
-            <button type="button" class="lx-ch-btn lx-ch-adv-btn-sm" id="tbl-new-btn" data-act="blog-new" aria-expanded="false" aria-controls="tbl-form">New trip blog</button>
         </div>
         <p class="lx-ch-adv-blogs-lede">Post photos, videos and stories from the road. Family and friends follow with a link.</p>
         <form class="lx-ch-adv-blogform" id="tbl-form" hidden novalidate>
@@ -390,19 +468,23 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
 
     <div class="lx-ch-adv-bar" role="search">
         <input type="search" class="lx-ch-adv-input lx-ch-adv-search" id="adv-search" placeholder="Search adventures" aria-label="Search adventures" autocomplete="off">
-        <div class="lx-ch-adv-chips" id="adv-chips" role="group" aria-label="Filter adventures" style="display:contents">
-            <button type="button" class="lx-ch-chip is-active" data-act="set-filter" data-filter="all" aria-pressed="true">All</button>
-            <button type="button" class="lx-ch-chip" data-act="set-filter" data-filter="active" aria-pressed="false">Active</button>
-            <button type="button" class="lx-ch-chip" data-act="set-filter" data-filter="public" aria-pressed="false">Public</button>
-            <button type="button" class="lx-ch-chip" data-act="set-filter" data-filter="week" aria-pressed="false">This week</button>
-            <button type="button" class="lx-ch-chip" data-act="set-filter" data-filter="month" aria-pressed="false">This month</button>
-        </div>
+        <select class="lx-ch-adv-input lx-ch-adv-select" id="adv-show" aria-label="Show">
+            <option value="all">All adventures</option>
+            <option value="active">Active now</option>
+            <option value="public">Public</option>
+            <option value="week">Started this week</option>
+            <option value="month">Started this month</option>
+        </select>
+        {% if devices|length > 1 %}
         <select class="lx-ch-adv-input lx-ch-adv-select" id="adv-device-filter" aria-label="Filter by device">
             <option value="">All devices</option>
             {% for device in devices %}
             <option value="{{ device.name|default:device.device_id }}">{{ device.name|default:device.device_id }}</option>
             {% endfor %}
         </select>
+        {% else %}
+        <select id="adv-device-filter" hidden aria-hidden="true"><option value=""></option></select>
+        {% endif %}
         <select class="lx-ch-adv-input lx-ch-adv-select lx-ch-adv-sort" id="adv-sort" aria-label="Sort adventures">
             <option value="newest">Newest first</option>
             <option value="oldest">Oldest first</option>
@@ -412,10 +494,10 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
     <div class="lx-ch-adv-count" id="adv-count" role="status" aria-live="polite"></div>
 
     <div class="lx-ch-adv-list" id="trips-list" aria-busy="true" aria-label="Adventures, newest first">
-        <div class="lx-ch-adv-skel" aria-hidden="true"><div><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div><div class="skeleton lx-ch-skel-line is-short"></div></div></div>
-        <div class="lx-ch-adv-skel" aria-hidden="true"><div><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div><div class="skeleton lx-ch-skel-line is-short"></div></div></div>
-        <div class="lx-ch-adv-skel" aria-hidden="true"><div><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div></div></div>
+        <div class="lx-ch-adv-skel" aria-hidden="true"><div><div><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div><div class="skeleton lx-ch-skel-line is-short"></div></div><div class="skeleton lx-ch-skel-cover"></div></div></div>
+        <div class="lx-ch-adv-skel" aria-hidden="true"><div><div><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-title"></div><div class="skeleton lx-ch-skel-line is-mid"></div></div><div class="skeleton lx-ch-skel-cover"></div></div></div>
     </div>
+    <p class="lx-ch-adv-attrib" id="adv-attrib"></p>
 </div>
 
 <!-- ── Create adventure ── -->
@@ -464,33 +546,57 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
     </div>
 </div>
 
-<!-- ── Full-screen map view ── -->
-<div id="trip-fullscreen" class="lx-ch-adv-full" role="dialog" aria-modal="true" aria-labelledby="sidebar-trip-name" hidden>
+<!-- ── Map workspace: fills the page beside the sidebar ── -->
+{{ basemaps|json_script:"roamly-basemaps" }}
+<div id="trip-fullscreen" class="lx-ch-adv-full" role="region" aria-label="Adventure map" hidden>
     <div id="trip-map"></div>
     <div id="trip-map-loading-bar"></div>
     <div class="lx-ch-adv-hint" id="place-hint" role="status">Click the map to drop a pin. Esc cancels.</div>
     <div class="lx-ch-adv-hint" id="blurb-pin-hint" role="status">Click the map to pin this post. Esc cancels.</div>
+    <div class="lx-ch-adv-banner" id="adv-banner" hidden role="status"><div><span id="adv-banner-msg">The map background did not load.</span><button type="button" class="lx-ch-btn lx-ch-adv-btn-sm" data-act="map-retry">Try again</button></div></div>
 
-    <div class="lx-ch-seg lx-ch-adv-style" role="group" aria-label="Map style">
-        <button type="button" data-act="map-style" data-style="Streets" aria-pressed="false">Streets</button>
-        <button type="button" data-act="map-style" data-style="Dark" aria-pressed="false">Dark</button>
-        <button type="button" data-act="map-style" data-style="Satellite" aria-pressed="false">Satellite</button>
+    <div class="lx-ch-adv-maptools">
+        <button type="button" class="lx-ch-adv-maptool lx-ch-adv-maptool--icon" data-act="map-fit" aria-label="Fit the whole track" title="Fit the whole track"><svg class="lx-ch-adv-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+        <button type="button" class="lx-ch-adv-maptool" id="adv-view-btn" data-act="view-pop" aria-expanded="false" aria-controls="adv-viewpop"><svg class="lx-ch-adv-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>Map view</button>
+    </div>
+    <div class="lx-ch-adv-viewpop" id="adv-viewpop" role="group" aria-label="Map view settings" hidden>
+        <div class="lx-ch-adv-vp-sec">
+            <div class="lx-ch-adv-vp-h">Basemap</div>
+            <div class="lx-ch-adv-bm" id="adv-bm"></div>
+        </div>
+        <div class="lx-ch-adv-vp-sec">
+            <div class="lx-ch-adv-vp-h">Projection</div>
+            <div class="lx-ch-seg" role="group" aria-label="Projection">
+                <button type="button" data-act="vp-proj" data-v="off" aria-pressed="true">Flat</button>
+                <button type="button" data-act="vp-proj" data-v="on" aria-pressed="false">Globe</button>
+            </div>
+        </div>
+        <div class="lx-ch-adv-vp-sec">
+            <div class="lx-ch-adv-vp-h">Track</div>
+            <label class="lx-ch-adv-sw">Route line<input type="checkbox" class="lx-ch-adv-switch" data-pref="roamly_connect_lines"></label>
+            <label class="lx-ch-adv-sw">Heatmap<input type="checkbox" class="lx-ch-adv-switch" data-pref="roamly_show_heatmap"></label>
+            <label class="lx-ch-adv-sw">Colour points by speed<input type="checkbox" class="lx-ch-adv-switch" data-pref="roamly_speed_gradient"></label>
+            <div class="lx-ch-adv-vp-h" style="margin-top:12px">Point size</div>
+            <div class="lx-ch-seg" role="group" aria-label="Point size">
+                <button type="button" data-act="vp-size" data-v="small" aria-pressed="false">Small</button>
+                <button type="button" data-act="vp-size" data-v="medium" aria-pressed="true">Medium</button>
+                <button type="button" data-act="vp-size" data-v="large" aria-pressed="false">Large</button>
+            </div>
+        </div>
+        <p class="lx-ch-adv-note" style="margin:16px 0 0">These follow your map settings, so the main map changes with them.</p>
     </div>
     <div id="adv-map-info"></div>
-
-    <button type="button" class="lx-ch-btn lx-ch-adv-backfloat" id="trip-back-float" data-act="close-trip" style="display:none">
-        <svg class="lx-ch-adv-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>Back
-    </button>
 
     <aside class="lx-ch-adv-panel" id="trip-sidebar" aria-label="Adventure">
         <div class="lx-ch-adv-phead">
             <div class="lx-ch-adv-ptitle-row">
-                <button type="button" class="lx-ch-adv-x" id="back-embedded" data-act="close-trip" aria-label="Back to adventures"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+                <button type="button" class="lx-ch-adv-x" id="back-embedded" data-act="close-trip" aria-label="Back to adventures" title="Back to adventures"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
                 <h2 class="lx-ch-adv-ptitle" id="sidebar-trip-name">Loading</h2>
-                <button type="button" class="lx-ch-adv-x" data-act="toggle-side" aria-label="Move panel to the other side" title="Move panel to the other side"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M7 7l-4 5 4 5M17 7l4 5-4 5M3 12h18"/></svg></button>
-                <button type="button" class="lx-ch-adv-x" data-act="open-settings" aria-label="Adventure settings" title="Adventure settings"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+                <button type="button" class="lx-ch-adv-x" id="adv-collapse" data-act="toggle-panel" aria-expanded="true" aria-label="Hide the panel" title="Hide the panel"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+                <button type="button" class="lx-ch-adv-x" id="adv-ws-more" data-act="ws-more" aria-haspopup="menu" aria-expanded="false" aria-label="More for this adventure" title="More"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
             </div>
             <div class="lx-ch-adv-pmeta" id="sidebar-trip-dates"></div>
+            <div class="lx-ch-adv-perr" id="adv-load-err" role="alert" hidden><span id="adv-load-msg">Could not load this adventure.</span><button type="button" class="lx-ch-adv-link" data-act="retry-detail">Try again</button></div>
         </div>
 
         <div class="lx-ch-adv-tabs" role="tablist" aria-label="Adventure sections">
@@ -710,6 +816,10 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
         plan: '<rect x="3.5" y="5" width="17" height="15.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
         link: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/>',
         pin: '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0113 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>',
+        more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+        edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+        copy: '<rect x="9" y="9" width="11" height="11"/><path d="M5 15V5h10"/>',
+        gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>',
         photo: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>'
     };
     const svg = (name, size) => '<svg class="lx-ch-adv-ico" viewBox="0 0 24 24" width="' + (size || 16) + '" height="' + (size || 16) + '" aria-hidden="true">' + (ICON[name] || '') + '</svg>';
@@ -759,7 +869,6 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
     //  LIST
     // ════════════════════════════════════════════════════════════════
     let allTrips = [];
-    let currentFilter = 'all';
     let firstRender = true;
 
     function tripInfo(t, now) {
@@ -786,8 +895,9 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
         for (let i = 1; i < pts.length; i++) km += haversineKm(pts[i - 1], pts[i]);
         return km;
     }
-    function sketchSvg(pts) {
-        const W = 208, H = 140, PAD = 18;
+    // Plain route sketch: the fallback when a basemap cannot be drawn.
+    function sketchSvg(pts, W, H) {
+        const PAD = 18;
         let minLa = 90, maxLa = -90, minLn = 180, maxLn = -180;
         pts.forEach((p) => { minLa = Math.min(minLa, p[0]); maxLa = Math.max(maxLa, p[0]); minLn = Math.min(minLn, p[1]); maxLn = Math.max(maxLn, p[1]); });
         const k = Math.cos(((minLa + maxLa) / 2) * Math.PI / 180) || 1;
@@ -816,23 +926,292 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
     }
     const STATUS_LABEL = { active: 'Active', planned: 'Planned', finished: 'Finished' };
 
+    // ── Distances ───────────────────────────────────────────────────
+    // The list API only carries a ~200 point sketch of the route, which is good for
+    // a map cover but not for a length. When an adventure is made of whole days (what
+    // the create and settings forms produce) the exact figure comes from /api/distance/,
+    // the same gated total the Stats page uses, fetched lazily and cached for the session.
+    // Anything else keeps the sketch estimate, shown with a "~".
+    const UID = '{{ user.id }}';
+    const DEV_ID = {};
+    document.querySelectorAll('#adv-devmap i').forEach((i) => { DEV_ID[i.dataset.name] = i.dataset.did; });
+    const DIST_KEY = 'lxch:adv:dist:' + UID;
+    let distMem = {};
+    try { distMem = JSON.parse(sessionStorage.getItem(DIST_KEY) || '{}') || {}; } catch (e) { distMem = {}; }
+    function saveDist() { try { sessionStorage.setItem(DIST_KEY, JSON.stringify(distMem)); } catch (e) { /* quota or private mode */ } }
+    const useMiles = () => storeGet('roamly_speed_unit', 'kmh') === 'mph';
+    const distUnit = () => (useMiles() ? 'mi' : 'km');
+    function fmtDist(km) { const v = useMiles() ? km * 0.621371 : km; return v < 10 ? v.toFixed(1) : num(Math.round(v)); }
+    function distKey(t) { return [t.id, t.start_time, t.end_time, t.location_count, toDateInput(new Date())].join('|'); }
+    function distEligible(t, info) {
+        if (t.is_creator === false || info.status === 'planned' || !DEV_ID[t.device]) return false;
+        if (!(info.s.getHours() === 0 && info.s.getMinutes() <= 1)) return false;
+        if (info.running) return true;
+        return info.e.getHours() === 23 && info.e.getMinutes() >= 58;
+    }
+    const distQueue = [], distPending = new Set();
+    let distActive = 0;
+    function exactKm(t) { const v = distMem[distKey(t)]; return v == null ? null : v; }
+    function wantDist(t) {
+        const k = distKey(t);
+        if (distMem[k] != null) { paintDist(t.id, distMem[k]); return; }
+        const info = tripInfo(t, new Date());
+        if (!distEligible(t, info) || distPending.has(k)) return;
+        distPending.add(k); distQueue.push({ t: t, info: info, k: k });
+        pumpDist();
+    }
+    function pumpDist() {
+        while (distActive < 2 && distQueue.length) {
+            const j = distQueue.shift();
+            distActive++;
+            const end = j.info.running ? new Date() : j.info.e;
+            const url = '/api/distance/?start_date=' + toDateInput(j.info.s) + '&end_date=' + toDateInput(end) + '&granularity=daily&device_id=' + encodeURIComponent(DEV_ID[j.t.device]);
+            api(url).then((d) => {
+                const km = d ? Number(d.total_km) : NaN;
+                if (isFinite(km) && km >= 0) { distMem[j.k] = km; saveDist(); paintDist(j.t.id, km); if (currentTripId === j.t.id) setPanelMeta(); }
+            }).catch(() => { /* keep the estimate */ }).then(() => { distActive--; distPending.delete(j.k); pumpDist(); });
+        }
+    }
+    function paintDist(id, km) {
+        document.querySelectorAll('[data-dist="' + id + '"]').forEach((el) => {
+            el.removeAttribute('data-est'); el.removeAttribute('title'); el.hidden = false;
+            el.innerHTML = '<b>' + fmtDist(km) + '</b> ' + distUnit();
+        });
+    }
+    function distFact(t, info, est) {
+        const k = exactKm(t);
+        if (k != null) return '<span class="lx-ch-adv-fact" data-dist="' + t.id + '"><b>' + fmtDist(k) + '</b> ' + distUnit() + '</span>';
+        if (est >= 1) return '<span class="lx-ch-adv-fact" data-dist="' + t.id + '" data-est="1" title="Estimated from a sketch of the route"><b>~' + fmtDist(est) + '</b> ' + distUnit() + '</span>';
+        if (distEligible(t, info)) return '<span class="lx-ch-adv-fact" data-dist="' + t.id + '" hidden></span>';
+        return '';
+    }
+
+    // ── Basemap and thumbnails ──────────────────────────────────────
+    // Covers are real maps of the route on the user's chosen basemap. Giving every card its
+    // own WebGL map runs into the browser's context limit and, inside lazily laid out lists,
+    // into containers that are 0px when MapLibre measures them (the old covers came out blank
+    // that way). So two offscreen maps of a fixed size render one cover at a time and the
+    // result is kept as an image: no live map per card, nothing to size, nothing to destroy.
+    const TILE_QS = ($('lx-ch-adv') && $('lx-ch-adv').dataset.tileQs) || '';
+    const themeLight = () => document.documentElement.getAttribute('data-theme') === 'light';
+    function builtinBasemaps() {
+        const raster = (id, tiles, extra) => ({ id: id, group: 'built-in', label: id, name: id, style: { version: 8, sources: { base: Object.assign({ type: 'raster', tiles: tiles, tileSize: 256 }, extra || {}) }, layers: [{ id: 'base', type: 'raster', source: 'base' }] } });
+        return [
+            raster('Streets', ['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png' + TILE_QS], { attribution: '&copy; OpenStreetMap contributors &copy; CARTO' }),
+            raster('Dark', ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png' + TILE_QS], { attribution: '&copy; OpenStreetMap contributors &copy; CARTO' }),
+            raster('Satellite', ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], { maxzoom: 19, attribution: 'Tiles &copy; Esri' })
+        ];
+    }
+    const BASEMAPS = (function () {
+        try {
+            const el = $('roamly-basemaps');
+            const list = el ? JSON.parse(el.textContent) : null;
+            if (Array.isArray(list) && list.length) { const ok = list.filter((b) => b && b.id && b.style); if (ok.length) return ok; }
+        } catch (e) { /* fall through to the built-ins */ }
+        return builtinBasemaps();
+    })();
+    // The saved choice wins; otherwise the basemap that suits the theme (a light map in a dark room glares).
+    function activeBasemap() {
+        const saved = storeGet('roamly_map_tile_style', '');
+        return BASEMAPS.find((b) => b.id === saved)
+            || BASEMAPS.find((b) => b.id === (themeLight() ? 'Streets' : 'Dark'))
+            || BASEMAPS[0];
+    }
+    function cloneStyle(s) { return typeof s === 'string' ? s : JSON.parse(JSON.stringify(s)); }
+    // Raster-only copy of a basemap (a vector or style-URL basemap has no tiles to borrow: use CARTO in the theme's tone).
+    function rasterOf(b) {
+        const st = b && b.style;
+        if (st && typeof st === 'object' && st.sources) {
+            const ids = Object.keys(st.sources);
+            for (let i = 0; i < ids.length; i++) {
+                const s = st.sources[ids[i]];
+                if (s && s.type === 'raster' && Array.isArray(s.tiles) && s.tiles.length) {
+                    return { key: b.id, attribution: s.attribution || '', style: { version: 8, sources: { base: { type: 'raster', tiles: s.tiles.slice(), tileSize: s.tileSize || 256, maxzoom: s.maxzoom || 19, attribution: s.attribution || '' } }, layers: [{ id: 'base', type: 'raster', source: 'base' }] } };
+                }
+            }
+        }
+        const dark = b ? /dark/i.test(b.id) : !themeLight();
+        return { key: 'carto-' + (dark ? 'dark' : 'light'), attribution: '&copy; OpenStreetMap contributors &copy; CARTO', style: { version: 8, sources: { base: { type: 'raster', tiles: ['https://basemaps.cartocdn.com/' + (dark ? 'dark_all' : 'light_all') + '/{z}/{x}/{y}.png' + TILE_QS], tileSize: 256, maxzoom: 19 } }, layers: [{ id: 'base', type: 'raster', source: 'base' }] } };
+    }
+    let rasterNow = null;
+    function curRaster() { if (!rasterNow) rasterNow = rasterOf(activeBasemap()); return rasterNow; }
+
+    const snaps = new Map();               // snapshot key -> data URL
+    const tripsById = new Map();
+    let io = null, thumbFails = 0;
+    const jobs = [], renderers = [];
+    function snapKey(t, w, h) { return [curRaster().key, t.id, t.location_count, (t.preview || []).length, w, h].join('|'); }
+
+    function once(map, evt, ms) {
+        return new Promise((resolve, reject) => {
+            let done = false;
+            const timer = setTimeout(() => { if (done) return; done = true; reject(new Error('timeout')); }, ms);
+            map.once(evt, () => { if (done) return; done = true; clearTimeout(timer); resolve(); });
+        });
+    }
+    function newRenderer() {
+        const host = document.createElement('div');
+        host.className = 'lx-ch-adv-offmap';
+        host.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(host);
+        return { host: host, map: null, key: '', busy: false };
+    }
+    async function renderCover(r, job) {
+        const t = job.t, pts = previewPts(t), rs = curRaster();
+        r.host.style.width = job.w + 'px'; r.host.style.height = job.h + 'px';
+        if (!r.map) {
+            r.map = new window.maplibregl.Map({
+                container: r.host, style: cloneStyle(rs.style), center: [0, 20], zoom: 1,
+                interactive: false, attributionControl: false, fadeDuration: 0, renderWorldCopies: false,
+                pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+                preserveDrawingBuffer: true, canvasContextAttributes: { preserveDrawingBuffer: true }
+            });
+            r.key = rs.key;
+            await once(r.map, 'load', 12000);
+        } else {
+            r.map.resize();
+            if (r.key !== rs.key) {
+                const loaded = once(r.map, 'style.load', 12000);
+                r.map.setStyle(cloneStyle(rs.style), { diff: false });
+                r.key = rs.key;
+                await loaded;
+            }
+        }
+        const m = r.map, c = colors();
+        ['rc-ends', 'rc-line', 'rc-case'].forEach((id) => { if (m.getLayer(id)) m.removeLayer(id); });
+        ['rc-ends', 'rc-line'].forEach((id) => { if (m.getSource(id)) m.removeSource(id); });
+        const coords = pts.map((p) => [p[1], p[0]]);
+        m.addSource('rc-line', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords.length > 1 ? coords : [coords[0], coords[0]] } } });
+        m.addLayer({ id: 'rc-case', type: 'line', source: 'rc-line', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#000000', 'line-opacity': 0.4, 'line-width': 6 } });
+        m.addLayer({ id: 'rc-line', type: 'line', source: 'rc-line', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': c.primary, 'line-width': 3 } });
+        m.addSource('rc-ends', { type: 'geojson', data: { type: 'FeatureCollection', features: [
+            { type: 'Feature', geometry: { type: 'Point', coordinates: coords[0] }, properties: { k: 'start' } },
+            { type: 'Feature', geometry: { type: 'Point', coordinates: coords[coords.length - 1] }, properties: { k: 'end' } }] } });
+        m.addLayer({ id: 'rc-ends', type: 'circle', source: 'rc-ends', paint: { 'circle-radius': 5, 'circle-color': ['case', ['==', ['get', 'k'], 'start'], tokenColor('--bg', '#1a1a1a'), c.primary], 'circle-stroke-width': 2, 'circle-stroke-color': ['case', ['==', ['get', 'k'], 'start'], c.primary, '#ffffff'] } });
+        let errs = 0;
+        const onErr = (e) => { if (e && e.sourceId === 'base') errs++; };
+        m.on('error', onErr);
+        try {
+            const lngs = coords.map((p) => p[0]), lats = coords.map((p) => p[1]);
+            const b = [[Math.min.apply(null, lngs), Math.min.apply(null, lats)], [Math.max.apply(null, lngs), Math.max.apply(null, lats)]];
+            if (b[0][0] === b[1][0] && b[0][1] === b[1][1]) m.jumpTo({ center: b[0], zoom: 13 });
+            else m.fitBounds(b, { padding: Math.round(Math.min(job.w, job.h) * 0.16), duration: 0, maxZoom: 15 });
+            const idle = once(m, 'idle', 9000);
+            m.triggerRepaint();
+            await idle;
+        } finally { m.off('error', onErr); }
+        if (errs >= 2) throw new Error('tiles');
+        return m.getCanvas().toDataURL('image/jpeg', 0.85);
+    }
+    function paintCover(cover, url) {
+        const img = cover.querySelector('.lx-ch-adv-cimg');
+        if (img) img.src = url;
+        cover.dataset.state = 'ready';
+    }
+    function failCover(cover, t) {
+        cover.dataset.state = 'fail';
+        const pts = previewPts(t);
+        if (pts.length && !cover.querySelector('.lx-ch-adv-sketch')) cover.insertAdjacentHTML('beforeend', sketchSvg(pts, cover.clientWidth || 264, cover.clientHeight || 172));
+        thumbFails++;
+        showThumbNote();
+    }
+    function showThumbNote() {
+        const c = $('adv-count'); if (!c) return;
+        let n = $('adv-maps-note');
+        if (!thumbFails) { if (n) n.remove(); return; }
+        if (!n) { n = document.createElement('span'); n.id = 'adv-maps-note'; n.innerHTML = 'Some route maps did not load. <button type="button" class="lx-ch-adv-link" data-act="retry-maps">Try again</button>'; c.appendChild(n); }
+    }
+    function pickJob() {
+        let best = -1, bestTop = Infinity;
+        for (let i = 0; i < jobs.length; i++) {
+            const en = jobs[i].entry;
+            if (!en.isConnected) { jobs[i].cover.dataset.state = 'idle'; jobs.splice(i, 1); i--; continue; }
+            const top = en._vis ? Math.abs(en.getBoundingClientRect().top) : 1e6 + i;
+            if (top < bestTop) { bestTop = top; best = i; }
+        }
+        return best < 0 ? null : jobs.splice(best, 1)[0];
+    }
+    function drain() {
+        if (document.hidden) return;
+        while (jobs.length) {
+            let r = renderers.find((x) => !x.busy);
+            if (!r && renderers.length < 2) { r = newRenderer(); renderers.push(r); }
+            if (!r) return;
+            const job = pickJob();
+            if (!job) return;
+            r.busy = true; job.cover.dataset.state = 'busy';
+            Promise.resolve().then(() => { if (!window.maplibregl) throw new Error('no maplibre'); return renderCover(r, job); }).then((url) => {
+                snaps.set(snapKey(job.t, job.w, job.h), url);
+                const a = $('adv-attrib');
+                if (a && !a.textContent) { try { a.textContent = 'Map tiles ' + (new DOMParser().parseFromString(curRaster().attribution, 'text/html').body.textContent || '').replace(/\s+/g, ' ').trim(); } catch (e) { /* no line */ } }
+                if (job.cover.isConnected) paintCover(job.cover, url);
+            }).catch(() => {
+                if (job.cover.isConnected) failCover(job.cover, job.t);
+            }).then(() => { r.busy = false; drain(); });
+        }
+    }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) drain(); });
+    function queueCover(cover, entry, t) {
+        const w = cover.clientWidth, h = cover.clientHeight;
+        if (!w || !h) return;   // not laid out (hidden or collapsed): the observer fires again when it is
+        const hit = snaps.get(snapKey(t, w, h));
+        if (hit) { paintCover(cover, hit); return; }
+        cover.dataset.state = 'queued';
+        jobs.push({ cover: cover, entry: entry, t: t, w: w, h: h });
+        drain();
+    }
+    function onIntersect(list) {
+        list.forEach((e) => {
+            const en = e.target; en._vis = e.isIntersecting;
+            if (!e.isIntersecting) return;
+            const t = tripsById.get(Number(en.dataset.id));
+            if (!t) return;
+            wantDist(t);
+            const cover = en.querySelector('.lx-ch-adv-cover[data-kind="map"]');
+            if (cover && cover.dataset.state === 'idle') queueCover(cover, en, t);
+        });
+    }
+    function hydrateCovers(host) {
+        if (io) io.disconnect();
+        if (!io && 'IntersectionObserver' in window) io = new IntersectionObserver(onIntersect, { rootMargin: '300px 0px' });
+        jobs.length = 0; thumbFails = 0; showThumbNote();
+        host.querySelectorAll('.lx-ch-adv-entry').forEach((en) => {
+            if (io) io.observe(en);
+            else { const t = tripsById.get(Number(en.dataset.id)); if (t) wantDist(t); }
+        });
+    }
+    // The basemap (or the theme it falls back to) changed: old snapshots show the wrong map.
+    let lastThumbKey = '';
+    function checkThumbStyle() {
+        rasterNow = null;
+        const k = curRaster().key;
+        if (k === lastThumbKey) return false;
+        lastThumbKey = k; snaps.clear();
+        const a = $('adv-attrib'); if (a) a.textContent = '';
+        return true;
+    }
+    lastThumbKey = curRaster().key;
+    try { new MutationObserver(() => { if (checkThumbStyle() && $('trip-fullscreen').hidden) renderAdventures(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }); } catch (e) { /* no observer */ }
+
+    // ── The list ────────────────────────────────────────────────────
+    function coverHtml(t, info, pts) {
+        if (t.cover_thumbnail) return '<div class="lx-ch-adv-cover" data-kind="photo" data-state="ready"><img class="lx-ch-adv-cimg" src="' + esc(t.cover_thumbnail) + '" alt="" loading="lazy" decoding="async"></div>';
+        if (!pts.length) return '<div class="lx-ch-adv-cover" data-kind="none" data-state="empty"><span class="lx-ch-adv-cover-empty">' + (info.status === 'planned' ? 'Not started' : 'No track yet') + '</span></div>';
+        return '<div class="lx-ch-adv-cover" data-kind="map" data-state="idle"><img class="lx-ch-adv-cimg" alt="" decoding="async"></div>';
+    }
     function entryHtml(t, now, animate) {
         const info = tripInfo(t, now);
         const id = Number(t.id);
         const pts = previewPts(t);
-        const km = pts.length > 1 ? approxKm(pts) : 0;
+        const est = pts.length > 1 ? approxKm(pts) : 0;
         const days = dayCount(info, now);
         const facts = [];
         facts.push('<span class="lx-ch-adv-fact"><b>' + days + '</b> ' + (days === 1 ? 'day' : 'days') + (info.status === 'active' ? ' so far' : '') + '</span>');
-        if (km >= 1) facts.push('<span class="lx-ch-adv-fact"><b>~' + num(Math.round(km)) + '</b> km</span>');
+        const df = distFact(t, info, est); if (df) facts.push(df);
         facts.push('<span class="lx-ch-adv-fact"><b>' + num(t.location_count) + '</b> points</span>');
         if (t.member_count > 1) facts.push('<span class="lx-ch-adv-fact"><b>' + num(t.member_count) + '</b> members</span>');
         if (t.device) facts.push('<span class="lx-ch-adv-fact">' + esc(t.device) + '</span>');
         if (t.read_time_min) facts.push('<span class="lx-ch-adv-fact"><b>' + num(t.read_time_min) + '</b> min read</span>');
-        let cover;
-        if (t.cover_thumbnail) cover = '<img src="' + esc(t.cover_thumbnail) + '" alt="" loading="lazy">';
-        else if (pts.length) cover = sketchSvg(pts);
-        else cover = '<span class="lx-ch-adv-cover-empty">' + (info.status === 'planned' ? 'Not started' : 'No track yet') + '</span>';
         const badges = [];
         if (t.is_public) badges.push('<span class="lx-ch-badge">Public</span>');
         if (t.is_creator === false) badges.push('<span class="lx-ch-badge">Shared with you</span>');
@@ -843,16 +1222,13 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
             + '<div class="lx-ch-adv-rail" aria-hidden="true"><span class="lx-ch-adv-node"></span></div>'
             + '<div class="lx-ch-adv-body">'
             + '<div class="lx-ch-adv-main">'
-            + '<div class="lx-ch-adv-kick"><span class="lx-ch-adv-status" data-s="' + info.status + '">' + STATUS_LABEL[info.status] + '</span><span>' + esc(rangeText(t, info)) + '</span>' + badges.join('') + '</div>'
-            + '<h3 class="lx-ch-adv-name"><a href="/adventures/' + id + '/edit/">' + esc(name) + '</a></h3>'
+            + '<div class="lx-ch-adv-kick"><span class="lx-ch-adv-status" data-s="' + info.status + '">' + STATUS_LABEL[info.status] + '</span><span>' + esc(rangeText(t, info)) + '</span>' + badges.join('')
+            + '<button type="button" class="lx-ch-adv-kebab" data-act="card-menu" data-id="' + id + '" aria-haspopup="menu" aria-expanded="false" aria-label="More for ' + esc(name) + '">' + svg('more', 18) + '</button></div>'
+            + '<h3 class="lx-ch-adv-name"><button type="button" class="lx-ch-adv-open" data-act="open-trip" data-id="' + id + '" aria-label="Open ' + esc(name) + ' on the map">' + esc(name) + '</button></h3>'
             + (t.subtitle ? '<p class="lx-ch-adv-desc">' + esc(t.subtitle) + '</p>' : (t.description ? '<p class="lx-ch-adv-desc">' + esc(t.description) + '</p>' : ''))
             + '<div class="lx-ch-adv-facts">' + facts.join('') + '</div>'
-            + '<div class="lx-ch-adv-acts">'
-            + '<button type="button" class="lx-ch-adv-act" data-act="open-trip" data-id="' + id + '" aria-label="Open map view of ' + esc(name) + '">' + svg('map') + 'Map</button>'
-            + '<a class="lx-ch-adv-act" href="/adventures/' + id + '/plan/" aria-label="Plan ' + esc(name) + '">' + svg('plan') + 'Plan</a>'
-            + (t.is_public && t.public_slug ? '<a class="lx-ch-adv-act" href="/adventure/' + encodeURIComponent(t.public_slug) + '/" target="_blank" rel="noopener" aria-label="Public page of ' + esc(name) + ' (opens in a new tab)">' + svg('link') + 'Public page</a>' : '')
-            + '</div></div>'
-            + '<div class="lx-ch-adv-cover" aria-hidden="true">' + cover + '</div>'
+            + '</div>'
+            + coverHtml(t, info, pts)
             + '</div></article>';
     }
 
@@ -860,32 +1236,23 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
         const search = ($('adv-search').value || '').trim().toLowerCase();
         const dev = $('adv-device-filter').value;
         const sort = $('adv-sort').value;
+        const show = $('adv-show').value;
         const now = new Date();
         const trips = allTrips.filter((t) => {
             if (search && !String(t.name || '').toLowerCase().includes(search)) return false;
             if (dev && t.device !== dev) return false;
             const start = new Date(t.start_time), end = new Date(t.end_time);
             const open = end.getFullYear() >= 2099;
-            if (currentFilter === 'active') return open || end >= now;
-            if (currentFilter === 'public') return t.is_public;
-            if (currentFilter === 'week') return start >= new Date(now - 7 * 86400000);
-            if (currentFilter === 'month') return start >= new Date(now - 30 * 86400000);
+            if (show === 'active') return start <= now && (open || end >= now);
+            if (show === 'public') return t.is_public;
+            if (show === 'week') return start >= new Date(now - 7 * 86400000);
+            if (show === 'month') return start >= new Date(now - 30 * 86400000);
             return true;
         });
         if (sort === 'oldest') trips.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
         else if (sort === 'points') trips.sort((a, b) => b.location_count - a.location_count);
         else trips.sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
         return { trips: trips, sort: sort };
-    }
-
-    function setFilter(filter) {
-        currentFilter = filter;
-        document.querySelectorAll('#adv-chips .lx-ch-chip').forEach((b) => {
-            const on = b.dataset.filter === filter;
-            b.classList.toggle('is-active', on);
-            b.setAttribute('aria-pressed', on ? 'true' : 'false');
-        });
-        renderAdventures();
     }
 
     function renderAdventures() {
@@ -897,6 +1264,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
         firstRender = false;
         $('adv-count').textContent = allTrips.length ? (trips.length === allTrips.length ? num(allTrips.length) + (allTrips.length === 1 ? ' adventure' : ' adventures') : num(trips.length) + ' of ' + num(allTrips.length) + ' adventures') : '';
         if (!trips.length) {
+            if (io) io.disconnect();
             const filtered = allTrips.length > 0;
             host.innerHTML = filtered
                 ? '<div class="lx-ch-empty"><div class="lx-ch-empty-title">Nothing matches</div><p>No adventure fits this search and filter.</p><button type="button" class="lx-ch-btn" data-act="clear-filters">Show all adventures</button></div>'
@@ -920,6 +1288,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
             trips.forEach((t) => { html += entryHtml(t, now, animate); });
         }
         host.innerHTML = html;
+        hydrateCovers(host);
     }
 
     function updateKicker() {
@@ -932,29 +1301,129 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
         k.textContent = num(allTrips.length) + (allTrips.length === 1 ? ' adventure' : ' adventures') + (first ? ', since ' + first : '') + (active ? ', ' + active + ' active' : '');
     }
 
+    // Stale while revalidate: the last list paints at once, the fresh one replaces it only if it differs.
+    const LIST_KEY = 'lxch:adv:list:' + UID;
+    let listSig = '';
+    function setTrips(trips) {
+        allTrips = trips;
+        tripsById.clear();
+        trips.forEach((t) => tripsById.set(Number(t.id), t));
+        updateKicker();
+    }
     async function loadAdventures() {
         const host = $('trips-list');
-        host.setAttribute('aria-busy', 'true');
+        let painted = !!allTrips.length;
+        if (!painted) {
+            try {
+                const raw = sessionStorage.getItem(LIST_KEY);
+                const d = raw ? JSON.parse(raw) : null;
+                if (d && Array.isArray(d.trips) && d.trips.length) { setTrips(d.trips); listSig = JSON.stringify(d.trips); painted = true; host.removeAttribute('aria-busy'); renderAdventures(); }
+            } catch (e) { /* no cache */ }
+        }
+        if (!painted) host.setAttribute('aria-busy', 'true');
         try {
             const data = await api('/api/trips/');
-            allTrips = (data && data.trips) || [];
-            updateKicker();
-            renderAdventures();
+            const trips = (data && data.trips) || [];
+            const sig = JSON.stringify(trips);
+            if (sig !== listSig || !painted) {
+                listSig = sig;
+                setTrips(trips);
+                renderAdventures();
+                try { sessionStorage.setItem(LIST_KEY, JSON.stringify({ trips: trips })); } catch (e) { /* too large or private mode */ }
+            }
+            if (currentTripId) setPanelMeta();
         } catch (e) {
-            host.innerHTML = '<div class="lx-ch-empty" role="alert"><div class="lx-ch-empty-title">Could not load your adventures</div><p>' + esc(e && e.message ? e.message : 'Check your connection and try again.') + '</p><button type="button" class="lx-ch-btn" data-act="retry">Try again</button></div>';
+            if (painted) { $('adv-count').insertAdjacentHTML('beforeend', '<span>Showing your last saved list. <button type="button" class="lx-ch-adv-link" data-act="retry">Refresh</button></span>'); }
+            else host.innerHTML = '<div class="lx-ch-empty" role="alert"><div class="lx-ch-empty-title">Could not load your adventures</div><p>' + esc(e && e.message ? e.message : 'Check your connection and try again.') + '</p><button type="button" class="lx-ch-btn" data-act="retry">Try again</button></div>';
         } finally {
             host.removeAttribute('aria-busy');
         }
     }
 
+    // ── Overflow menu (one shared popover for the cards and the panel) ──
+    let menuEl = null, menuBtn = null;
+    function closeMenu(restore) {
+        if (menuEl) { menuEl.remove(); menuEl = null; }
+        if (menuBtn) { menuBtn.setAttribute('aria-expanded', 'false'); if (restore) { try { menuBtn.focus({ preventScroll: true }); } catch (e) { /* gone */ } } menuBtn = null; }
+    }
+    function openMenu(btn, items) {
+        closeMenu(false);
+        menuBtn = btn; btn.setAttribute('aria-expanded', 'true');
+        const m = document.createElement('div');
+        m.className = 'lx-ch-adv-menu'; m.setAttribute('role', 'menu');
+        items.forEach((it) => {
+            const el = document.createElement(it.href ? 'a' : 'button');
+            el.setAttribute('role', 'menuitem');
+            if (it.href) { el.href = it.href; if (it.blank) { el.target = '_blank'; el.rel = 'noopener'; } } else el.type = 'button';
+            el.innerHTML = svg(it.icon, 16) + '<span></span>';
+            el.lastChild.textContent = it.label;
+            if (it.danger) el.classList.add('is-danger');
+            el.addEventListener('click', () => { closeMenu(false); if (it.run) it.run(); });
+            m.appendChild(el);
+        });
+        m.style.visibility = 'hidden';
+        document.body.appendChild(m); menuEl = m;
+        const r = btn.getBoundingClientRect(), mw = m.offsetWidth, mh = m.offsetHeight;
+        const left = Math.min(Math.max(8, r.right - mw), window.innerWidth - mw - 8);
+        let top = r.bottom + 4;
+        if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 4);
+        m.style.left = left + 'px'; m.style.top = top + 'px'; m.style.visibility = '';
+        const first = m.firstElementChild; if (first) first.focus({ preventScroll: true });
+        m.addEventListener('keydown', (e) => {
+            const els = Array.prototype.slice.call(m.children);
+            let i = els.indexOf(document.activeElement);
+            if (e.key === 'ArrowDown') i = (i + 1) % els.length;
+            else if (e.key === 'ArrowUp') i = (i - 1 + els.length) % els.length;
+            else if (e.key === 'Home') i = 0;
+            else if (e.key === 'End') i = els.length - 1;
+            else if (e.key === 'Tab') { closeMenu(false); return; }
+            else return;
+            e.preventDefault(); els[i].focus();
+        });
+    }
+    document.addEventListener('mousedown', (e) => {
+        if (menuEl && !menuEl.contains(e.target) && !(menuBtn && menuBtn.contains(e.target))) closeMenu(false);
+        const pop = $('adv-viewpop');
+        if (pop && !pop.hidden && !pop.contains(e.target) && !$('adv-view-btn').contains(e.target)) toggleViewPop(false);
+    });
+    window.addEventListener('scroll', () => closeMenu(false), true);
+    window.addEventListener('resize', () => { closeMenu(false); if (tripMap) { try { tripMap.easeTo({ padding: mapPadding(), duration: 0 }); } catch (e) { /* gone */ } } });
+    function tripLinks(id, t) {
+        const items = [
+            { icon: 'plan', label: 'Plan', href: '/adventures/' + id + '/plan/' },
+            { icon: 'edit', label: 'Edit details', href: '/adventures/' + id + '/edit/' }
+        ];
+        if (t && t.is_public && t.public_slug) {
+            items.push({ icon: 'link', label: 'Public page', href: '/adventure/' + encodeURIComponent(t.public_slug) + '/', blank: true });
+            items.push({ icon: 'copy', label: 'Copy public link', run: () => copyText(location.origin + '/adventure/' + t.public_slug + '/') });
+        }
+        return items;
+    }
+    function cardMenu(btn) {
+        const id = Number(btn.dataset.id), t = tripsById.get(id);
+        openMenu(btn, [{ icon: 'map', label: 'Open on the map', run: () => openTrip(id, btn) }].concat(tripLinks(id, t)));
+    }
+    function panelMenu(btn) {
+        if (!currentTripId) return;
+        const t = currentTripData || tripsById.get(currentTripId);
+        openMenu(btn, [{ icon: 'gear', label: 'Adventure settings', run: () => openSettings() }].concat(tripLinks(currentTripId, t)));
+    }
+
     // ── Trip blogs ──────────────────────────────────────────────────
     const blogFmt = (d) => d ? new Date(d + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    let blogCount = 0;
+    function syncBlogSection() {
+        const sec = $('trip-blogs'), form = $('tbl-form');
+        if (sec) sec.hidden = !(blogCount > 0 || (form && !form.hidden));
+    }
     async function loadBlogs() {
         const list = $('tbl-list');
         if (!list) return;
         let blogs = [];
         try { const d = await api('/api/tripblog/'); blogs = (d && d.blogs) || []; } catch (e) { blogs = []; }
-        list.innerHTML = blogs.filter((b) => b.accepted).map((b) => {
+        blogs = blogs.filter((b) => b.accepted);
+        blogCount = blogs.length;
+        list.innerHTML = blogs.map((b) => {
             const range = blogFmt(b.start_date) + (b.end_date ? ' to ' + blogFmt(b.end_date) : '');
             return '<a class="lx-ch-row lx-ch-adv-blogrow" role="listitem" href="/trip/' + encodeURIComponent(b.id) + '/">'
                 + (b.cover ? '<img class="lx-ch-adv-blogthumb" src="' + esc(b.cover) + '" alt="" loading="lazy">' : '')
@@ -962,15 +1431,18 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
                 + (b.live ? '<span class="lx-ch-badge">Live</span>' : '') + (b.featured ? '<span class="lx-ch-badge">In menu</span>' : '')
                 + '<span class="lx-ch-row-meta">' + esc(range) + '</span></a>';
         }).join('');
+        syncBlogSection();
     }
     function blogToggle(show) {
         const form = $('tbl-form'), btn = $('tbl-new-btn');
         if (!form) return;
         form.hidden = show === undefined ? !form.hidden : !show;
         if (btn) btn.setAttribute('aria-expanded', form.hidden ? 'false' : 'true');
+        syncBlogSection();
         if (!form.hidden) {
             if (!form.start_date.value) form.start_date.value = toDateInput(new Date());
-            form.name.focus();
+            const sec = $('trip-blogs'); if (sec && sec.scrollIntoView) sec.scrollIntoView({ block: 'nearest', behavior: reduced() ? 'auto' : 'smooth' });
+            form.name.focus({ preventScroll: true });
         } else if (btn) btn.focus();
     }
     const blogForm = $('tbl-form');
@@ -1032,47 +1504,38 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
         finally { btn.disabled = false; btn.textContent = label; }
     }
 
+
     // ════════════════════════════════════════════════════════════════
-    //  MAP VIEW (full-screen detail)
+    //  MAP WORKSPACE (the adventure opened on the full map)
     // ════════════════════════════════════════════════════════════════
     let tripMap = null, currentTripId = null, currentTripData = null, currentIsCreator = false;
     let placingMode = false, blurbPlacingMode = false, composeLocation = null, visitsLoaded = false;
     let timelinePage = 1, currentPostId = null, detailSeq = 0, tlSeq = 0, openerEl = null, notesTimer = null;
-    let currentPanelSide = storeGet('roamly_panel_side', 'left') === 'right' ? 'right' : 'left';
+    let styleReady = false, tripFitted = false, tripBounds = null, watchTimer = null, mapSettled = false, shownBasemapId = '';
+    let panelCollapsed = storeGet('roamly_ch_adv_panel', '0') === '1';
     const timelineEventsMap = {};
     let allPhotos = [];
     let composeDraft = '', composeReturn = false;
 
-    const speedGradient = storeGet('roamly_speed_gradient', 'on');
-    const showHeatmap = storeGet('roamly_show_heatmap', 'on');
-    const heatIntensity = storeGet('roamly_heatmap_intensity', 'medium');
-    const dotSizePref = storeGet('roamly_dot_size', 'medium');
-    const lineGapMs = (parseInt(storeGet('roamly_line_gap_minutes', '20'), 10) || 20) * 60 * 1000;
-    const detailZoom = parseInt(storeGet('roamly_detail_zoom', '8'), 10) || 8;
+    const ADV_MAP_LIMIT = 20000;
     const DOT_SIZES = { small: [8, 2, 12, 4, 16, 8], medium: [8, 3, 12, 6, 16, 12], large: [8, 5, 12, 9, 16, 18] };
     const HEAT_INTENSITY = { low: [0, 0.2, 13, 0.7], medium: [0, 0.4, 13, 1.4], high: [0, 0.8, 13, 2.5] };
-    const dotArgs = DOT_SIZES[dotSizePref] || DOT_SIZES.medium;
-    const heatArgs = HEAT_INTENSITY[heatIntensity] || HEAT_INTENSITY.medium;
-    const ADV_MAP_LIMIT = 20000;
     // Functional encodings, same as the classic page: speed ramp and heatmap ramp.
     const SPEED_COLOR = ['case', ['<=', ['coalesce', ['get', 'speed'], 0], 1.0], '#3b82f6', ['interpolate', ['linear'], ['get', 'speed'], 1.0, '#3b82f6', 5.0, '#22c55e', 15.0, '#f59e0b', 30.0, '#ef4444']];
     const HEAT_COLOR = ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(33,102,172,0)', 0.2, 'rgb(103,169,207)', 0.4, 'rgb(209,229,240)', 0.6, 'rgb(253,219,199)', 0.8, 'rgb(239,138,98)', 1, 'rgb(178,24,43)'];
-
-    function mapStyles() {
-        const qs = ($('lx-ch-adv') && $('lx-ch-adv').dataset.tileQs) || '';
-        const glyphs = 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf';
+    // Read fresh on every draw: the Map view popover changes them live (same keys as Settings and the main map).
+    // An adventure is a route, so its line is on unless the user switched it off.
+    function mapPrefs() {
         return {
-            Streets: { version: 8, glyphs: glyphs, sources: { osm: { type: 'raster', tiles: ['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png' + qs], tileSize: 256 } }, layers: [{ id: 'osm', type: 'raster', source: 'osm' }] },
-            Dark: { version: 8, glyphs: glyphs, sources: { carto: { type: 'raster', tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png' + qs], tileSize: 256 } }, layers: [{ id: 'carto', type: 'raster', source: 'carto' }] },
-            Satellite: { version: 8, glyphs: glyphs, sources: { esri: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 19 } }, layers: [{ id: 'esri', type: 'raster', source: 'esri' }] }
+            speed: storeGet('roamly_speed_gradient', 'on') === 'on',
+            heat: storeGet('roamly_show_heatmap', 'on') === 'on',
+            line: storeGet('roamly_connect_lines', 'on') === 'on',
+            dots: DOT_SIZES[storeGet('roamly_dot_size', 'medium')] || DOT_SIZES.medium,
+            heatArgs: HEAT_INTENSITY[storeGet('roamly_heatmap_intensity', 'medium')] || HEAT_INTENSITY.medium,
+            lineGapMs: (parseInt(storeGet('roamly_line_gap_minutes', '20'), 10) || 20) * 60 * 1000,
+            detailZoom: parseInt(storeGet('roamly_detail_zoom', '8'), 10) || 8,
+            globe: storeGet('roamly_globe', 'off') === 'on'
         };
-    }
-    let currentMapStyle = storeGet('roamly_map_tile_style', '');
-    if (!/^(Streets|Dark|Satellite)$/.test(currentMapStyle)) {
-        currentMapStyle = document.documentElement.getAttribute('data-theme') === 'light' ? 'Streets' : 'Dark';
-    }
-    function syncStyleButtons() {
-        document.querySelectorAll('.lx-ch-adv-style button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.style === currentMapStyle ? 'true' : 'false'));
     }
     function colors() {
         return {
@@ -1082,49 +1545,123 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
             members: [tokenColor('--clay-mint', '#7f9b6d'), tokenColor('--clay-sky', '#7ba3b8'), tokenColor('--clay-lavender', '#a888a0'), tokenColor('--clay-amber', '#cf9a44'), tokenColor('--clay-coral', '#c0674a')]
         };
     }
+    const isPhone = () => window.matchMedia('(max-width: 768px)').matches;
+    function mapPadding() {
+        const p = $('trip-sidebar');
+        if (isPhone()) return { top: 56, left: 0, right: 0, bottom: p ? p.offsetHeight : 0 };
+        return { top: 0, right: 0, bottom: 0, left: panelCollapsed || !p ? 0 : p.offsetWidth + 32 };
+    }
+
+    // — view settings popover —
+    function buildBasemapPicker() {
+        const box = $('adv-bm'); if (!box) return;
+        const cur = activeBasemap().id;
+        const names = { 'built-in': '', free: 'Free', mapbox: 'Mapbox', maptiler: 'MapTiler', thunderforest: 'Thunderforest', stadia: 'Stadia', custom: 'Custom' };
+        let html = '', lastGroup = null;
+        BASEMAPS.forEach((b, i) => {
+            if (b.group !== lastGroup) {
+                const label = names[b.group] != null ? names[b.group] : b.group;
+                if (i > 0 && label) html += '<div class="lx-ch-adv-bm-grp">' + esc(label) + '</div>';
+                lastGroup = b.group;
+            }
+            html += '<button type="button" class="lx-ch-chip' + (b.id === cur ? ' is-active' : '') + '" data-act="bm-pick" data-id="' + esc(b.id) + '" aria-pressed="' + (b.id === cur ? 'true' : 'false') + '" title="' + esc(b.name || b.id) + '">' + esc(b.label || b.id) + '</button>';
+        });
+        box.innerHTML = html;
+    }
+    function syncViewPop() {
+        const p = mapPrefs();
+        document.querySelectorAll('#adv-viewpop [data-pref]').forEach((el) => {
+            const key = el.dataset.pref;
+            el.checked = key === 'roamly_connect_lines' ? p.line : key === 'roamly_show_heatmap' ? p.heat : p.speed;
+        });
+        document.querySelectorAll('#adv-viewpop [data-act="vp-proj"]').forEach((b) => b.setAttribute('aria-pressed', (b.dataset.v === 'on') === p.globe ? 'true' : 'false'));
+        const size = storeGet('roamly_dot_size', 'medium');
+        document.querySelectorAll('#adv-viewpop [data-act="vp-size"]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === size ? 'true' : 'false'));
+        const cur = activeBasemap().id;
+        document.querySelectorAll('#adv-bm [data-act="bm-pick"]').forEach((b) => { const on = b.dataset.id === cur; b.classList.toggle('is-active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+    }
+    function toggleViewPop(show) {
+        const pop = $('adv-viewpop'), btn = $('adv-view-btn');
+        const on = show === undefined ? pop.hidden : show;
+        pop.hidden = !on;
+        btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+        if (on) { syncViewPop(); const f = pop.querySelector('button, input'); if (f && !reduced()) { /* keep focus on the trigger; the popover is reachable by Tab */ } }
+    }
+    function setBasemap(id) {
+        const b = BASEMAPS.find((x) => x.id === id);
+        if (!b) return;
+        storeSet('roamly_map_tile_style', b.id);
+        syncViewPop();
+        if (tripMap) swapStyle(b);
+    }
+    function swapStyle(b) {
+        styleReady = false; shownBasemapId = b.id;
+        try { tripMap.setStyle(cloneStyle(b.style), { diff: false }); } catch (e) { showBanner('That basemap could not be loaded.'); return; }
+        armWatch();
+    }
+    function applyProjection() {
+        if (!tripMap) return;
+        try { tripMap.setProjection({ type: mapPrefs().globe ? 'globe' : 'mercator' }); } catch (e) { /* older MapLibre: flat only */ }
+    }
+    function redrawTrack() { if (tripMap && styleReady && currentTripData) renderTripOnMap(currentTripData, true); }
+
+    // — basemap watchdog: a stalled style or blocked tiles get a message and a retry, not a silent blank —
+    function showBanner(msg) { $('adv-banner-msg').textContent = msg; $('adv-banner').hidden = false; }
+    function hideBanner() { $('adv-banner').hidden = true; }
+    function armWatch() {
+        clearTimeout(watchTimer); mapSettled = false; hideBanner();
+        if (!tripMap) return;
+        tripMap.once('idle', () => { mapSettled = true; clearTimeout(watchTimer); hideBanner(); });
+        watchTimer = setTimeout(() => { if (!mapSettled && tripMap) showBanner('The map background is taking too long, or could not be loaded.'); }, 12000);
+    }
 
     // — open / close —
     function openTrip(id, opener) {
         currentTripId = id; openerEl = opener || document.activeElement;
+        closeMenu(false);
         const full = $('trip-fullscreen');
         full.hidden = false;
         document.body.style.overflow = 'hidden';
-        updatePanelSide(); syncStyleButtons();
-        switchTab('journal', true);
-        visitsLoaded = false; timelinePage = 1; allPhotos = [];
+        applyPanel(false); switchTab('journal', true); toggleViewPop(false); buildBasemapPicker(); syncViewPop();
+        visitsLoaded = false; timelinePage = 1; allPhotos = []; styleReady = false; tripFitted = false; tripBounds = null; currentTripData = null;
         $('sidebar-trip-name').textContent = 'Loading';
-        $('sidebar-trip-dates').textContent = '';
+        setPanelMeta();
+        $('adv-load-err').hidden = true;
         $('timeline-list').innerHTML = ''; $('timeline-load-more').hidden = true;
         $('trip-notes').value = ''; $('notes-status').textContent = '';
         $('places-list').innerHTML = ''; $('members-list').innerHTML = '';
         $('adv-photos-grid').innerHTML = '<span class="lx-ch-adv-note">Loading</span>';
         $('visits-countries-body').innerHTML = '<tr><td colspan="3" class="lx-ch-adv-note">Loading</td></tr>';
         $('visits-cities-body').innerHTML = '';
+        try { history.replaceState(null, '', '#a' + id); } catch (e) { /* sandboxed */ }
         if (tripMap) { try { tripMap.remove(); } catch (e) { /* already gone */ } tripMap = null; }
         if (typeof window.maplibregl === 'undefined') {
-            hideMapLoading('');
-            loadTripDetail(id);
+            showBanner('The map library did not load. Reload the page to try again.');
         } else {
+            const b = activeBasemap(); shownBasemapId = b.id;
             try {
-                tripMap = new window.maplibregl.Map({ container: 'trip-map', style: mapStyles()[currentMapStyle], center: [0, 20], zoom: 2 });
+                tripMap = new window.maplibregl.Map({ container: 'trip-map', style: cloneStyle(b.style), center: [0, 20], zoom: 2, attributionControl: false, padding: mapPadding() });
+                tripMap.addControl(new window.maplibregl.AttributionControl({ compact: true }), 'bottom-right');
                 tripMap.addControl(new window.maplibregl.NavigationControl(), 'bottom-right');
-                tripMap.on('load', () => loadTripDetail(id));
+                tripMap.on('style.load', () => { styleReady = true; applyProjection(); if (currentTripData) { renderTripOnMap(currentTripData, tripFitted); if (composeLocation) drawBlurbPin(composeLocation.lat, composeLocation.lng); } });
                 bindMapEvents();
-            } catch (e) {
-                tripMap = null;
-                loadTripDetail(id);
-            }
+                armWatch();
+            } catch (e) { tripMap = null; showBanner('The map could not start on this device.'); }
         }
-        setTimeout(() => { const b = $('trip-back-float').style.display === 'none' ? $('back-embedded') : $('trip-back-float'); if (b) b.focus({ preventScroll: true }); }, 30);
+        loadTripDetail(id);
+        setTimeout(() => { const b = $('back-embedded'); if (b) b.focus({ preventScroll: true }); }, 30);
     }
     function closeTrip() {
         $('trip-fullscreen').hidden = true;
         document.body.style.overflow = '';
+        closeMenu(false); toggleViewPop(false); clearTimeout(watchTimer);
         if (tripMap) { try { tripMap.remove(); } catch (e) { /* already gone */ } tripMap = null; }
         clearTimeout(notesTimer);
         detailSeq++; tlSeq++;
-        currentTripId = null; currentTripData = null; placingMode = false; blurbPlacingMode = false; composeLocation = null; visitsLoaded = false; timelinePage = 1;
+        currentTripId = null; currentTripData = null; placingMode = false; blurbPlacingMode = false; composeLocation = null; visitsLoaded = false; timelinePage = 1; styleReady = false;
         $('place-hint').classList.remove('active'); $('blurb-pin-hint').classList.remove('active');
+        try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* sandboxed */ }
+        if (checkThumbStyle()) renderAdventures();
         loadAdventures();
         if (openerEl && document.contains(openerEl)) { try { openerEl.focus({ preventScroll: true }); } catch (e) { /* gone */ } }
     }
@@ -1134,17 +1671,42 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
         const bar = $('adv-map-info');
         if (info) { bar.textContent = info; bar.style.display = 'block'; } else bar.style.display = 'none';
     }
-    function updatePanelSide() {
-        const full = $('trip-fullscreen');
-        full.classList.toggle('side-right', currentPanelSide === 'right');
-        $('trip-back-float').style.display = currentPanelSide === 'right' ? '' : 'none';
-        $('back-embedded').style.display = currentPanelSide === 'right' ? 'none' : '';
+    // The panel folds away (desktop) or down to a strip (phone) so the map can use the whole window.
+    function applyPanel(animate) {
+        $('trip-fullscreen').classList.toggle('is-collapsed', panelCollapsed);
+        const b = $('adv-collapse');
+        b.setAttribute('aria-expanded', panelCollapsed ? 'false' : 'true');
+        const label = panelCollapsed ? 'Show the panel' : 'Hide the panel';
+        b.setAttribute('aria-label', label); b.title = label;
+        if (tripMap) { try { tripMap.easeTo({ padding: mapPadding(), duration: animate && !reduced() ? 240 : 0 }); } catch (e) { /* map gone */ } }
     }
-    function toggleSide() {
-        currentPanelSide = currentPanelSide === 'left' ? 'right' : 'left';
-        storeSet('roamly_panel_side', currentPanelSide);
-        updatePanelSide();
-        if (tripMap) setTimeout(() => { try { tripMap.resize(); } catch (e) { /* map gone */ } }, 0);
+    function togglePanel() {
+        panelCollapsed = !panelCollapsed;
+        storeSet('roamly_ch_adv_panel', panelCollapsed ? '1' : '0');
+        applyPanel(true);
+        if (tripMap) setTimeout(() => { try { tripMap.easeTo({ padding: mapPadding(), duration: 0 }); } catch (e) { /* gone */ } }, 260);
+    }
+    function fitTrip(animate) {
+        if (!tripMap || !tripBounds) return;
+        try { tripMap.fitBounds(tripBounds, { padding: 56, duration: animate && !reduced() ? 600 : 0, maxZoom: 16 }); } catch (e) { /* bad bounds */ }
+    }
+    // Header meta as separate spans (wraps cleanly, no punctuation glue).
+    function setPanelMeta() {
+        const el = $('sidebar-trip-dates');
+        const d = currentTripData;
+        if (!d) { el.textContent = ''; return; }
+        const s = new Date(d.start_time), e = new Date(d.end_time), open = e.getFullYear() >= 2099;
+        const o = { month: 'short', day: 'numeric', year: 'numeric' };
+        const parts = [s.toLocaleDateString([], o) + (open ? ' to ongoing' : (s.toDateString() === e.toDateString() ? '' : ' to ' + e.toLocaleDateString([], o)))];
+        const li = tripsById.get(Number(d.id));
+        const km = li ? exactKm(li) : null;
+        if (km != null) parts.push(fmtDist(km) + ' ' + distUnit());
+        parts.push(num(d.total_location_count || (d.locations || []).length) + ' points');
+        if (d.device_name) parts.push(d.device_name);
+        el.innerHTML = parts.map((p) => '<span>' + esc(p) + '</span>').join('');
+        if (li && km == null) wantDist(li);
+        const lbl = $('adv-map-info');
+        if (lbl && lbl.style.display === 'block') lbl.textContent = (km != null ? fmtDist(km) + ' ' + distUnit() + ', ' : '') + num(d.total_location_count || (d.locations || []).length) + ' points';
     }
 
     // — detail —
@@ -1152,67 +1714,73 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
         const my = ++detailSeq;
         const keepView = !!(opts && opts.keepView);
         showMapLoading();
+        $('adv-load-err').hidden = true;
         try {
             const data = await api('/api/trips/' + id + '/');
             if (my !== detailSeq || currentTripId !== id) return;
             if (!data || !data.id) throw new Error('Invalid response');
             currentTripData = data; currentIsCreator = !!data.is_creator;
             $('sidebar-trip-name').textContent = data.name || 'Untitled adventure';
-            const s = new Date(data.start_time), e = new Date(data.end_time), open = e.getFullYear() >= 2099;
-            const o = { month: 'short', day: 'numeric', year: 'numeric' };
-            const total = num(data.total_location_count || (data.locations || []).length);
-            $('sidebar-trip-dates').textContent = s.toLocaleDateString([], o) + ' to ' + (open ? 'ongoing' : e.toLocaleDateString([], o)) + ', ' + total + ' points' + (data.device_name ? ', ' + data.device_name : '');
+            setPanelMeta();
             const notes = $('trip-notes');
             if (document.activeElement !== notes) notes.value = data.description || '';
             $('delete-trip-share').hidden = false;
-            renderTripOnMap(data, keepView); renderPlaces(data.places || []); renderMembers(data.members || []); renderSharingOptions(data);
+            if (tripMap && styleReady) renderTripOnMap(data, keepView || tripFitted); else if (!tripMap) hideMapLoading('');
+            renderPlaces(data.places || []); renderMembers(data.members || []); renderSharingOptions(data);
             if (!keepView) { timelinePage = 1; $('timeline-list').innerHTML = ''; $('adv-photos-grid').innerHTML = '<span class="lx-ch-adv-note">Loading</span>'; loadTimeline(id, 1); }
         } catch (err) {
             if (my !== detailSeq) return;
             hideMapLoading('');
-            $('sidebar-trip-name').textContent = 'Could not load this adventure';
-            $('sidebar-trip-dates').textContent = (err && err.message) || '';
+            $('sidebar-trip-name').textContent = 'Adventure';
+            $('adv-load-msg').textContent = (err && err.message) || 'Could not load this adventure.';
+            $('adv-load-err').hidden = false;
         }
     }
 
+    const TRIP_LAYERS = ['adv-heat', 'adv-dots', 'adv-line-case', 'adv-line', 'adv-ends', 'place-circles', 'place-markers'];
     function removeTripLayers() {
         if (!tripMap) return;
         const st = tripMap.getStyle();
         if (!st) return;
-        st.layers.filter((l) => l.id.indexOf('member-') === 0 || ['adv-heat', 'adv-dots', 'adv-line', 'place-circles', 'place-markers'].indexOf(l.id) >= 0).forEach((l) => { if (tripMap.getLayer(l.id)) tripMap.removeLayer(l.id); });
-        Object.keys(st.sources || {}).filter((id) => id.indexOf('member-') === 0 || ['adv-pts', 'adv-line', 'place-circles', 'place-markers'].indexOf(id) >= 0).forEach((id) => { if (tripMap.getSource(id)) tripMap.removeSource(id); });
+        st.layers.filter((l) => l.id.indexOf('member-') === 0 || TRIP_LAYERS.indexOf(l.id) >= 0).forEach((l) => { if (tripMap.getLayer(l.id)) tripMap.removeLayer(l.id); });
+        Object.keys(st.sources || {}).filter((id) => id.indexOf('member-') === 0 || ['adv-pts', 'adv-line', 'adv-ends', 'place-circles', 'place-markers'].indexOf(id) >= 0).forEach((id) => { if (tripMap.getSource(id)) tripMap.removeSource(id); });
     }
-    function lineSegments(locs) {
+    function lineSegments(locs, gapMs) {
         const feats = []; let seg = [[locs[0].lng, locs[0].lat]];
         for (let i = 1; i < locs.length; i++) {
             const gap = new Date(locs[i].timestamp) - new Date(locs[i - 1].timestamp);
-            if (gap > lineGapMs) { if (seg.length > 1) feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: seg } }); seg = [[locs[i].lng, locs[i].lat]]; }
+            if (gap > gapMs) { if (seg.length > 1) feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: seg } }); seg = [[locs[i].lng, locs[i].lat]]; }
             else seg.push([locs[i].lng, locs[i].lat]);
         }
         if (seg.length > 1) feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: seg } });
         return feats;
     }
     function renderTripOnMap(data, keepView) {
-        if (!tripMap) { hideMapLoading(''); return; }
-        const c = colors();
+        if (!tripMap || !styleReady) { hideMapLoading(''); return; }
+        const c = colors(), p = mapPrefs();
         const locs = data.locations || [];
         removeTripLayers();
         if (!locs.length) { renderPlaceMarkers(data.places || []); hideMapLoading(''); return; }
         const features = locs.map((l) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [l.lng, l.lat] }, properties: { timestamp: l.timestamp, city: l.city, country: l.country, speed: l.speed } }));
         tripMap.addSource('adv-pts', { type: 'geojson', data: { type: 'FeatureCollection', features: features } });
-        if (showHeatmap === 'on') {
+        if (p.heat) {
             tripMap.addLayer({ id: 'adv-heat', type: 'heatmap', source: 'adv-pts', maxzoom: locs.length < ADV_MAP_LIMIT ? 16 : 13,
-                paint: { 'heatmap-intensity': ['interpolate', ['linear'], ['zoom']].concat(heatArgs), 'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 13, 26], 'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.75, 11, 0.6, 13, 0.1], 'heatmap-color': HEAT_COLOR } });
+                paint: { 'heatmap-intensity': ['interpolate', ['linear'], ['zoom']].concat(p.heatArgs), 'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 13, 26], 'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.75, 11, 0.6, 13, 0.1], 'heatmap-color': HEAT_COLOR } });
         }
-        tripMap.addLayer({ id: 'adv-dots', type: 'circle', source: 'adv-pts', minzoom: detailZoom,
-            paint: { 'circle-color': speedGradient === 'on' ? SPEED_COLOR : c.primary, 'circle-radius': ['interpolate', ['linear'], ['zoom']].concat(dotArgs), 'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,0.6)', 'circle-opacity': ['interpolate', ['linear'], ['zoom'], detailZoom, 0, detailZoom + 2, 1] } });
-        if (locs.length > 1 && storeGet('roamly_connect_lines', 'off') === 'on') {
-            const lf = lineSegments(locs);
+        if (p.line && locs.length > 1) {
+            const lf = lineSegments(locs, p.lineGapMs);
             if (lf.length) {
                 tripMap.addSource('adv-line', { type: 'geojson', data: { type: 'FeatureCollection', features: lf } });
-                tripMap.addLayer({ id: 'adv-line', type: 'line', source: 'adv-line', minzoom: detailZoom, paint: { 'line-color': c.primary, 'line-width': 2, 'line-opacity': 0.55 } });
+                tripMap.addLayer({ id: 'adv-line-case', type: 'line', source: 'adv-line', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#000000', 'line-opacity': 0.35, 'line-width': 6 } });
+                tripMap.addLayer({ id: 'adv-line', type: 'line', source: 'adv-line', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': c.primary, 'line-width': 3, 'line-opacity': 0.95 } });
             }
         }
+        tripMap.addLayer({ id: 'adv-dots', type: 'circle', source: 'adv-pts', minzoom: p.detailZoom,
+            paint: { 'circle-color': p.speed ? SPEED_COLOR : c.primary, 'circle-radius': ['interpolate', ['linear'], ['zoom']].concat(p.dots), 'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,0.6)', 'circle-opacity': ['interpolate', ['linear'], ['zoom'], p.detailZoom, 0, p.detailZoom + 2, 1] } });
+        tripMap.addSource('adv-ends', { type: 'geojson', data: { type: 'FeatureCollection', features: [
+            { type: 'Feature', geometry: { type: 'Point', coordinates: [locs[0].lng, locs[0].lat] }, properties: { k: 'start' } },
+            { type: 'Feature', geometry: { type: 'Point', coordinates: [locs[locs.length - 1].lng, locs[locs.length - 1].lat] }, properties: { k: 'end' } }] } });
+        tripMap.addLayer({ id: 'adv-ends', type: 'circle', source: 'adv-ends', paint: { 'circle-radius': 6, 'circle-color': ['case', ['==', ['get', 'k'], 'start'], tokenColor('--bg', '#1a1a1a'), c.primary], 'circle-stroke-width': 2, 'circle-stroke-color': ['case', ['==', ['get', 'k'], 'start'], c.primary, '#ffffff'] } });
         renderPlaceMarkers(data.places || []);
         let all = locs.map((l) => [l.lng, l.lat]);
         Object.keys(data.member_locations || {}).forEach((username, i) => {
@@ -1221,21 +1789,22 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
             const color = c.members[i % c.members.length];
             all = all.concat(ml.map((l) => [l.lng, l.lat]));
             tripMap.addSource('member-pts-' + i, { type: 'geojson', data: { type: 'FeatureCollection', features: ml.map((l) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [l.lng, l.lat] }, properties: { timestamp: l.timestamp, speed: l.speed, member: username } })) } });
-            tripMap.addLayer({ id: 'member-dots-' + i, type: 'circle', source: 'member-pts-' + i, minzoom: detailZoom,
-                paint: { 'circle-color': color, 'circle-radius': ['interpolate', ['linear'], ['zoom']].concat(dotArgs), 'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,0.6)', 'circle-opacity': ['interpolate', ['linear'], ['zoom'], detailZoom, 0, detailZoom + 2, 1] } });
+            tripMap.addLayer({ id: 'member-dots-' + i, type: 'circle', source: 'member-pts-' + i, minzoom: p.detailZoom,
+                paint: { 'circle-color': color, 'circle-radius': ['interpolate', ['linear'], ['zoom']].concat(p.dots), 'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,0.6)', 'circle-opacity': ['interpolate', ['linear'], ['zoom'], p.detailZoom, 0, p.detailZoom + 2, 1] } });
             if (ml.length > 1) {
-                const lf = lineSegments(ml);
+                const lf = lineSegments(ml, p.lineGapMs);
                 if (lf.length) {
                     tripMap.addSource('member-line-' + i, { type: 'geojson', data: { type: 'FeatureCollection', features: lf } });
                     tripMap.addLayer({ id: 'member-line-' + i, type: 'line', source: 'member-line-' + i, paint: { 'line-color': color, 'line-width': 2, 'line-opacity': 0.55 } });
                 }
             }
         });
-        if (!keepView) {
-            const lngs = all.map((p) => p[0]), lats = all.map((p) => p[1]);
-            try { tripMap.fitBounds([[Math.min.apply(null, lngs), Math.min.apply(null, lats)], [Math.max.apply(null, lngs), Math.max.apply(null, lats)]], { padding: 60, duration: reduced() ? 0 : 600 }); } catch (e) { /* bad bounds */ }
-        }
-        tripMap.once('idle', () => hideMapLoading(num(data.total_location_count || locs.length) + ' points' + (data.device_name ? ', ' + data.device_name : '')));
+        const lngs = all.map((q) => q[0]), lats = all.map((q) => q[1]);
+        tripBounds = [[Math.min.apply(null, lngs), Math.min.apply(null, lats)], [Math.max.apply(null, lngs), Math.max.apply(null, lats)]];
+        if (!keepView) { tripFitted = true; fitTrip(true); }
+        const li = tripsById.get(Number(data.id)), km = li ? exactKm(li) : null;
+        const infoText = (km != null ? fmtDist(km) + ' ' + distUnit() + ', ' : '') + num(data.total_location_count || locs.length) + ' points';
+        tripMap.once('idle', () => hideMapLoading(infoText));
         // Safety net: idle never fires on a stalled style, and the bar must not run forever.
         setTimeout(() => { if ($('trip-map-loading-bar').classList.contains('active')) hideMapLoading(''); }, 8000);
     }
@@ -1303,18 +1872,6 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
                         .setHTML('<div class="lx-ch-adv-pop-t">' + esc(p.name) + '</div>' + (p.time_spent_display ? '<div class="lx-ch-adv-pop-s">' + esc(p.time_spent_display) + ' here</div>' : '')).addTo(tripMap);
                 }
             } else if (tip) { tip.remove(); tip = null; }
-        });
-    }
-
-    function setMapStyle(btn) {
-        currentMapStyle = btn.dataset.style;
-        storeSet('roamly_map_tile_style', currentMapStyle);
-        syncStyleButtons();
-        if (!tripMap) return;
-        tripMap.setStyle(mapStyles()[currentMapStyle]);
-        tripMap.once('styledata', () => {
-            if (currentTripData) renderTripOnMap(currentTripData, true);
-            if (composeLocation) drawBlurbPin(composeLocation.lat, composeLocation.lng);
         });
     }
 
@@ -1746,14 +2303,23 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
         'close-create': () => closeModal('create-modal-overlay'),
         'create-submit': (el) => createAdventure(el),
         'preset': (el) => setDatePreset(el.dataset.preset),
-        'set-filter': (el) => setFilter(el.dataset.filter),
-        'clear-filters': () => { $('adv-search').value = ''; $('adv-device-filter').value = ''; setFilter('all'); },
+        'clear-filters': () => { $('adv-search').value = ''; $('adv-device-filter').value = ''; $('adv-show').value = 'all'; renderAdventures(); },
         'retry': () => loadAdventures(),
+        'retry-maps': () => renderAdventures(),
+        'retry-detail': () => { if (currentTripId) loadTripDetail(currentTripId); },
+        'card-menu': (el) => { if (menuEl && menuBtn === el) closeMenu(true); else cardMenu(el); },
+        'ws-more': (el) => { if (menuEl && menuBtn === el) closeMenu(true); else panelMenu(el); },
+        'toggle-panel': () => togglePanel(),
+        'view-pop': () => toggleViewPop(),
+        'map-fit': () => fitTrip(true),
+        'map-retry': () => { const b = activeBasemap(); if (tripMap) swapStyle(b); },
+        'bm-pick': (el) => setBasemap(el.dataset.id),
+        'vp-proj': (el) => { storeSet('roamly_globe', el.dataset.v); syncViewPop(); applyProjection(); },
+        'vp-size': (el) => { storeSet('roamly_dot_size', el.dataset.v); syncViewPop(); redrawTrack(); },
         'blog-new': () => blogToggle(),
         'blog-cancel': () => blogToggle(false),
         'open-trip': (el) => openTrip(Number(el.dataset.id), el),
         'close-trip': () => closeTrip(),
-        'toggle-side': () => toggleSide(),
         'open-settings': () => openSettings(),
         'close-settings': () => closeSettings(),
         'settings-toggle-public': () => settingsTogglePublic(),
@@ -1782,7 +2348,6 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
         'toggle-public': () => togglePublic(),
         'copy-link': () => copyShareLink(),
         'visits-tab': (el) => switchVisitsTab(el.dataset.tab),
-        'map-style': (el) => setMapStyle(el),
         'fmt': (el) => { const f = el.dataset.fmt; if (f === 'bold') wrapSelection('**', '**'); else if (f === 'italic') wrapSelection('*', '*'); else if (f === 'h1') insertHeading(); else wrapSelection('\n\n---\n\n', ''); },
         'blurb-pin': () => startBlurbPinMode(),
         'blurb-clear': () => clearComposeLocation(),
@@ -1808,9 +2373,15 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
     });
 
     // Toolbar controls
-    $('adv-search').addEventListener('input', () => renderAdventures());
+    let searchTimer = null;
+    $('adv-search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(renderAdventures, 120); });
     $('adv-device-filter').addEventListener('change', () => renderAdventures());
+    $('adv-show').addEventListener('change', () => renderAdventures());
     $('adv-sort').addEventListener('change', () => renderAdventures());
+    document.querySelectorAll('#adv-viewpop [data-pref]').forEach((el) => el.addEventListener('change', () => {
+        storeSet(el.dataset.pref, el.checked ? 'on' : 'off');
+        redrawTrack();
+    }));
 
     // Share inputs: save on change/blur (the dedupe in saveSlug/savePin stops the double save), Enter commits.
     const slugIn = $('share-slug-input'), pinIn = $('share-pin-input');
@@ -1854,13 +2425,22 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-adv-entry.is-new { anim
         }
         if (!$('trip-fullscreen').hidden) { e.preventDefault(); closeTrip(); }
     });
+    // Escape closes the popovers before anything else (registered first, so it wins).
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || e.defaultPrevented) return;
+        if (menuEl) { e.preventDefault(); e.stopImmediatePropagation(); closeMenu(true); return; }
+        const pop = $('adv-viewpop');
+        if (pop && !pop.hidden) { e.preventDefault(); e.stopImmediatePropagation(); toggleViewPop(false); $('adv-view-btn').focus(); }
+    }, true);
 
     // Create modal: Enter in a text field submits.
     ['trip-name', 'trip-description'].forEach((id) => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const b = $('create-submit'); if (b && !b.disabled) b.click(); } }));
 
-    syncStyleButtons();
     loadAdventures();
     loadBlogs();
+    // A reload (or a shared link) with #a<id> goes straight back to that adventure's map.
+    const deep = /^#a(\d+)$/.exec(location.hash || '');
+    if (deep) openTrip(Number(deep[1]), null);
 })();
 </script>
 {% endblock %}

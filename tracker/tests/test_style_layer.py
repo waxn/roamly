@@ -153,7 +153,7 @@ def test_saving_a_look_does_not_reset_the_layout(client, user):
 def test_every_layout_renders_the_key_pages(client, user, layout):
     UserProfile.objects.filter(user=user).update(appearance={'layout': layout})
     client.force_login(user)
-    for url in ('/map/', '/stats/', '/journals/', '/places/', '/adventures/', '/health/', '/visits/', '/settings/'):
+    for url in ('/map/', '/stats/', '/journals/', '/places/', '/adventures/', '/health/', '/visits/', '/flights/', '/data/', '/achievements/', '/cells/', '/activities/', '/settings/'):
         r = client.get(url)
         assert r.status_code == 200, (layout, url)
         assert (f"__RLY_LAYOUT__ = '{layout}'" in r.content.decode()), (layout, url)
@@ -169,6 +169,7 @@ def test_layout_pages_belong_to_their_layout(client, user):
     assert client.get('/timeline/').status_code == 302
     UserProfile.objects.filter(user=user).update(appearance={'layout': 'chronicle'})
     assert client.get('/timeline/').status_code == 200
+    assert client.get('/home/').status_code == 200
 
 
 def test_layout_preview_param_and_embed_mode(client, user):
