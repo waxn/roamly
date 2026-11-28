@@ -1,95 +1,146 @@
 {% extends "tracker/base.html" %}
 {% block title %}Journals - Roamly{% endblock %}
-{% comment %} Chronicle journals: an index of typeset days (left) and the open day
-   as a page you read and write in (right; stacked on phones). One day is open
-   at a time, saved as you type, so there is no editor dialog. Same endpoints
-   as the classic page (/api/journals/...). Deep link: /journals/?date=YYYY-MM-DD.
-   MapLibre loads through base.html's default map blocks (the day map). The page
-   fills the viewport on desktop, so the version footer is dropped. {% endcomment %}
+{% comment %} Chronicle journals: two panes. Left, the timeline of entries (grouped by month, on a
+   date spine). Right, a large map of the selected day with the entry itself in a collapsible
+   column over it. On phones the map fills the screen and the timeline / entry live in a
+   swipeable bottom sheet (peek, half, full).
+
+   One day is open at a time and is saved as you type, so there is no editor dialog. Same
+   endpoints as the classic page (/api/journals/...). Deep link: /journals/?date=YYYY-MM-DD.
+   MapLibre loads through base.html's default map blocks. The page fills the viewport, so the
+   version footer is dropped.
+
+   Basemap: the user's saved choice (localStorage roamly_map_tile_style) from the catalog the
+   map page uses. journals_view does not render that catalog yet, so unless the view passes
+   `basemaps` (see _user_basemaps in views.py) the page falls back to the three built-ins
+   (Streets, Dark, Satellite) that every other page's built-in list shares.
+   The icon paths in this template are repeated in the script (ICON); keep them in step. {% endcomment %}
 {% block version_footer %}{% endblock %}
 
 {% block extra_css %}
+@keyframes lx-ch-j-glow { from { background-position: 0% 0; } to { background-position: -200% 0; } }
+@keyframes lx-ch-j-busy { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
 html[data-layout="chronicle"] .lx-ch-j {
+    --lx-ch-j-list-w: clamp(320px, 28vw, 392px);
+    --lx-ch-j-info-w: 408px;
+    --lx-ch-j-ease: cubic-bezier(0.22, 1, 0.36, 1);
     position: relative; z-index: 1;
     display: grid;
-    grid-template-columns: 360px minmax(0, 1fr);
-    grid-template-areas: "index editor";
+    grid-template-columns: var(--lx-ch-j-list-w) minmax(0, 1fr);
     height: calc(100vh - var(--nav-h));
     height: calc(100dvh - var(--nav-h));
-    min-height: 420px;
+    min-height: 480px;
+    overflow: hidden;
 }
+html[data-layout="chronicle"] .lx-ch-j [hidden] { display: none !important; }
+html[data-layout="chronicle"] .lx-ch-j button { font-family: var(--font-body); }
 html[data-layout="chronicle"] svg.lx-ch-j-i {
     flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
 }
-html[data-layout="chronicle"] .lx-ch-j button { font-family: var(--font-body); }
-html[data-layout="chronicle"] .lx-ch-j [hidden] { display: none !important; }
+html[data-layout="chronicle"] .lx-ch-j-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* ── Index (left) ─────────────────────────────────────────────── */
-html[data-layout="chronicle"] .lx-ch-j-index {
-    grid-area: index; min-width: 0; min-height: 0;
-    overflow-y: auto; overscroll-behavior: contain;
-    background: var(--bg); border-right: 1px solid var(--border);
-    padding: 0 24px 48px;
-    scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
-}
-html[data-layout="chronicle"] .lx-ch-j-head {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    padding: 18px 0 12px;
-}
-html[data-layout="chronicle"] .lx-ch-j-h1 {
-    font-family: var(--font-display); font-size: 24px; line-height: 1.1; font-weight: 500;
-    letter-spacing: -0.01em; text-transform: none; color: var(--text); margin: 0;
-}
+/* ── Shared small controls ────────────────────────────────────── */
 html[data-layout="chronicle"] .lx-ch-j-iconbtn {
-    position: relative;
+    position: relative; flex: none;
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    min-width: 36px; height: 36px; padding: 0 8px;
+    min-width: 32px; height: 32px; padding: 0 6px;
     background: none; border: 1px solid transparent; border-radius: var(--r-2, 0px);
-    color: var(--text-muted); cursor: pointer; font-size: 13px;
+    color: var(--text-muted); cursor: pointer; font-size: 13px; text-decoration: none;
     transition: color 120ms ease-out, background-color 120ms ease-out, border-color 120ms ease-out;
 }
 html[data-layout="chronicle"] .lx-ch-j-iconbtn:hover { color: var(--text); background: var(--lx-ch-tint); }
 html[data-layout="chronicle"] .lx-ch-j-iconbtn[aria-expanded="true"],
 html[data-layout="chronicle"] .lx-ch-j-iconbtn[aria-pressed="true"] { color: var(--text); background: var(--lx-ch-tint-strong); }
+html[data-layout="chronicle"] .lx-ch-j-iconbtn.is-star[aria-pressed="true"] { color: var(--clay-amber); }
+html[data-layout="chronicle"] .lx-ch-j-iconbtn.is-star[aria-pressed="true"] svg { fill: currentColor; }
 html[data-layout="chronicle"] .lx-ch-j-iconbtn:focus-visible,
-html[data-layout="chronicle"] .lx-ch-j-cell:focus-visible,
 html[data-layout="chronicle"] .lx-ch-j-item:focus-visible,
 html[data-layout="chronicle"] .lx-ch-j-mood:focus-visible,
 html[data-layout="chronicle"] .lx-ch-j-photo-x:focus-visible,
 html[data-layout="chronicle"] .lx-ch-j-photo-add:focus-visible,
 html[data-layout="chronicle"] .lx-ch-j-link:focus-visible,
 html[data-layout="chronicle"] .lx-ch-j-search input:focus-visible,
-html[data-layout="chronicle"] .lx-ch-j-recap-close:focus-visible {
+html[data-layout="chronicle"] .lx-ch-j-search-clear:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-menu-item:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-base:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-tab:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-handle:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-infotab:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-recap-close:focus-visible,
+html[data-layout="chronicle"] .lx-ch-j-datein:focus-visible {
     outline: 2px solid var(--lx-ch-ring); outline-offset: 1px;
 }
-html[data-layout="chronicle"] .lx-ch-j-cog { position: relative; }
-html[data-layout="chronicle"] .lx-ch-j-pop {
-    position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
-    width: min(320px, calc(100vw - 32px)); padding: 14px 16px;
-    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--r-3, 0px);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+html[data-layout="chronicle"] .lx-ch-j-link { color: var(--link); text-decoration: none; border-radius: var(--r-1, 0px); background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
+html[data-layout="chronicle"] .lx-ch-j-link:hover { text-decoration: underline; }
+
+/* The one quiet AI action: plain text and an icon, with a thin moving line along its foot.
+   :where() keeps this at the lowest weight, so the shell's own .lx-ch-ai wins when it exists. */
+html[data-layout="chronicle"] :where(.lx-ch-j .lx-ch-ai) {
+    position: relative; flex: none; overflow: hidden;
+    display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px;
+    background: none; border: 0; border-radius: var(--r-2, 0px);
+    color: var(--text); font-size: 13px; font-weight: 500; cursor: pointer;
+    transition: background-color 120ms ease-out;
 }
-html[data-layout="chronicle"] .lx-ch-j-pop-title { font-family: var(--font-display); font-size: 17px; font-weight: 500; color: var(--text); margin-bottom: 4px; }
+html[data-layout="chronicle"] :where(.lx-ch-j .lx-ch-ai:hover) { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] :where(.lx-ch-j .lx-ch-ai)::after {
+    content: ''; position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px; border-radius: calc(2px * var(--rk, 1)); opacity: 0.8;
+    background: linear-gradient(90deg, transparent 0%, var(--clay-lavender) 25%, var(--primary) 50%, var(--clay-lavender) 75%, transparent 100%);
+    background-size: 200% 100%;
+    animation: lx-ch-j-glow 4s linear infinite;
+}
+html[data-layout="chronicle"] .lx-ch-j .lx-ch-ai:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
+html[data-layout="chronicle"] .lx-ch-j .lx-ch-ai svg { color: var(--primary); }
+
+/* Popover menus: the list's More, the entry's More, the map's view settings. */
+html[data-layout="chronicle"] .lx-ch-j-pop {
+    position: absolute; z-index: 30;
+    width: min(300px, calc(100vw - 32px)); padding: 6px 0;
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--r-3, 0px);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+html[data-layout="chronicle"] .lx-ch-j-pop-sec { padding: 8px 16px; }
+html[data-layout="chronicle"] .lx-ch-j-pop-sec + .lx-ch-j-pop-sec { border-top: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-j-pop-title { margin: 0 0 4px; font-family: var(--font-display); font-size: 15px; font-weight: 500; color: var(--text); text-transform: none; letter-spacing: 0; }
 html[data-layout="chronicle"] .lx-ch-j-opt {
-    display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; cursor: pointer;
+    display: flex; align-items: flex-start; gap: 12px; padding: 8px 0; cursor: pointer;
     font-size: 14px; line-height: 1.35; color: var(--text); text-transform: none; letter-spacing: 0;
 }
 html[data-layout="chronicle"] .lx-ch-j-opt input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--primary); }
 html[data-layout="chronicle"] .lx-ch-j-opt small { display: block; margin-top: 2px; font-size: 12.5px; color: var(--text-muted); }
 html[data-layout="chronicle"] .lx-ch-j-opt.is-off { opacity: 0.55; cursor: default; }
 html[data-layout="chronicle"] .lx-ch-j-pop-note { margin-top: 4px; font-size: 12.5px; line-height: 1.45; color: var(--text-muted); }
-
-html[data-layout="chronicle"] .lx-ch-j-stats {
-    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 12px;
-    padding: 14px 0 18px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+html[data-layout="chronicle"] .lx-ch-j-menu-item {
+    display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 16px;
+    background: none; border: 0; text-align: left; cursor: pointer; text-decoration: none;
+    font-size: 14px; color: var(--text); transition: background-color 120ms ease-out;
 }
-html[data-layout="chronicle"] .lx-ch-j-stat { min-width: 0; }
-html[data-layout="chronicle"] .lx-ch-j-stat-v {
-    font-family: var(--font-mono); font-size: 18px; line-height: 1.2; font-variant-numeric: tabular-nums; color: var(--text);
+html[data-layout="chronicle"] .lx-ch-j-menu-item:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-j-menu-item.is-danger { color: var(--danger); }
+html[data-layout="chronicle"] .lx-ch-j-menu-item:disabled { opacity: 0.5; cursor: default; }
+html[data-layout="chronicle"] .lx-ch-j-datein-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 16px; font-size: 14px; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-j-datein {
+    height: 34px; padding: 0 8px; box-sizing: border-box; min-width: 0;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--r-2, 0px);
+    color: var(--text); font-family: var(--font-mono); font-size: 13px; color-scheme: light dark;
 }
-html[data-layout="chronicle"] .lx-ch-j-stat-l { margin-top: 2px; font-size: 12px; line-height: 1.3; color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-j-statserr { grid-column: 1 / -1; font-size: 13px; color: var(--text-muted); }
 
+/* ═══ Left pane: the timeline ═════════════════════════════════════ */
+html[data-layout="chronicle"] .lx-ch-j-list {
+    position: relative; z-index: 2; min-width: 0; min-height: 0;
+    display: flex; flex-direction: column;
+    background: var(--bg); border-right: 1px solid var(--border);
+}
+html[data-layout="chronicle"] .lx-ch-j-lhead { flex: none; padding: 20px 20px 0; }
+html[data-layout="chronicle"] .lx-ch-j-lrow { display: flex; align-items: center; gap: 4px; }
+html[data-layout="chronicle"] .lx-ch-j-h1 {
+    flex: 1; min-width: 0; margin: 0;
+    font-family: var(--font-display); font-size: 28px; line-height: 1.1; font-weight: 500;
+    letter-spacing: -0.015em; text-transform: none; color: var(--text);
+}
+html[data-layout="chronicle"] .lx-ch-j-more { position: relative; }
+html[data-layout="chronicle"] .lx-ch-j-more .lx-ch-j-pop { top: calc(100% + 6px); right: 0; }
 html[data-layout="chronicle"] .lx-ch-j-search { position: relative; margin-top: 16px; }
 html[data-layout="chronicle"] .lx-ch-j-search > svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
 html[data-layout="chronicle"] .lx-ch-j-search input {
@@ -98,58 +149,94 @@ html[data-layout="chronicle"] .lx-ch-j-search input {
     color: var(--text); font-family: var(--font-body); font-size: 14px; box-shadow: none; text-transform: none;
 }
 html[data-layout="chronicle"] .lx-ch-j-search input::placeholder { color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-j-search input:hover { border-color: var(--border-strong); }
 html[data-layout="chronicle"] .lx-ch-j-search input:focus { border-color: var(--border-strong); outline: none; }
-html[data-layout="chronicle"] .lx-ch-j-search input:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
 html[data-layout="chronicle"] .lx-ch-j-search-clear {
     position: absolute; right: 2px; top: 1px; width: 36px; height: 36px;
     display: inline-flex; align-items: center; justify-content: center;
     background: none; border: 0; cursor: pointer; color: var(--text-muted); border-radius: var(--r-2, 0px);
 }
 html[data-layout="chronicle"] .lx-ch-j-search-clear:hover { color: var(--text); }
-html[data-layout="chronicle"] .lx-ch-j-search-clear:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
-html[data-layout="chronicle"] .lx-ch-btn.lx-ch-j-recapbtn { width: 100%; justify-content: flex-start; margin-top: 8px; gap: 10px; }
-html[data-layout="chronicle"] .lx-ch-j-recapbtn .lx-ch-j-i:first-child { color: var(--primary); }
-html[data-layout="chronicle"] .lx-ch-j-recapbtn span { flex: 1; text-align: left; }
-html[data-layout="chronicle"] .lx-ch-j-filters { display: flex; gap: 6px; margin-top: 14px; }
-
+html[data-layout="chronicle"] .lx-ch-j-sub {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px;
+    padding: 6px 0 4px;
+}
+html[data-layout="chronicle"] .lx-ch-j-stats {
+    min-width: 0; font-family: var(--font-mono); font-size: 12px; line-height: 1.4; color: var(--text-muted);
+    font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+html[data-layout="chronicle"] .lx-ch-j-stats b { font-weight: 400; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-j-stats .skeleton { display: inline-block; vertical-align: middle; height: 0.8rem; width: 11rem; }
+html[data-layout="chronicle"] .lx-ch-j-seg { flex: none; display: inline-flex; gap: 2px; }
+html[data-layout="chronicle"] .lx-ch-j-seg button {
+    height: 26px; padding: 0 10px; background: none; border: 1px solid transparent; border-radius: var(--r-pill, 999px);
+    font-size: 12.5px; color: var(--text-muted); cursor: pointer;
+    transition: color 120ms ease-out, background-color 120ms ease-out, border-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-j-seg button:hover { color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-j-seg button[aria-pressed="true"] { color: var(--text); border-color: var(--border-strong); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-j-seg button:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 1px; }
 html[data-layout="chronicle"] .lx-ch-j-listhead {
-    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-    margin-top: 20px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums;
+    padding: 8px 0 4px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums;
 }
-html[data-layout="chronicle"] .lx-ch-j-month {
-    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-    margin: 26px 0 4px; font-family: var(--font-display); font-size: 17px; font-weight: 500; line-height: 1.2;
-    text-transform: none; letter-spacing: 0; color: var(--text-muted);
+
+html[data-layout="chronicle"] .lx-ch-j-scroll {
+    flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; position: relative;
+    padding: 0 0 calc(48px + var(--lx-ch-j-off, 0px));
+    scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+    border-top: 1px solid var(--border); margin-top: 8px;
 }
-html[data-layout="chronicle"] .lx-ch-j-list > section:first-child > .lx-ch-j-month { margin-top: 14px; }
-html[data-layout="chronicle"] .lx-ch-j-month small { font-family: var(--font-mono); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
+
+/* The spine: a hairline through every row, a ring at each month, a node on each day. */
+html[data-layout="chronicle"] .lx-ch-j-tl { position: relative; }
+html[data-layout="chronicle"] .lx-ch-j-tl.has-rows::before {
+    content: ''; position: absolute; left: 82px; top: 0; bottom: 36px; width: 1px; background: var(--border); pointer-events: none;
+}
 html[data-layout="chronicle"] .lx-ch-j-ul { list-style: none; margin: 0; padding: 0; }
+html[data-layout="chronicle"] .lx-ch-j-month {
+    position: sticky; top: 0; z-index: 3;
+    display: grid; grid-template-columns: 44px 20px minmax(0, 1fr) auto; column-gap: 8px; align-items: center;
+    margin: 0; padding: 14px 20px 8px;
+    background: var(--bg);
+    font-family: var(--font-display); font-size: 17px; font-weight: 500; line-height: 1.2;
+    text-transform: none; letter-spacing: 0; color: var(--text);
+}
+html[data-layout="chronicle"] .lx-ch-j-month-ring { grid-column: 2; justify-self: center; width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--text-muted); background: var(--bg); }
+html[data-layout="chronicle"] .lx-ch-j-month-name { grid-column: 3; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="chronicle"] .lx-ch-j-month small { grid-column: 4; font-family: var(--font-mono); font-size: 12px; font-weight: 400; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-j-li { position: relative; content-visibility: auto; contain-intrinsic-size: auto 92px; }
+html[data-layout="chronicle"] .lx-ch-j-li::after { content: ''; position: absolute; left: 100px; right: 20px; bottom: 0; height: 1px; background: var(--border); }
 html[data-layout="chronicle"] .lx-ch-j-item {
     position: relative;
-    display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 0 14px;
-    padding: 14px 8px 14px 12px; margin: 0 -8px 0 -12px;
-    border-bottom: 1px solid var(--border); border-radius: var(--r-2, 0px);
+    display: grid; grid-template-columns: 44px 20px minmax(0, 1fr) auto; column-gap: 8px;
+    padding: 14px 20px 15px;
     color: var(--text); text-decoration: none;
     transition: background-color 120ms ease-out;
 }
 html[data-layout="chronicle"] .lx-ch-j-item:hover { background: color-mix(in srgb, var(--text) 3%, transparent); }
-html[data-layout="chronicle"] .lx-ch-j-item.is-selected { background: color-mix(in srgb, var(--primary) 7%, transparent); }
-html[data-layout="chronicle"] .lx-ch-j-item.is-selected::before {
-    content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 2px; background: var(--primary);
+html[data-layout="chronicle"] .lx-ch-j-item.is-selected { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-j-item:focus-visible { outline-offset: -2px; }
+html[data-layout="chronicle"] .lx-ch-j-when { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; text-align: right; }
+html[data-layout="chronicle"] .lx-ch-j-when-n { font-family: var(--font-display); font-size: 24px; line-height: 1.05; font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
+html[data-layout="chronicle"] .lx-ch-j-item.is-selected .lx-ch-j-when-n { color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-j-when-w { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-when-m { margin-top: 4px; font-size: 15px; line-height: 1; }
+html[data-layout="chronicle"] .lx-ch-j-rail { position: relative; }
+html[data-layout="chronicle"] .lx-ch-j-node {
+    position: absolute; left: 50%; top: 9px; width: 9px; height: 9px; margin-left: -4.5px; border-radius: 50%;
+    background: var(--bg); border: 1.5px solid var(--text-dim);
+    transition: background-color 120ms ease-out, border-color 120ms ease-out;
 }
-html[data-layout="chronicle"] .lx-ch-j-item-day { display: flex; flex-direction: column; align-items: center; gap: 1px; }
-html[data-layout="chronicle"] .lx-ch-j-item-n { font-family: var(--font-display); font-size: 24px; line-height: 1.05; font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
-html[data-layout="chronicle"] .lx-ch-j-item-w { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-j-item-mood { margin-top: 4px; font-size: 15px; line-height: 1; }
-html[data-layout="chronicle"] .lx-ch-j-item-main { min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-j-item.is-starred .lx-ch-j-node { border-color: var(--clay-amber); }
+html[data-layout="chronicle"] .lx-ch-j-item.is-ghost .lx-ch-j-node { border-style: dashed; border-color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-item.is-selected .lx-ch-j-node { background: var(--primary); border-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-j-main { min-width: 0; }
 html[data-layout="chronicle"] .lx-ch-j-item-t {
-    display: block; font-family: var(--font-display); font-size: 16px; line-height: 1.3; font-weight: 600; color: var(--text);
+    display: block; font-family: var(--font-display); font-size: 17px; line-height: 1.3; font-weight: 600; color: var(--text);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 html[data-layout="chronicle"] .lx-ch-j-item-t.is-pending { font-weight: 400; font-style: italic; color: var(--text-dim); }
-html[data-layout="chronicle"] .lx-ch-j-item-q {
-    display: flex; align-items: baseline; gap: 6px; margin-top: 3px; font-size: 13px; line-height: 1.4; color: var(--text);
-}
+html[data-layout="chronicle"] .lx-ch-j-item-q { display: flex; align-items: baseline; gap: 6px; margin-top: 3px; font-size: 13px; line-height: 1.4; color: var(--text); }
 html[data-layout="chronicle"] .lx-ch-j-item-q svg { color: var(--primary); transform: translateY(2px); }
 html[data-layout="chronicle"] .lx-ch-j-item-q span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 html[data-layout="chronicle"] .lx-ch-j-item-s {
@@ -157,124 +244,168 @@ html[data-layout="chronicle"] .lx-ch-j-item-s {
     margin-top: 3px; font-size: 13px; line-height: 1.45; color: var(--text-muted); overflow-wrap: anywhere;
 }
 html[data-layout="chronicle"] .lx-ch-j-item-f {
-    margin-top: 6px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.4; color: var(--text-dim);
+    display: block; margin-top: 6px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.4; color: var(--text-dim);
     font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-html[data-layout="chronicle"] .lx-ch-j-item-side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-html[data-layout="chronicle"] .lx-ch-j-item-star { color: var(--clay-amber); }
-html[data-layout="chronicle"] .lx-ch-j-item-star svg { fill: currentColor; }
+html[data-layout="chronicle"] .lx-ch-j-side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; padding-left: 4px; }
+html[data-layout="chronicle"] .lx-ch-j-star { color: var(--clay-amber); line-height: 0; }
+html[data-layout="chronicle"] .lx-ch-j-star svg { fill: currentColor; }
 html[data-layout="chronicle"] .lx-ch-j-thumb {
     width: 52px; height: 52px; background-color: var(--bg-elevated); background-size: cover; background-position: center;
     border-radius: var(--r-2, 0px); border: 1px solid var(--border); overflow: hidden;
 }
 html[data-layout="chronicle"] .lx-ch-j-thumb svg { width: 100%; height: 100%; display: block; }
-html[data-layout="chronicle"] .lx-ch-btn.lx-ch-j-more { margin: 20px auto 0; display: flex; }
-html[data-layout="chronicle"] .lx-ch-j-skel { padding: 16px 0 16px 54px; border-bottom: 1px solid var(--border); }
-html[data-layout="chronicle"] .lx-ch-j-index .lx-ch-empty { padding: 28px 0; }
+html[data-layout="chronicle"] .lx-ch-btn.lx-ch-j-olderbtn { display: flex; margin: 20px auto 0; }
+html[data-layout="chronicle"] .lx-ch-j-skel { display: grid; grid-template-columns: 44px 20px minmax(0, 1fr); column-gap: 8px; padding: 16px 20px; }
+html[data-layout="chronicle"] .lx-ch-j-skel .skeleton { border-radius: var(--r-1, 0px); }
+html[data-layout="chronicle"] .lx-ch-j-scroll .lx-ch-empty { padding: 32px 20px; }
+html[data-layout="chronicle"] .lx-ch-j-scroll .lx-ch-empty p { max-width: 34ch; }
 
-/* ── Editor (right) ───────────────────────────────────────────── */
-html[data-layout="chronicle"] .lx-ch-j-editor {
-    grid-area: editor; position: relative; min-width: 0; min-height: 0;
-    overflow-y: auto; overscroll-behavior: contain; scroll-margin-top: var(--nav-h);
-    scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+/* ═══ Right pane: the map, and the entry over it ══════════════════ */
+html[data-layout="chronicle"] .lx-ch-j-stage {
+    position: relative; z-index: 1; min-width: 0; min-height: 0; overflow: hidden;
+    background: var(--surface-0, var(--bg-elevated));
 }
-html[data-layout="chronicle"] .lx-ch-j-strip {
-    position: sticky; top: 0; z-index: 5;
-    background: var(--bg); border-bottom: 1px solid var(--border);
-    padding: 12px 32px 0;
-}
-html[data-layout="chronicle"] .lx-ch-j-strip-head {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 720px; margin: 0 auto 4px;
-}
-html[data-layout="chronicle"] .lx-ch-j-monthlabel {
-    font-family: var(--font-display); font-size: 19px; font-weight: 500; letter-spacing: -0.005em;
-    text-transform: none; color: var(--text); margin: 0;
-}
-html[data-layout="chronicle"] .lx-ch-j-strip-nav { display: flex; align-items: center; gap: 2px; }
-html[data-layout="chronicle"] .lx-ch-j-days {
-    display: flex; gap: 2px; overflow-x: auto; max-width: 720px; margin: 0 auto; padding: 4px 0 10px;
-    scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
-}
-html[data-layout="chronicle"] .lx-ch-j-cell {
-    position: relative; flex: none; width: 44px; height: 68px;
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-    background: none; border: 0; border-bottom: 2px solid transparent; border-radius: var(--r-1, 0px);
-    color: var(--text-muted); cursor: pointer;
-    transition: background-color 120ms ease-out, color 120ms ease-out;
-}
-html[data-layout="chronicle"] .lx-ch-j-cell:hover:not(:disabled) { background: var(--lx-ch-tint); color: var(--text); }
-html[data-layout="chronicle"] .lx-ch-j-cell:disabled { opacity: 0.35; cursor: default; }
-html[data-layout="chronicle"] .lx-ch-j-cell-w { font-family: var(--font-mono); font-size: 11px; line-height: 1; }
-html[data-layout="chronicle"] .lx-ch-j-cell-n { font-family: var(--font-display); font-size: 20px; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-j-cell.has-entry .lx-ch-j-cell-n { color: var(--text); font-weight: 600; }
-html[data-layout="chronicle"] .lx-ch-j-cell.is-today .lx-ch-j-cell-n { color: var(--primary); }
-html[data-layout="chronicle"] .lx-ch-j-cell.is-selected { border-bottom-color: var(--primary); color: var(--text); background: color-mix(in srgb, var(--primary) 6%, transparent); }
-html[data-layout="chronicle"] .lx-ch-j-cell-m { height: 14px; display: flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1; }
-html[data-layout="chronicle"] .lx-ch-j-cell-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-j-cell-fav { position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; color: var(--clay-amber); }
-html[data-layout="chronicle"] .lx-ch-j-cell-fav svg { width: 8px; height: 8px; display: block; fill: currentColor; stroke: none; }
-html[data-layout="chronicle"] .lx-ch-j-cell-ph { position: absolute; top: 6px; left: 6px; width: 4px; height: 4px; border-radius: 50%; background: var(--clay-lavender); }
+html[data-layout="chronicle"] .lx-ch-j-map { position: absolute; inset: 0; background: var(--surface-0, var(--bg-elevated)); }
+html[data-layout="chronicle"] .lx-ch-j-map .maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-map .maplibregl-ctrl-attrib a { color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-map .maplibregl-ctrl-bottom-left { z-index: 2; }
+html[data-layout="chronicle"] .lx-ch-j-busy { position: absolute; left: 0; right: 0; top: 0; height: 2px; overflow: hidden; z-index: 4; pointer-events: none; }
+html[data-layout="chronicle"] .lx-ch-j-busy::after { content: ''; position: absolute; inset: 0; width: 40%; background: var(--primary); animation: lx-ch-j-busy 1.1s ease-in-out infinite; }
 
-html[data-layout="chronicle"] .lx-ch-j-day { max-width: 720px; margin: 0 auto; padding: 32px 32px 96px; }
-html[data-layout="chronicle"] .lx-ch-j-day-top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; min-height: 18px; }
-html[data-layout="chronicle"] .lx-ch-j-save { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; }
-html[data-layout="chronicle"] .lx-ch-j-save.is-saving { color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-tools { position: absolute; top: 16px; left: 16px; z-index: 6; }
+html[data-layout="chronicle"] .lx-ch-j-toolgroup {
+    display: flex; flex-direction: column;
+    background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--r-2, 0px); overflow: hidden;
+}
+html[data-layout="chronicle"] .lx-ch-j-tool {
+    width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
+    background: none; border: 0; color: var(--text-muted); cursor: pointer;
+    transition: color 120ms ease-out, background-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-j-tool + .lx-ch-j-tool { border-top: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-j-tool:hover { color: var(--text); background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-j-tool[aria-expanded="true"] { color: var(--text); background: var(--lx-ch-tint-strong); }
+html[data-layout="chronicle"] .lx-ch-j-tool:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: -2px; }
+html[data-layout="chronicle"] .lx-ch-j-tool:disabled { opacity: 0.4; cursor: default; }
+html[data-layout="chronicle"] .lx-ch-j-view { top: 0; left: 46px; width: 272px; padding: 0; max-height: min(440px, calc(100% - 32px)); overflow-y: auto; }
+html[data-layout="chronicle"] .lx-ch-j-bases { display: flex; flex-direction: column; margin: 0 -16px 2px; }
+html[data-layout="chronicle"] .lx-ch-j-base-grp { padding: 8px 16px 2px; font-size: 12px; color: var(--text-dim); }
+html[data-layout="chronicle"] .lx-ch-j-base {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; padding: 0 16px;
+    background: none; border: 0; text-align: left; font-size: 14px; color: var(--text); cursor: pointer;
+    transition: background-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-j-base:hover { background: var(--lx-ch-tint); }
+html[data-layout="chronicle"] .lx-ch-j-base svg { color: var(--primary); visibility: hidden; }
+html[data-layout="chronicle"] .lx-ch-j-base[aria-checked="true"] svg { visibility: visible; }
+html[data-layout="chronicle"] .lx-ch-j-base[aria-checked="true"] { font-weight: 600; }
+
+html[data-layout="chronicle"] .lx-ch-j-cap {
+    position: absolute; left: 16px; bottom: 30px; z-index: 5; max-width: calc(100% - 32px);
+    display: flex; flex-wrap: wrap; gap: 2px 14px; padding: 7px 12px;
+    background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--r-2, 0px);
+    font-family: var(--font-mono); font-size: 12px; line-height: 1.4; color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+html[data-layout="chronicle"] .lx-ch-j-cap b { font-weight: 400; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-j-tilebar {
+    position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 7; max-width: calc(100% - 120px);
+    display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 14px;
+    background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: var(--r-2, 0px);
+    font-size: 13px; color: var(--text);
+}
+html[data-layout="chronicle"] .lx-ch-j[data-info="open"]:not([data-mode="sheet"]) .lx-ch-j-tilebar { left: calc((100% - var(--lx-ch-j-info-w)) / 2); }
+html[data-layout="chronicle"] .lx-ch-j-tilebar .lx-ch-btn { min-height: 30px; padding: 0 10px; font-size: 13px; }
+
+/* Map states that cover the map: first load, no track, no map library. */
+html[data-layout="chronicle"] .lx-ch-j-mapstate {
+    position: absolute; left: 0; right: 0; top: 0; bottom: var(--lx-ch-j-vis, 0px); z-index: 3;
+    display: flex; align-items: center; justify-content: center; padding: 32px 24px;
+    background: var(--surface-0, var(--bg-elevated)); text-align: center;
+}
+html[data-layout="chronicle"] .lx-ch-j[data-info="open"]:not([data-mode="sheet"]) .lx-ch-j-mapstate { right: var(--lx-ch-j-info-w); }
+html[data-layout="chronicle"] .lx-ch-j-mapstate.is-loading .skeleton { position: absolute; inset: 0; border-radius: 0; }
+html[data-layout="chronicle"] .lx-ch-j-msg { position: relative; max-width: 34ch; }
+html[data-layout="chronicle"] .lx-ch-j-msg-t { font-family: var(--font-display); font-size: 20px; line-height: 1.25; font-weight: 500; color: var(--text); }
+html[data-layout="chronicle"] .lx-ch-j-msg p { margin: 8px 0 0; font-size: 14px; line-height: 1.5; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-msg .lx-ch-btn { margin-top: 16px; }
+
+/* The entry column (over the map, collapsible) */
+html[data-layout="chronicle"] .lx-ch-j-info {
+    position: absolute; top: 0; right: 0; bottom: 0; z-index: 8; width: var(--lx-ch-j-info-w); max-width: 100%;
+    display: flex; flex-direction: column;
+    background: var(--bg); border-left: 1px solid var(--border);
+    visibility: visible;
+    transition: transform 220ms var(--lx-ch-j-ease), visibility 0s linear 0s;
+}
+html[data-layout="chronicle"] .lx-ch-j[data-info="closed"]:not([data-mode="sheet"]) .lx-ch-j-info {
+    transform: translateX(100%); visibility: hidden; transition: transform 220ms var(--lx-ch-j-ease), visibility 0s linear 220ms;
+}
+html[data-layout="chronicle"] .lx-ch-j-infotab {
+    position: absolute; top: 16px; right: 0; z-index: 7;
+    display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px 0 10px;
+    background: var(--bg); border: 1px solid var(--border-strong); border-right: 0; border-radius: var(--r-2, 0px) 0 0 var(--r-2, 0px);
+    font-size: 13px; font-weight: 500; color: var(--text); cursor: pointer;
+    transition: background-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-j-infotab:hover { background: var(--bg-elevated); }
+html[data-layout="chronicle"] .lx-ch-j-ibar {
+    flex: none; display: flex; align-items: center; gap: 2px; padding: 12px 16px 12px 12px;
+    border-bottom: 1px solid var(--border);
+}
+html[data-layout="chronicle"] .lx-ch-j-ibar-sp { flex: 1; min-width: 0; }
+html[data-layout="chronicle"] .lx-ch-j-emenu { position: relative; }
+html[data-layout="chronicle"] .lx-ch-j-emenu .lx-ch-j-pop { top: calc(100% + 6px); right: 0; width: min(264px, calc(100vw - 32px)); }
+html[data-layout="chronicle"] .lx-ch-j-save { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; margin-right: 6px; }
+html[data-layout="chronicle"] .lx-ch-j-save.is-saving,
 html[data-layout="chronicle"] .lx-ch-j-save.is-saved { color: var(--text-muted); }
 html[data-layout="chronicle"] .lx-ch-j-save.is-failed { color: var(--danger); }
 html[data-layout="chronicle"] .lx-ch-j-save button {
-    background: none; border: 1px solid currentColor; border-radius: var(--r-1, 0px); color: inherit; cursor: pointer;
-    font: inherit; padding: 1px 8px;
+    background: none; border: 1px solid currentColor; border-radius: var(--r-1, 0px); color: inherit; cursor: pointer; font: inherit; padding: 1px 8px;
 }
 html[data-layout="chronicle"] .lx-ch-j-save button:focus-visible { outline: 2px solid var(--lx-ch-ring); outline-offset: 2px; }
+html[data-layout="chronicle"] .lx-ch-j-iscroll {
+    flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding: 24px 28px calc(64px + var(--lx-ch-j-off, 0px));
+    scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+}
+html[data-layout="chronicle"] .lx-ch-j-kick { font-family: var(--font-mono); font-size: 12px; line-height: 1.4; color: var(--text-muted); font-variant-numeric: tabular-nums; min-height: 17px; }
 html[data-layout="chronicle"] .lx-ch-j-weekday {
-    display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 14px;
-    font-family: var(--font-display); font-size: 40px; line-height: 1.12; font-weight: 500; letter-spacing: -0.02em;
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px;
+    font-family: var(--font-display); font-size: 34px; line-height: 1.12; font-weight: 500; letter-spacing: -0.02em;
     text-transform: none; color: var(--text); margin: 4px 0 0;
 }
-html[data-layout="chronicle"] .lx-ch-j-weekday span:last-child { font-size: 0.55em; font-weight: 400; letter-spacing: -0.005em; color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-j-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
-html[data-layout="chronicle"] .lx-ch-j-acts .lx-ch-btn { min-height: 32px; padding: 0 12px; font-size: 13px; }
-html[data-layout="chronicle"] .lx-ch-j-acts .lx-ch-btn[aria-pressed="true"] { border-color: var(--clay-amber); color: var(--text); }
-html[data-layout="chronicle"] .lx-ch-j-acts .lx-ch-btn[aria-pressed="true"] svg { fill: var(--clay-amber); stroke: var(--clay-amber); }
-html[data-layout="chronicle"] .lx-ch-j-acts .lx-ch-j-del { margin-left: auto; color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
-html[data-layout="chronicle"] .lx-ch-j-datewrap { position: relative; display: inline-flex; }
-html[data-layout="chronicle"] .lx-ch-j-dateinput { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0; }
-
+html[data-layout="chronicle"] .lx-ch-j-weekday span:last-child { font-size: 0.5em; font-weight: 400; letter-spacing: -0.005em; color: var(--text-muted); }
 html[data-layout="chronicle"] .lx-ch-j-fields { border: 0; margin: 0; padding: 0; min-width: 0; transition: opacity 150ms ease-out; }
 html[data-layout="chronicle"] .lx-ch-j-day.is-loading .lx-ch-j-fields { opacity: 0.5; }
 html[data-layout="chronicle"] .lx-ch-j-title {
-    display: block; width: 100%; box-sizing: border-box; margin: 28px 0 0; padding: 4px 0 8px;
+    display: block; width: 100%; box-sizing: border-box; margin: 22px 0 0; padding: 4px 0 8px;
     background: transparent; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; box-shadow: none;
-    font-family: var(--font-display); font-size: 28px; line-height: 1.25; font-weight: 500; letter-spacing: -0.012em;
+    font-family: var(--font-display); font-size: 24px; line-height: 1.25; font-weight: 500; letter-spacing: -0.012em;
     color: var(--text); text-transform: none;
 }
 html[data-layout="chronicle"] .lx-ch-j-title::placeholder { color: var(--text-dim); }
 html[data-layout="chronicle"] .lx-ch-j-title:focus { outline: none; border-bottom-color: var(--primary); }
 html[data-layout="chronicle"] .lx-ch-j-title:focus-visible { outline: none; border-bottom-color: var(--primary); box-shadow: 0 1px 0 0 var(--primary); }
-
-html[data-layout="chronicle"] .lx-ch-j-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px 20px; align-items: center; margin-top: 18px; }
+html[data-layout="chronicle"] .lx-ch-j-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 16px; align-items: center; margin-top: 16px; }
 html[data-layout="chronicle"] .lx-ch-j-label { font-size: 13px; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
-html[data-layout="chronicle"] .lx-ch-j-moods { display: flex; flex-wrap: wrap; gap: 4px; }
+html[data-layout="chronicle"] .lx-ch-j-moods { display: flex; flex-wrap: wrap; gap: 2px; margin-left: -6px; }
 html[data-layout="chronicle"] .lx-ch-j-mood {
-    width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
     background: none; border: 1px solid transparent; border-radius: var(--r-pill, 999px);
-    font-size: 19px; line-height: 1; cursor: pointer;
+    font-size: 18px; line-height: 1; cursor: pointer;
     transition: background-color 120ms ease-out, border-color 120ms ease-out;
 }
 html[data-layout="chronicle"] .lx-ch-j-mood:hover { background: var(--lx-ch-tint); }
 html[data-layout="chronicle"] .lx-ch-j-mood[aria-pressed="true"] { border-color: var(--primary); background: var(--primary-soft); }
 html[data-layout="chronicle"] .lx-ch-j-weather {
-    width: 100%; max-width: 360px; box-sizing: border-box; height: 34px; padding: 0 2px;
+    width: 100%; box-sizing: border-box; height: 34px; padding: 0 2px;
     background: transparent; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; box-shadow: none;
     font-family: var(--font-body); font-size: 14px; color: var(--text); text-transform: none;
 }
 html[data-layout="chronicle"] .lx-ch-j-weather::placeholder { color: var(--text-dim); }
 html[data-layout="chronicle"] .lx-ch-j-weather:focus { outline: none; border-bottom-color: var(--primary); }
-
-html[data-layout="chronicle"] .lx-ch-j-quick {
-    margin-top: 20px; padding: 2px 0 2px 14px; border-left: 2px solid var(--border-strong);
-    transition: border-color 150ms ease-out;
-}
+html[data-layout="chronicle"] .lx-ch-j-quick { margin-top: 20px; padding: 2px 0 2px 14px; border-left: 2px solid var(--border-strong); transition: border-color 150ms ease-out; }
 html[data-layout="chronicle"] .lx-ch-j-quick:focus-within { border-left-color: var(--primary); }
 html[data-layout="chronicle"] .lx-ch-j-quick-l { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
 html[data-layout="chronicle"] .lx-ch-j-quick textarea {
@@ -283,21 +414,18 @@ html[data-layout="chronicle"] .lx-ch-j-quick textarea {
     font-family: var(--font-body); font-size: 15px; line-height: 1.5; color: var(--text); text-transform: none;
 }
 html[data-layout="chronicle"] .lx-ch-j-quick textarea::placeholder { color: var(--text-dim); }
-
-html[data-layout="chronicle"] .lx-ch-j-bodywrap {
-    margin: 28px 0 0 -18px; padding-left: 16px; border-left: 2px solid transparent; transition: border-color 150ms ease-out;
-}
+html[data-layout="chronicle"] .lx-ch-j-bodywrap { margin: 24px 0 0 -16px; padding-left: 14px; border-left: 2px solid transparent; transition: border-color 150ms ease-out; }
 html[data-layout="chronicle"] .lx-ch-j-bodywrap:focus-within { border-left-color: color-mix(in srgb, var(--primary) 60%, transparent); }
 html[data-layout="chronicle"] .lx-ch-j-body {
-    display: block; width: 100%; box-sizing: border-box; min-height: 240px; padding: 0; resize: none; overflow: hidden;
+    display: block; width: 100%; box-sizing: border-box; min-height: 200px; padding: 0; resize: none; overflow: hidden;
     background: none; border: 0; border-radius: 0; box-shadow: none; outline: none;
-    font-family: var(--font-display); font-size: 18px; line-height: 1.75; font-weight: 400; color: var(--text); text-transform: none;
+    font-family: var(--font-display); font-size: 17px; line-height: 1.75; font-weight: 400; color: var(--text); text-transform: none;
 }
 html[data-layout="chronicle"] .lx-ch-j-body::placeholder { color: var(--text-dim); }
-html[data-layout="chronicle"] .lx-ch-j-foot { margin-top: 12px; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; min-height: 16px; }
-
-html[data-layout="chronicle"] .lx-ch-j-photos { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
-html[data-layout="chronicle"] .lx-ch-j-photo { position: relative; width: 96px; height: 96px; }
+html[data-layout="chronicle"] .lx-ch-j-foot { margin-top: 10px; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; min-height: 16px; }
+html[data-layout="chronicle"] .lx-ch-j-fresh { margin-top: 14px; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-photos { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+html[data-layout="chronicle"] .lx-ch-j-photo { position: relative; width: 84px; height: 84px; }
 html[data-layout="chronicle"] .lx-ch-j-photo > a, html[data-layout="chronicle"] .lx-ch-j-photo > .lx-ch-j-photo-load {
     display: block; width: 100%; height: 100%; border: 1px solid var(--border); border-radius: var(--r-2, 0px); overflow: hidden; background: var(--bg-elevated);
 }
@@ -311,41 +439,29 @@ html[data-layout="chronicle"] .lx-ch-j-photo-x {
 }
 html[data-layout="chronicle"] .lx-ch-j-photo-x:hover { color: var(--danger); border-color: var(--danger); }
 html[data-layout="chronicle"] .lx-ch-j-photo-add {
-    width: 96px; height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    width: 84px; height: 84px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
     background: none; border: 1px dashed var(--border-strong); border-radius: var(--r-2, 0px);
-    color: var(--text-muted); font-size: 13px; cursor: pointer;
-    transition: color 120ms ease-out, border-color 120ms ease-out;
+    color: var(--text-muted); font-size: 13px; cursor: pointer; transition: color 120ms ease-out, border-color 120ms ease-out;
 }
 html[data-layout="chronicle"] .lx-ch-j-photo-add:hover { color: var(--text); border-color: var(--text-muted); }
-
-html[data-layout="chronicle"] .lx-ch-j-where { margin-top: 40px; }
-html[data-layout="chronicle"] .lx-ch-j-where .lx-ch-section-head { margin-bottom: 14px; }
-html[data-layout="chronicle"] .lx-ch-j-map {
-    position: relative; height: 280px; border: 1px solid var(--border); border-radius: var(--r-3, 0px); overflow: hidden;
-    background: var(--surface-0, var(--bg-elevated)); margin-top: 14px;
-}
-html[data-layout="chronicle"] .lx-ch-j-map .maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-j-map .maplibregl-ctrl-attrib a { color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-j-map .maplibregl-ctrl-group { background: var(--bg); border: 1px solid var(--border); box-shadow: none; border-radius: var(--r-2, 0px); }
+html[data-layout="chronicle"] .lx-ch-j-where { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--border); }
+html[data-layout="chronicle"] .lx-ch-j-where-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+html[data-layout="chronicle"] .lx-ch-j-where-t { margin: 0; font-family: var(--font-display); font-size: 18px; font-weight: 500; color: var(--text); text-transform: none; letter-spacing: 0; }
+html[data-layout="chronicle"] .lx-ch-j-where-none { margin-top: 8px; font-size: 14px; line-height: 1.5; color: var(--text-muted); }
+html[data-layout="chronicle"] .lx-ch-j-where .lx-ch-stats { margin-top: 14px; gap: 8px 24px; }
 html[data-layout="chronicle"] .lx-ch-j-where-places { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
-html[data-layout="chronicle"] .lx-ch-j-where-none { font-size: 14px; color: var(--text-muted); }
-html[data-layout="chronicle"] .lx-ch-j-link { color: var(--link); text-decoration: none; border-radius: var(--r-1, 0px); }
-html[data-layout="chronicle"] .lx-ch-j-link:hover { text-decoration: underline; }
 html[data-layout="chronicle"] .lx-ch-j-day-err { padding: 24px 0; }
 
 /* ── Recap panel ──────────────────────────────────────────────── */
 html[data-layout="chronicle"] .lx-ch-j-recap {
     position: fixed; right: 0; z-index: 1500;
     top: var(--nav-h, 0px); bottom: var(--bottom-nav-height, 0px);
-    width: min(440px, 100vw); display: none; flex-direction: column;
+    width: min(440px, 100%); display: none; flex-direction: column;
     background: var(--bg-elevated); border-left: 1px solid var(--border-strong);
     box-shadow: -12px 0 32px rgba(0, 0, 0, 0.22);
 }
 html[data-layout="chronicle"] .lx-ch-j-recap.open { display: flex; }
-html[data-layout="chronicle"] .lx-ch-j-recap-head {
-    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
-    padding: 20px 20px 14px 24px; border-bottom: 1px solid var(--border);
-}
+html[data-layout="chronicle"] .lx-ch-j-recap-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 20px 14px 24px; border-bottom: 1px solid var(--border); }
 html[data-layout="chronicle"] .lx-ch-j-recap-title { font-family: var(--font-display); font-size: 22px; font-weight: 500; line-height: 1.2; color: var(--text); text-transform: none; margin: 0; }
 html[data-layout="chronicle"] .lx-ch-j-recap-title:focus { outline: none; }
 html[data-layout="chronicle"] .lx-ch-j-recap-span { margin-top: 4px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
@@ -363,181 +479,297 @@ html[data-layout="chronicle"] .lx-ch-j-recap-error { color: var(--danger); }
 html[data-layout="chronicle"] .lx-ch-j-recap-loading { display: flex; align-items: center; gap: 12px; color: var(--text-muted); }
 html[data-layout="chronicle"] .lx-ch-j-recap-loading .spinner { flex: none; margin: 0; }
 html[data-layout="chronicle"] .lx-ch-j-recap-facts { margin-top: 20px; border-top: 1px solid var(--border); }
-html[data-layout="chronicle"] .lx-ch-j-recap-fact {
-    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 16px; align-items: baseline;
-    padding: 10px 0; border-bottom: 1px solid var(--border);
-}
+html[data-layout="chronicle"] .lx-ch-j-recap-fact { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 16px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--border); }
 html[data-layout="chronicle"] .lx-ch-j-recap-fact .l { font-size: 14px; color: var(--text-muted); }
 html[data-layout="chronicle"] .lx-ch-j-recap-fact .v { font-family: var(--font-mono); font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
 html[data-layout="chronicle"] .lx-ch-j-recap-fact .e { grid-column: 1 / -1; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); text-align: right; }
 html[data-layout="chronicle"] .lx-ch-j-recap-foot { margin-top: 20px; font-size: 13px; line-height: 1.55; color: var(--text-dim); }
 html[data-layout="chronicle"] .lx-ch-j-recap-foot a { color: var(--link); }
 
-/* ── Tablet and phone: one column, the open day first ─────────── */
-@media (max-width: 900px) {
-    html[data-layout="chronicle"] .lx-ch-j {
-        display: block; height: auto; min-height: 0;
-    }
-    html[data-layout="chronicle"] .lx-ch-j-editor { overflow: visible; }
-    html[data-layout="chronicle"] .lx-ch-j-index { overflow: visible; border-right: 0; border-top: 1px solid var(--border); padding: 0 24px 40px; }
-    html[data-layout="chronicle"] .lx-ch-j-strip { position: static; padding: 12px 24px 0; }
-    html[data-layout="chronicle"] .lx-ch-j-day { padding: 24px 24px 56px; }
+/* The sheet's grab row only exists in sheet mode. */
+html[data-layout="chronicle"] .lx-ch-j-grab { display: none; }
+
+/* ═══ Narrow desktop: a slimmer list and entry column ═════════════ */
+@media (max-width: 1280px) {
+    html[data-layout="chronicle"] .lx-ch-j { --lx-ch-j-list-w: 316px; --lx-ch-j-info-w: 376px; }
+    html[data-layout="chronicle"] .lx-ch-j-iscroll { padding-left: 24px; padding-right: 24px; }
 }
+
+/* ═══ Sheet mode (phones and small tablets): map behind, a draggable sheet in front ═══ */
+@media (max-width: 1000px) {
+    html[data-layout="chronicle"] .lx-ch-j { display: block; }
+}
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] { display: block; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-stage { position: absolute; inset: 0; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-list,
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-info {
+    position: absolute; left: 0; right: 0; top: 44px; bottom: 0; width: auto; max-width: none; z-index: 9;
+    border: 0; border-top: 1px solid var(--border-strong);
+    transform: translateY(var(--lx-ch-j-off, 50%));
+    transition: transform 240ms var(--lx-ch-j-ease);
+    box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.22);
+    visibility: visible;
+}
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"].is-dragging .lx-ch-j-list,
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"].is-dragging .lx-ch-j-info { transition: none; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"][data-sheet="list"] .lx-ch-j-info,
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"][data-sheet="entry"] .lx-ch-j-list { visibility: hidden; pointer-events: none; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-infotab,
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-collapse { display: none; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-grab {
+    flex: none; display: block; touch-action: none; user-select: none; -webkit-user-select: none;
+    border-bottom: 1px solid var(--border); background: var(--bg);
+}
+html[data-layout="chronicle"] .lx-ch-j-handle {
+    display: flex; align-items: center; justify-content: center; width: 100%; height: 20px; padding: 0;
+    background: none; border: 0; cursor: grab; touch-action: none;
+}
+html[data-layout="chronicle"] .lx-ch-j-handle::before { content: ''; width: 36px; height: 4px; border-radius: calc(2px * var(--rk, 1)); background: var(--border-strong); }
+html[data-layout="chronicle"] .lx-ch-j-tabs { display: flex; gap: 4px; padding: 0 12px 6px; }
+html[data-layout="chronicle"] .lx-ch-j-tab {
+    flex: 1; min-width: 0; height: 40px; padding: 0 12px; background: none; border: 0; border-bottom: 2px solid transparent;
+    font-size: 14px; font-weight: 500; color: var(--text-muted); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    transition: color 120ms ease-out, border-color 120ms ease-out;
+}
+html[data-layout="chronicle"] .lx-ch-j-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--primary); }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-tools { top: 12px; left: 12px; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-cap { display: none; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-view { max-height: max(160px, calc(100dvh - var(--nav-h) - var(--bottom-nav-height, 0px) - var(--lx-ch-j-vis, 300px) - 40px)); }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-tilebar { top: 12px; max-width: calc(100% - 100px); left: auto; right: 12px; transform: none; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-lhead { padding: 14px 16px 0; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-h1 { font-size: 24px; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-tl.has-rows::before { left: 78px; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-month { padding-left: 16px; padding-right: 16px; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-item { padding-left: 16px; padding-right: 16px; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-li::after { left: 96px; right: 16px; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-iscroll { padding: 20px 16px calc(48px + var(--lx-ch-j-off, 0px)); }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-weekday { font-size: 30px; }
+html[data-layout="chronicle"] .lx-ch-j[data-mode="sheet"] .lx-ch-j-bodywrap { margin-left: 0; padding-left: 0; border-left: 0; }
+
 @media (max-width: 768px) {
-    html[data-layout="chronicle"] .lx-ch-j-index { padding: 0 16px 32px; }
-    html[data-layout="chronicle"] .lx-ch-j-strip { padding: 8px 8px 0 16px; }
-    html[data-layout="chronicle"] .lx-ch-j-day { padding: 20px 16px 40px; }
-    html[data-layout="chronicle"] .lx-ch-j-weekday { font-size: 32px; }
-    html[data-layout="chronicle"] .lx-ch-j-title { font-size: 24px; }
-    html[data-layout="chronicle"] .lx-ch-j-body { font-size: 17px; }
-    html[data-layout="chronicle"] .lx-ch-j-meta { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-    html[data-layout="chronicle"] .lx-ch-j-meta .lx-ch-j-label { margin-top: 6px; }
-    html[data-layout="chronicle"] .lx-ch-j-mood { width: 44px; height: 44px; }
-    html[data-layout="chronicle"] .lx-ch-j-weather { height: 44px; max-width: none; font-size: 16px; }
-    html[data-layout="chronicle"] .lx-ch-j-acts .lx-ch-btn { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-j {
+        height: calc(100vh - var(--nav-h) - var(--bottom-nav-height, 0px));
+        height: calc(100dvh - var(--nav-h) - var(--bottom-nav-height, 0px));
+        min-height: 0;
+    }
     html[data-layout="chronicle"] .lx-ch-j-iconbtn { min-width: 44px; height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-j .lx-ch-ai { height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-j-tool { width: 44px; height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-j-view { left: 54px; }
     html[data-layout="chronicle"] .lx-ch-j-search input { height: 44px; font-size: 16px; }
     html[data-layout="chronicle"] .lx-ch-j-search-clear { height: 42px; width: 44px; }
+    html[data-layout="chronicle"] .lx-ch-j-seg button { height: 36px; padding: 0 12px; }
+    html[data-layout="chronicle"] .lx-ch-j-menu-item { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-j-base { min-height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-j-datein { height: 40px; font-size: 16px; }
+    html[data-layout="chronicle"] .lx-ch-j-title { font-size: 22px; }
+    html[data-layout="chronicle"] .lx-ch-j-body { font-size: 17px; }
+    html[data-layout="chronicle"] .lx-ch-j-meta { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+    html[data-layout="chronicle"] .lx-ch-j-meta .lx-ch-j-label { margin-top: 6px; }
+    html[data-layout="chronicle"] .lx-ch-j-mood { width: 44px; height: 44px; }
+    html[data-layout="chronicle"] .lx-ch-j-weather { height: 44px; font-size: 16px; }
     html[data-layout="chronicle"] .lx-ch-j-quick textarea { font-size: 16px; }
-    html[data-layout="chronicle"] .lx-ch-j-map { height: 240px; }
-    html[data-layout="chronicle"] .lx-ch-j-recap { width: 100vw; border-left: 0; }
+    html[data-layout="chronicle"] .lx-ch-j-opt input { width: 22px; height: 22px; }
+    html[data-layout="chronicle"] .lx-ch-j-recap { width: 100%; border-left: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    html[data-layout="chronicle"] .lx-ch-j * { transition: none !important; }
+    html[data-layout="chronicle"] .lx-ch-j *,
+    html[data-layout="chronicle"] .lx-ch-j *::after { transition: none !important; animation: none !important; }
 }
-html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none !important; }
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j *,
+html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j *::after { transition: none !important; animation: none !important; }
 {% endblock %}
 
 {% block content %}
-{% comment %}Inline icon paths are repeated in the script (ICON); keep them in step.{% endcomment %}
-<div class="lx-ch-j" id="lx-ch-j" data-tile-qs="{{ CARTO_TILE_QS }}">
+{% if basemaps %}{{ basemaps|json_script:"roamly-basemaps" }}{% endif %}
+<div class="lx-ch-j" id="lx-ch-j" data-mode="split" data-info="open" data-sheet="list" data-tile-qs="{{ CARTO_TILE_QS }}">
 
-    <section class="lx-ch-j-editor" id="lx-ch-j-editor" aria-label="Journal entry">
-        <div class="lx-ch-j-strip">
-            <div class="lx-ch-j-strip-head">
-                <div class="lx-ch-j-monthlabel" id="lx-ch-j-monthlabel">&nbsp;</div>
-                <div class="lx-ch-j-strip-nav">
-                    <button type="button" class="lx-ch-j-iconbtn" id="lx-ch-j-prev" aria-label="Previous month"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-                    <button type="button" class="lx-ch-j-iconbtn" id="lx-ch-j-today">Today</button>
-                    <button type="button" class="lx-ch-j-iconbtn" id="lx-ch-j-next" aria-label="Next month"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
-                </div>
+    <!-- Left: the timeline -->
+    <section class="lx-ch-j-list" id="lx-ch-j-listpane" aria-label="Your entries">
+        <div class="lx-ch-j-grab" data-grab>
+            <button type="button" class="lx-ch-j-handle" data-handle aria-label="Resize this panel"></button>
+            <div class="lx-ch-j-tabs" role="tablist" aria-label="Panel">
+                <button type="button" class="lx-ch-j-tab" role="tab" data-sheet-tab="list" aria-selected="true">Entries</button>
+                <button type="button" class="lx-ch-j-tab" role="tab" data-sheet-tab="entry" aria-selected="false">This day</button>
             </div>
-            <div class="lx-ch-j-days" id="lx-ch-j-days" role="group" aria-label="Days of the month"></div>
         </div>
 
-        <article class="lx-ch-j-day is-loading" id="lx-ch-j-day" aria-busy="true" aria-labelledby="lx-ch-j-weekday">
-            <div class="lx-ch-j-day-top">
-                <span class="lx-ch-kicker" id="lx-ch-j-kicker">&nbsp;</span>
-                <span class="lx-ch-j-save" id="lx-ch-j-save" role="status" aria-live="polite"></span>
-            </div>
-            <h2 class="lx-ch-j-weekday" id="lx-ch-j-weekday"><span id="lx-ch-j-wd">&nbsp;</span><span id="lx-ch-j-dt"></span></h2>
-
-            <div class="lx-ch-j-day-err" id="lx-ch-j-dayerr" hidden>
-                <div class="lx-ch-empty">
-                    <div class="lx-ch-empty-title">This day didn&rsquo;t open</div>
-                    <p>Roamly couldn&rsquo;t load this entry. Nothing was changed.</p>
-                    <button type="button" class="lx-ch-btn" id="lx-ch-j-dayretry">Try again</button>
+        <div class="lx-ch-j-lhead">
+            <div class="lx-ch-j-lrow">
+                <h1 class="lx-ch-j-h1">Journals</h1>
+                <button type="button" class="lx-ch-ai" id="lx-ch-j-recaptoggle" aria-expanded="false" aria-controls="lx-ch-j-recap" title="Recap my past few days">
+                    <svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 1.7 1.7.8-1.7.8L19 20l-.8-1.7-1.7-.8 1.7-.8z"/></svg>
+                    <span>Recap</span>
+                </button>
+                <div class="lx-ch-j-more">
+                    <button type="button" class="lx-ch-j-iconbtn" id="lx-ch-j-morebtn" aria-label="More" aria-haspopup="true" aria-expanded="false" aria-controls="lx-ch-j-morepop"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="5.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18.5" cy="12" r="1.2"/></svg></button>
+                    <div class="lx-ch-j-pop" id="lx-ch-j-morepop" role="group" aria-label="More" hidden>
+                        <div class="lx-ch-j-datein-row">
+                            <label for="lx-ch-j-goto">Go to a day</label>
+                            <input type="date" class="lx-ch-j-datein rly-native" id="lx-ch-j-goto">
+                        </div>
+                        <div class="lx-ch-j-pop-sec">
+                            <div class="lx-ch-j-pop-title">Journal settings</div>
+                            <label class="lx-ch-j-opt"><input type="checkbox" data-setting="auto_title"><span>AI title<small>Titles an untitled day when you move on from it</small></span></label>
+                            <label class="lx-ch-j-opt"><input type="checkbox" data-setting="auto_mood"><span>AI mood emoji<small>Picks an emoji for how the day felt, if you didn&rsquo;t</small></span></label>
+                            <label class="lx-ch-j-opt"><input type="checkbox" data-setting="auto_weather"><span>Fetch the weather<small>Fills a blank weather field from Open-Meteo, using the day&rsquo;s rough location</small></span></label>
+                            <div class="lx-ch-j-pop-note" id="lx-ch-j-popnote" hidden></div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div id="lx-ch-j-form">
-                <div class="lx-ch-j-acts">
-                    <button type="button" class="lx-ch-btn" id="lx-ch-j-fav" aria-pressed="false"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg><span id="lx-ch-j-favtxt">Star</span></button>
-                    <span class="lx-ch-j-datewrap">
-                        <button type="button" class="lx-ch-btn" id="lx-ch-j-move"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>Move to another day</button>
-                        <input type="date" class="lx-ch-j-dateinput rly-native" id="lx-ch-j-dateinput" tabindex="-1" aria-label="Move this entry to another day">
-                    </span>
-                    <button type="button" class="lx-ch-btn lx-ch-j-del" id="lx-ch-j-delete"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/></svg>Delete entry</button>
-                </div>
-
-                <fieldset class="lx-ch-j-fields" id="lx-ch-j-fields" disabled>
-                    <legend class="rly-sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);">Journal entry</legend>
-                    <input type="text" class="lx-ch-j-title" id="lx-ch-j-title" placeholder="Give the day a title" maxlength="300" aria-label="Title" autocomplete="off">
-
-                    <div class="lx-ch-j-meta">
-                        <span class="lx-ch-j-label" id="lx-ch-j-moodlabel">Mood</span>
-                        <div class="lx-ch-j-moods" id="lx-ch-j-moods" role="group" aria-labelledby="lx-ch-j-moodlabel"></div>
-                        <label class="lx-ch-j-label" for="lx-ch-j-weather">Weather</label>
-                        <input type="text" class="lx-ch-j-weather" id="lx-ch-j-weather" placeholder="Sunny, 22&deg;" maxlength="60" autocomplete="off">
-                    </div>
-
-                    <div class="lx-ch-j-quick">
-                        <label class="lx-ch-j-quick-l" for="lx-ch-j-quick"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>Quick note, shown on the map</label>
-                        <textarea id="lx-ch-j-quick" rows="1" maxlength="2000" placeholder="What you did, in a line"></textarea>
-                    </div>
-
-                    <div class="lx-ch-j-bodywrap">
-                        <textarea class="lx-ch-j-body" id="lx-ch-j-body" placeholder="What happened today?" aria-label="Entry"></textarea>
-                    </div>
-                    <div class="lx-ch-j-foot" id="lx-ch-j-wordcount" aria-live="off"></div>
-
-                    <div class="lx-ch-j-photos" id="lx-ch-j-photos" aria-label="Photos"></div>
-                    <input type="file" id="lx-ch-j-photoinput" accept="image/*" multiple hidden>
-                </fieldset>
-
-                <section class="lx-ch-j-where" id="lx-ch-j-where" aria-label="Where you were">
-                    <div class="lx-ch-section-head">
-                        <h3 class="lx-ch-section-title">Where you were</h3>
-                        <a class="lx-ch-j-link" id="lx-ch-j-maplink" href="{% url 'tracker:map' %}">Open on the map</a>
-                    </div>
-                    <div class="lx-ch-j-where-none" id="lx-ch-j-wherenone">Loading the day&rsquo;s track&hellip;</div>
-                    <div id="lx-ch-j-wheredata" hidden>
-                        <div class="lx-ch-stats" id="lx-ch-j-mapstats"></div>
-                        <div class="lx-ch-j-where-places" id="lx-ch-j-places"></div>
-                        <div class="lx-ch-j-map" id="lx-ch-j-map" role="img" aria-label="Map of the day&rsquo;s track"></div>
-                    </div>
-                </section>
+            <div class="lx-ch-j-search" id="lx-ch-j-searchbox">
+                <svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+                <input type="text" id="lx-ch-j-search" placeholder="Search entries" aria-label="Search entries" autocomplete="off">
+                <button type="button" class="lx-ch-j-search-clear" id="lx-ch-j-searchclear" aria-label="Clear search" hidden><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
             </div>
-        </article>
-    </section>
 
-    <section class="lx-ch-j-index" id="lx-ch-j-index" aria-label="Your entries">
-        <div class="lx-ch-j-head">
-            <h1 class="lx-ch-j-h1">Journals</h1>
-            <div class="lx-ch-j-cog" id="lx-ch-j-cog">
-                <button type="button" class="lx-ch-j-iconbtn" id="lx-ch-j-cogbtn" aria-label="Journal settings" aria-haspopup="true" aria-expanded="false" aria-controls="lx-ch-j-pop"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></button>
-                <div class="lx-ch-j-pop" id="lx-ch-j-pop" role="group" aria-label="Journal settings" hidden>
-                    <div class="lx-ch-j-pop-title">Journal settings</div>
-                    <label class="lx-ch-j-opt"><input type="checkbox" data-setting="auto_title"><span>AI title<small>Titles an untitled day when you move on from it</small></span></label>
-                    <label class="lx-ch-j-opt"><input type="checkbox" data-setting="auto_mood"><span>AI mood emoji<small>Picks an emoji for how the day felt, if you didn&rsquo;t</small></span></label>
-                    <label class="lx-ch-j-opt"><input type="checkbox" data-setting="auto_weather"><span>Fetch the weather<small>Fills a blank weather field from Open-Meteo, using the day&rsquo;s rough location</small></span></label>
-                    <div class="lx-ch-j-pop-note" id="lx-ch-j-popnote" hidden></div>
+            <div class="lx-ch-j-sub" id="lx-ch-j-sub">
+                <div class="lx-ch-j-stats" id="lx-ch-j-stats" aria-busy="true"><span class="skeleton" aria-hidden="true"></span></div>
+                <div class="lx-ch-j-seg" id="lx-ch-j-filters" role="group" aria-label="Filter entries">
+                    <button type="button" data-filter="all" aria-pressed="true">All</button>
+                    <button type="button" data-filter="starred" aria-pressed="false">Starred</button>
                 </div>
             </div>
         </div>
 
-        <div class="lx-ch-j-stats" id="lx-ch-j-stats" aria-busy="true">
-            {% for i in "123456" %}
-            <div class="lx-ch-j-stat" aria-hidden="true"><div class="skeleton" style="width:2.6rem;height:1.1rem;margin-bottom:6px;"></div><div class="skeleton" style="width:3.6rem;height:0.7rem;"></div></div>
-            {% endfor %}
-        </div>
-
-        <div class="lx-ch-j-search">
-            <svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
-            <input type="text" id="lx-ch-j-search" placeholder="Search entries" aria-label="Search entries" autocomplete="off">
-            <button type="button" class="lx-ch-j-search-clear" id="lx-ch-j-searchclear" aria-label="Clear search" hidden><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-        </div>
-        <button type="button" class="lx-ch-btn lx-ch-j-recapbtn" id="lx-ch-j-recaptoggle" aria-expanded="false" aria-controls="lx-ch-j-recap">
-            <svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 1.7 1.7.8-1.7.8L19 20l-.8-1.7-1.7-.8 1.7-.8z"/></svg>
-            <span>Recap my past few days</span>
-            <svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
-        </button>
-        <div class="lx-ch-j-filters" id="lx-ch-j-filters" role="group" aria-label="Filter entries">
-            <button type="button" class="lx-ch-chip is-active" data-filter="all" aria-pressed="true">All</button>
-            <button type="button" class="lx-ch-chip" data-filter="starred" aria-pressed="false">Starred</button>
-        </div>
-
-        <div id="lx-ch-j-listwrap">
+        <div class="lx-ch-j-scroll" id="lx-ch-j-scroll">
             <div class="lx-ch-j-listhead" id="lx-ch-j-listhead" hidden></div>
-            <div class="lx-ch-j-list" id="lx-ch-j-list" aria-busy="true">
-                {% for i in "1234" %}
-                <div class="lx-ch-j-skel" aria-hidden="true"><div class="skeleton lx-ch-skel-line is-short"></div><div class="skeleton lx-ch-skel-line"></div><div class="skeleton lx-ch-skel-line is-mid"></div></div>
+            <div class="lx-ch-j-tl" id="lx-ch-j-list" aria-busy="true">
+                {% for i in "12345" %}
+                <div class="lx-ch-j-skel" aria-hidden="true"><div class="skeleton" style="height:26px;width:30px;justify-self:end;grid-column:1"></div><div style="grid-column:3"><div class="skeleton lx-ch-skel-line" style="width:62%"></div><div class="skeleton lx-ch-skel-line is-mid"></div><div class="skeleton lx-ch-skel-line is-short"></div></div></div>
                 {% endfor %}
             </div>
         </div>
     </section>
+
+    <!-- Right: the map, with the entry in a column over it -->
+    <section class="lx-ch-j-stage" id="lx-ch-j-stage" aria-label="Map and entry">
+        <div class="lx-ch-j-map" id="lx-ch-j-map" role="region" aria-label="Map of the selected day"></div>
+        <div class="lx-ch-j-busy" id="lx-ch-j-busy" hidden aria-hidden="true"></div>
+
+        <div class="lx-ch-j-tools" id="lx-ch-j-tools">
+            <div class="lx-ch-j-toolgroup">
+                <button type="button" class="lx-ch-j-tool" id="lx-ch-j-viewbtn" aria-label="Map view settings" aria-haspopup="true" aria-expanded="false" aria-controls="lx-ch-j-view" title="Map view"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3.5l8.5 4.5-8.5 4.5L3.5 8z"/><path d="M3.5 12.2L12 16.7l8.5-4.5"/><path d="M3.5 16.2L12 20.7l8.5-4.5"/></svg></button>
+                <button type="button" class="lx-ch-j-tool" id="lx-ch-j-zin" aria-label="Zoom in" title="Zoom in"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+                <button type="button" class="lx-ch-j-tool" id="lx-ch-j-zout" aria-label="Zoom out" title="Zoom out"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+                <button type="button" class="lx-ch-j-tool" id="lx-ch-j-fit" aria-label="Fit the day&rsquo;s track" title="Fit the track" disabled><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+            </div>
+            <div class="lx-ch-j-pop lx-ch-j-view" id="lx-ch-j-view" role="group" aria-label="Map view" hidden>
+                <div class="lx-ch-j-pop-sec">
+                    <div class="lx-ch-j-pop-title">Basemap</div>
+                    <div class="lx-ch-j-bases" id="lx-ch-j-bases" role="radiogroup" aria-label="Basemap"></div>
+                </div>
+                <div class="lx-ch-j-pop-sec">
+                    <label class="lx-ch-j-opt"><input type="checkbox" id="lx-ch-j-globe"><span>Globe<small>Draw the map as a sphere when zoomed out</small></span></label>
+                </div>
+            </div>
+        </div>
+
+        <div class="lx-ch-j-cap" id="lx-ch-j-cap" hidden></div>
+        <div class="lx-ch-j-tilebar" id="lx-ch-j-tilebar" role="status" hidden>
+            <span>The map tiles didn&rsquo;t load.</span>
+            <button type="button" class="lx-ch-btn" id="lx-ch-j-tileretry">Try again</button>
+        </div>
+        <div class="lx-ch-j-mapstate is-loading" id="lx-ch-j-mapstate" role="status">
+            <div class="skeleton" aria-hidden="true"></div>
+            <div class="lx-ch-j-msg" id="lx-ch-j-msg" hidden></div>
+        </div>
+
+        <button type="button" class="lx-ch-j-infotab" id="lx-ch-j-infotab" aria-controls="lx-ch-j-info" aria-expanded="true" hidden>
+            <svg class="lx-ch-j-i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+            <span>Entry</span>
+        </button>
+
+        <aside class="lx-ch-j-info" id="lx-ch-j-info" aria-label="Journal entry">
+            <div class="lx-ch-j-grab" data-grab>
+                <button type="button" class="lx-ch-j-handle" data-handle aria-label="Resize this panel"></button>
+                <div class="lx-ch-j-tabs" role="tablist" aria-label="Panel">
+                    <button type="button" class="lx-ch-j-tab" role="tab" data-sheet-tab="list" aria-selected="false">Entries</button>
+                    <button type="button" class="lx-ch-j-tab" role="tab" data-sheet-tab="entry" aria-selected="true">This day</button>
+                </div>
+            </div>
+
+            <div class="lx-ch-j-ibar">
+                <button type="button" class="lx-ch-j-iconbtn lx-ch-j-collapse" id="lx-ch-j-collapse" aria-label="Hide the entry" title="Hide the entry"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+                <span class="lx-ch-j-ibar-sp"></span>
+                <span class="lx-ch-j-save" id="lx-ch-j-save" role="status" aria-live="polite"></span>
+                <button type="button" class="lx-ch-j-iconbtn is-star" id="lx-ch-j-fav" aria-pressed="false" aria-label="Star this day" title="Star this day"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></button>
+                <div class="lx-ch-j-emenu">
+                    <button type="button" class="lx-ch-j-iconbtn" id="lx-ch-j-ebtn" aria-label="More for this day" aria-haspopup="true" aria-expanded="false" aria-controls="lx-ch-j-epop"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="5.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18.5" cy="12" r="1.2"/></svg></button>
+                    <div class="lx-ch-j-pop" id="lx-ch-j-epop" role="group" aria-label="More for this day" hidden>
+                        <div class="lx-ch-j-datein-row">
+                            <label for="lx-ch-j-dateinput">Move to</label>
+                            <input type="date" class="lx-ch-j-datein rly-native" id="lx-ch-j-dateinput" aria-label="Move this entry to another day">
+                        </div>
+                        <a class="lx-ch-j-menu-item" id="lx-ch-j-maplink" href="{% url 'tracker:map' %}">Open on the main map</a>
+                        <button type="button" class="lx-ch-j-menu-item is-danger" id="lx-ch-j-delete">Delete entry</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lx-ch-j-iscroll" id="lx-ch-j-iscroll">
+                <article class="lx-ch-j-day is-loading" id="lx-ch-j-day" aria-busy="true" aria-labelledby="lx-ch-j-weekday">
+                    <div class="lx-ch-j-kick" id="lx-ch-j-kicker">&nbsp;</div>
+                    <h2 class="lx-ch-j-weekday" id="lx-ch-j-weekday"><span id="lx-ch-j-wd">&nbsp;</span><span id="lx-ch-j-dt"></span></h2>
+
+                    <div class="lx-ch-j-day-err" id="lx-ch-j-dayerr" hidden>
+                        <div class="lx-ch-empty">
+                            <div class="lx-ch-empty-title">This day didn&rsquo;t open</div>
+                            <p>Roamly couldn&rsquo;t load this entry. Nothing was changed.</p>
+                            <button type="button" class="lx-ch-btn" id="lx-ch-j-dayretry">Try again</button>
+                        </div>
+                    </div>
+
+                    <div id="lx-ch-j-form">
+                        <fieldset class="lx-ch-j-fields" id="lx-ch-j-fields" disabled>
+                            <legend class="lx-ch-j-sr">Journal entry</legend>
+                            <input type="text" class="lx-ch-j-title" id="lx-ch-j-title" placeholder="Give the day a title" maxlength="300" aria-label="Title" autocomplete="off">
+
+                            <div class="lx-ch-j-meta">
+                                <span class="lx-ch-j-label" id="lx-ch-j-moodlabel">Mood</span>
+                                <div class="lx-ch-j-moods" id="lx-ch-j-moods" role="group" aria-labelledby="lx-ch-j-moodlabel"></div>
+                                <label class="lx-ch-j-label" for="lx-ch-j-weather">Weather</label>
+                                <input type="text" class="lx-ch-j-weather" id="lx-ch-j-weather" placeholder="Sunny, 22&deg;" maxlength="60" autocomplete="off">
+                            </div>
+
+                            <div class="lx-ch-j-quick">
+                                <label class="lx-ch-j-quick-l" for="lx-ch-j-quick"><svg class="lx-ch-j-i" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>Quick note, shown on the map</label>
+                                <textarea id="lx-ch-j-quick" rows="1" maxlength="2000" placeholder="What you did, in a line"></textarea>
+                            </div>
+
+                            <div class="lx-ch-j-bodywrap">
+                                <textarea class="lx-ch-j-body" id="lx-ch-j-body" placeholder="What happened today?" aria-label="Entry"></textarea>
+                            </div>
+                            <div class="lx-ch-j-foot" id="lx-ch-j-wordcount" aria-live="off"></div>
+                            <p class="lx-ch-j-fresh" id="lx-ch-j-fresh" hidden>Nothing is written for this day yet. Start typing and it saves as you go.</p>
+
+                            <div class="lx-ch-j-photos" id="lx-ch-j-photos" aria-label="Photos"></div>
+                            <input type="file" id="lx-ch-j-photoinput" accept="image/*" multiple hidden>
+                        </fieldset>
+
+                        <section class="lx-ch-j-where" aria-label="Where you were">
+                            <div class="lx-ch-j-where-h"><h3 class="lx-ch-j-where-t">Where you were</h3></div>
+                            <div class="lx-ch-j-where-none" id="lx-ch-j-wherenone">Loading the day&rsquo;s track&hellip;</div>
+                            <div id="lx-ch-j-wheredata" hidden>
+                                <div class="lx-ch-stats" id="lx-ch-j-mapstats"></div>
+                                <div class="lx-ch-j-where-places" id="lx-ch-j-places"></div>
+                            </div>
+                        </section>
+                    </div>
+                </article>
+            </div>
+        </aside>
+    </section>
 </div>
+<script>
+(function () {
+    var r = document.getElementById('lx-ch-j');
+    if (r && window.matchMedia && window.matchMedia('(max-width: 1000px)').matches) r.setAttribute('data-mode', 'sheet');
+})();
+</script>
 
 <!-- AI recap: closed on every page load, and nothing in it is kept -->
 <aside class="lx-ch-j-recap" id="lx-ch-j-recap" aria-labelledby="lx-ch-j-recaptitle">
@@ -566,7 +798,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
         const AI_READY = {{ AI_ASK_ENABLED|yesno:"true,false" }};
         const CH = window.RoamlyChronicle || { selectedDate: null, setDate: function () {}, onDate: function () { return function () {}; } };
         const TZ = new Date().getTimezoneOffset();
-        const FEED_STEP = 20;
+        const FEED_STEP = 40;
         const MOODS = [
             ['\u{1F600}', 'Grinning'], ['\u{1F642}', 'Content'], ['\u{1F610}', 'Neutral'], ['\u{1F614}', 'Sad'],
             ['\u{1F622}', 'Crying'], ['\u{1F621}', 'Angry'], ['\u{1F634}', 'Sleepy'], ['\u{1F973}', 'Celebrating'],
@@ -577,6 +809,8 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
             star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
             plus: '<path d="M12 5v14M5 12h14"/>',
             x: '<path d="M6 6l12 12M18 6L6 18"/>',
+            check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+            chevL: '<path d="M15 5l-7 7 7 7"/>',
         };
         const ic = (name, size) => '<svg class="lx-ch-j-i" viewBox="0 0 24 24" width="' + (size || 14) + '" height="' + (size || 14) + '" aria-hidden="true">' + (ICON[name] || '') + '</svg>';
 
@@ -612,27 +846,25 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
             } catch (e) {}
             return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
         }
-        let miles = false;
-        try { miles = localStorage.getItem('roamly_speed_unit') === 'mph'; } catch (e) {}
+        function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+        function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+        const miles = lsGet('roamly_speed_unit') === 'mph';
         function fmtDist(km) {
             const v = miles ? km * 0.621371 : km;
             return (v < 10 ? v.toFixed(1) : Math.round(v).toLocaleString()) + (miles ? ' mi' : ' km');
         }
-        const splitLayout = () => !(window.matchMedia && window.matchMedia('(max-width: 900px)').matches);
 
-        const editorEl = $('lx-ch-j-editor'), dayEl = $('lx-ch-j-day');
         const titleEl = $('lx-ch-j-title'), bodyEl = $('lx-ch-j-body'), quickEl = $('lx-ch-j-quick'), weatherEl = $('lx-ch-j-weather');
-        const fieldsEl = $('lx-ch-j-fields'), formEl = $('lx-ch-j-form');
+        const dayEl = $('lx-ch-j-day'), fieldsEl = $('lx-ch-j-fields'), formEl = $('lx-ch-j-form');
         const saveEl = $('lx-ch-j-save');
-        const listEl = $('lx-ch-j-list'), listHead = $('lx-ch-j-listhead');
+        const listEl = $('lx-ch-j-list'), listHead = $('lx-ch-j-listhead'), scrollEl = $('lx-ch-j-scroll');
+        const stageEl = $('lx-ch-j-stage'), infoEl = $('lx-ch-j-info');
 
         // ── State ─────────────────────────────────────────────────────
-        let viewYear, viewMonth;
-        let monthEntries = {};
         let currentDate = null;
         let loaded = false;               // the open day's entry has arrived: only then may anything be saved
         let dirty = false, editedThisOpen = false;
-        let saveTimer = 0, inflight = null, daySeq = 0, monthSeq = 0;
+        let saveTimer = 0, inflight = null, daySeq = 0;
         let currentMood = '', currentFav = false, currentPhotos = 0;
         let journalSettings = null;
         let feedEntries = [], feedShown = FEED_STEP, feedLoaded = false, feedFailed = false;
@@ -640,126 +872,212 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
         let searchState = null;           // {q, entries, count} while a search is showing
         let searchTimer = 0, searchSeq = 0;
         let titleBackfillDone = false;
-        let monthToasted = false;
+        let statsData = null;
 
-        // ── Stats ─────────────────────────────────────────────────────
+        // ── Popovers (one open at a time) ─────────────────────────────
+        const pops = [];
+        function popover(btn, pop, onOpen) {
+            const p = {
+                btn: btn, pop: pop,
+                isOpen: () => !pop.hidden,
+                set(open) {
+                    if (open) pops.forEach(o => { if (o !== p) o.set(false); });
+                    pop.hidden = !open;
+                    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                    if (open && onOpen) onOpen();
+                },
+            };
+            btn.addEventListener('click', e => { e.stopPropagation(); p.set(pop.hidden); });
+            pops.push(p);
+            return p;
+        }
+        document.addEventListener('click', e => {
+            pops.forEach(p => { if (p.isOpen() && !p.pop.contains(e.target) && !p.btn.contains(e.target)) p.set(false); });
+        });
+        const morePop = popover($('lx-ch-j-morebtn'), $('lx-ch-j-morepop'), () => { $('lx-ch-j-goto').max = todayStr(); });
+        const entryPop = popover($('lx-ch-j-ebtn'), $('lx-ch-j-epop'), () => { $('lx-ch-j-dateinput').max = todayStr(); });
+        const viewPop = popover($('lx-ch-j-viewbtn'), $('lx-ch-j-view'));
+
+        // ── Layout: split on desktop, a sheet on phones ───────────────
+        const mqSheet = window.matchMedia ? window.matchMedia('(max-width: 1000px)') : null;
+        const isSheet = () => root.getAttribute('data-mode') === 'sheet';
+        let infoOpen = true;
+        let snap = 'half';                 // sheet: peek | half | full
+        let sheetView = 'list';            // sheet: list | entry
+
+        function infoPref() { return lsGet('roamly_ch_j_info'); }
+        function setInfo(open, persist) {
+            infoOpen = !!open;
+            root.setAttribute('data-info', infoOpen ? 'open' : 'closed');
+            if (persist) lsSet('roamly_ch_j_info', infoOpen ? '1' : '0');
+            const tab = $('lx-ch-j-infotab');
+            tab.hidden = infoOpen || isSheet();
+            tab.setAttribute('aria-expanded', infoOpen ? 'true' : 'false');
+            if (!isSheet()) {
+                if (infoOpen) infoEl.removeAttribute('inert'); else infoEl.setAttribute('inert', '');
+                scheduleRefit(reduced() ? 0 : 240);
+            }
+        }
+        function initialInfo() {
+            const pref = infoPref();
+            if (pref === '1') return true;
+            if (pref === '0') return false;
+            return root.clientWidth - 316 >= 820;     // only when the map keeps a real share
+        }
+        $('lx-ch-j-collapse').addEventListener('click', () => {
+            setInfo(false, true);
+            try { $('lx-ch-j-infotab').focus({ preventScroll: true }); } catch (e) {}
+        });
+        $('lx-ch-j-infotab').addEventListener('click', () => {
+            setInfo(true, true);
+            try { $('lx-ch-j-collapse').focus({ preventScroll: true }); } catch (e) {}
+        });
+
+        // Sheet geometry. The sheet is as tall as the page minus a 44px strip of map; it is
+        // slid down by an offset. Bottom padding in the scrollers equals that offset, so
+        // the end of the content is always reachable.
+        function sheetH() { return Math.max(200, root.clientHeight - 44); }
+        function sheetOffsets() {
+            const h = sheetH();
+            return { full: 0, half: Math.max(0, h - Math.round(root.clientHeight * 0.52)), peek: Math.max(0, h - 92) };
+        }
+        let curOff = 0;
+        function setOff(px) {
+            curOff = px;
+            root.style.setProperty('--lx-ch-j-off', Math.round(px) + 'px');
+            root.style.setProperty('--lx-ch-j-vis', Math.max(0, Math.round(sheetH() - px)) + 'px');
+        }
+        function applySnap(refit) {
+            if (!isSheet()) return;
+            const o = sheetOffsets();
+            root.setAttribute('data-snap', snap);
+            setOff(o[snap]);
+            if (refit !== false) scheduleRefit(reduced() ? 0 : 260);
+        }
+        function setSheetView(v) {
+            sheetView = v;
+            root.setAttribute('data-sheet', v);
+            root.querySelectorAll('[data-sheet-tab]').forEach(b => b.setAttribute('aria-selected', b.getAttribute('data-sheet-tab') === v ? 'true' : 'false'));
+        }
+        root.addEventListener('click', e => {
+            const t = e.target.closest ? e.target.closest('[data-sheet-tab]') : null;
+            if (!t) return;
+            setSheetView(t.getAttribute('data-sheet-tab'));
+            if (snap === 'peek') { snap = 'half'; applySnap(); }
+        });
+        // Dragging the grab row; a tap on the handle steps through the snaps.
+        let drag = null, suppressClick = false;
+        root.querySelectorAll('[data-grab]').forEach(g => {
+            g.addEventListener('pointerdown', e => {
+                if (!isSheet() || (e.button && e.button > 0)) return;
+                if (e.target.closest && e.target.closest('[data-sheet-tab]')) return;
+                drag = { y0: e.clientY, off0: curOff, t0: performance.now(), moved: false, id: e.pointerId, el: g };
+            });
+            g.addEventListener('pointermove', e => {
+                if (!drag || e.pointerId !== drag.id) return;
+                const dy = e.clientY - drag.y0;
+                if (!drag.moved && Math.abs(dy) > 5) {
+                    drag.moved = true; root.classList.add('is-dragging');
+                    try { g.setPointerCapture(e.pointerId); } catch (er) {}
+                }
+                if (drag.moved) setOff(Math.max(0, Math.min(sheetOffsets().peek, drag.off0 + dy)));
+            });
+            const end = e => {
+                if (!drag || e.pointerId !== drag.id) return;
+                const d = drag; drag = null;
+                root.classList.remove('is-dragging');
+                if (!d.moved) return;
+                suppressClick = true; setTimeout(() => { suppressClick = false; }, 0);
+                const o = sheetOffsets();
+                const dt = Math.max(1, performance.now() - d.t0);
+                const v = (e.clientY - d.y0) / dt;                  // px per ms, positive = down
+                const order = ['full', 'half', 'peek'];
+                let idx;
+                if (Math.abs(v) > 0.45) {
+                    const from = order.indexOf(snap);
+                    idx = Math.max(0, Math.min(2, from + (v > 0 ? 1 : -1)));
+                } else {
+                    idx = 0;
+                    order.forEach((k, i) => { if (Math.abs(o[k] - curOff) < Math.abs(o[order[idx]] - curOff)) idx = i; });
+                }
+                snap = order[idx];
+                applySnap();
+            };
+            g.addEventListener('pointerup', end);
+            g.addEventListener('pointercancel', end);
+        });
+        root.querySelectorAll('[data-handle]').forEach(h => {
+            h.addEventListener('click', () => {
+                if (suppressClick) return;
+                snap = snap === 'peek' ? 'half' : snap === 'half' ? 'full' : 'half';
+                applySnap();
+            });
+            h.addEventListener('keydown', e => {
+                if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+                e.preventDefault();
+                const order = ['peek', 'half', 'full'];
+                const i = order.indexOf(snap) + (e.key === 'ArrowUp' ? 1 : -1);
+                snap = order[Math.max(0, Math.min(2, i))];
+                applySnap();
+            });
+        });
+        function applyMode() {
+            const sheet = !!(mqSheet && mqSheet.matches);
+            root.setAttribute('data-mode', sheet ? 'sheet' : 'split');
+            if (sheet) {
+                infoEl.removeAttribute('inert');
+                $('lx-ch-j-infotab').hidden = true;
+                setSheetView(sheetView);
+                applySnap(false);
+            } else {
+                root.style.removeProperty('--lx-ch-j-off');
+                root.style.removeProperty('--lx-ch-j-vis');
+                root.removeAttribute('data-snap');
+                setInfo(infoOpen, false);
+            }
+            if (jmap) { try { jmap.resize(); } catch (e) {} }
+            scheduleRefit(0);
+        }
+        if (mqSheet) {
+            if (mqSheet.addEventListener) mqSheet.addEventListener('change', applyMode);
+            else if (mqSheet.addListener) mqSheet.addListener(applyMode);
+        }
+        let rzT = 0;
+        window.addEventListener('resize', () => {
+            cancelAnimationFrame(rzT);
+            rzT = requestAnimationFrame(() => {
+                sizeText(bodyEl); sizeText(quickEl);
+                if (isSheet()) applySnap(false);
+                if (jmap) { try { jmap.resize(); } catch (e) {} }
+            });
+        });
+
+        // ── Stats (one quiet line) ────────────────────────────────────
         function loadStats() {
             const el = $('lx-ch-j-stats');
             fetch('/api/journals/stats/').then(r => { if (!r.ok) throw new Error('stats'); return r.json(); }).then(s => {
-                const chips = [
-                    [s.current_streak, 'day streak'], [s.longest_streak, 'longest streak'], [s.total_entries, 'entries'],
-                    [s.this_year, 'this year'], [(s.total_words || 0).toLocaleString(), 'words'], [s.total_photos, 'photos'],
-                ];
+                statsData = s;
                 el.removeAttribute('aria-busy');
-                el.innerHTML = chips.map(c => '<div class="lx-ch-j-stat"><div class="lx-ch-j-stat-v">' + esc(c[0]) + '</div><div class="lx-ch-j-stat-l">' + esc(c[1]) + '</div></div>').join('');
+                const parts = [];
+                parts.push('<b>' + esc((s.total_entries || 0).toLocaleString()) + '</b> ' + ((s.total_entries || 0) === 1 ? 'entry' : 'entries'));
+                if (s.current_streak > 0) parts.push('<b>' + esc(s.current_streak) + '</b> day streak');
+                parts.push('<b>' + esc((s.total_words || 0).toLocaleString()) + '</b> words');
+                el.innerHTML = parts.join(' &middot; ');
+                el.title = [
+                    (s.total_entries || 0) + ' entries, ' + (s.this_year || 0) + ' this year',
+                    'Streak ' + (s.current_streak || 0) + ' days, longest ' + (s.longest_streak || 0),
+                    (s.total_words || 0).toLocaleString() + ' words, ' + (s.total_photos || 0) + ' photos',
+                ].join('\n');
             }).catch(() => {
                 el.removeAttribute('aria-busy');
-                el.innerHTML = '<div class="lx-ch-j-statserr">Your journal totals didn’t load. <button type="button" class="lx-ch-j-link" id="lx-ch-j-statsretry" style="background:none;border:0;padding:0;cursor:pointer;font:inherit;">Try again</button></div>';
+                el.removeAttribute('title');
+                el.innerHTML = '<button type="button" class="lx-ch-j-link" id="lx-ch-j-statsretry">Totals didn’t load. Try again</button>';
                 const b = $('lx-ch-j-statsretry');
-                if (b) b.addEventListener('click', loadStats);
+                if (b) b.addEventListener('click', () => { el.setAttribute('aria-busy', 'true'); el.innerHTML = '<span class="skeleton" aria-hidden="true"></span>'; loadStats(); });
             });
         }
 
-        // ── Month strip ───────────────────────────────────────────────
-        function loadMonth() {
-            const seq = ++monthSeq;
-            const y = viewYear, m = viewMonth;
-            fetch('/api/journals/?year=' + y + '&month=' + m).then(r => { if (!r.ok) throw new Error('month'); return r.json(); }).then(data => {
-                if (seq !== monthSeq) return;
-                monthEntries = {};
-                (data.entries || []).forEach(e => { monthEntries[e.date] = e; });
-                renderStrip(false);
-            }).catch(() => {
-                if (seq !== monthSeq) return;
-                if (!monthToasted) { monthToasted = true; toast('The calendar didn’t load.', 'error'); }
-            });
-        }
-
-        function renderStrip(center) {
-            const daysEl = $('lx-ch-j-days');
-            const prevScroll = daysEl.scrollLeft;
-            const af = document.activeElement;
-            const hadFocus = af && af.classList && af.classList.contains('lx-ch-j-cell') && daysEl.contains(af) ? af.getAttribute('data-date') : null;
-            $('lx-ch-j-monthlabel').textContent = monthName(viewYear, viewMonth) + ' ' + viewYear;
-            daysEl.setAttribute('aria-label', 'Days of ' + monthName(viewYear, viewMonth) + ' ' + viewYear);
-            const n = new Date(viewYear, viewMonth, 0).getDate();
-            const today = todayStr();
-            const prefix = viewYear + '-' + pad(viewMonth) + '-';
-            const stop = (currentDate && currentDate.indexOf(prefix) === 0) ? currentDate : (today.indexOf(prefix) === 0 ? today : prefix + '01');
-            let h = '';
-            for (let d = 1; d <= n; d++) {
-                const ds = prefix + pad(d);
-                const e = monthEntries[ds];
-                const future = ds > today;
-                const cls = ['lx-ch-j-cell'];
-                if (e) cls.push('has-entry');
-                if (ds === today) cls.push('is-today');
-                if (ds === currentDate) cls.push('is-selected');
-                let label = fmt(ds, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-                if (e) {
-                    label += e.title ? ', ' + e.title : ', has an entry';
-                    if (e.is_favorite) label += ', starred';
-                    if (e.photo_count) label += ', ' + e.photo_count + (e.photo_count === 1 ? ' photo' : ' photos');
-                }
-                const wd = (fmt(ds, { weekday: 'narrow' }) || '').slice(0, 2);
-                h += '<button type="button" class="' + cls.join(' ') + '" data-date="' + ds + '"'
-                    + ' tabindex="' + (ds === stop && !future ? '0' : '-1') + '"'
-                    + (ds === currentDate ? ' aria-pressed="true"' : ' aria-pressed="false"')
-                    + (ds === today ? ' aria-current="date"' : '')
-                    + (future ? ' disabled' : '')
-                    + ' aria-label="' + esc(label) + '"' + (e && e.title ? ' title="' + esc(e.title) + '"' : '') + '>'
-                    + (e && e.is_favorite ? '<span class="lx-ch-j-cell-fav" aria-hidden="true">' + ic('star', 8) + '</span>' : '')
-                    + (e && e.photo_count ? '<span class="lx-ch-j-cell-ph" aria-hidden="true"></span>' : '')
-                    + '<span class="lx-ch-j-cell-w" aria-hidden="true">' + esc(wd) + '</span>'
-                    + '<span class="lx-ch-j-cell-n" aria-hidden="true">' + d + '</span>'
-                    + '<span class="lx-ch-j-cell-m" aria-hidden="true">' + (e ? (e.mood ? esc(e.mood) : '<span class="lx-ch-j-cell-dot"></span>') : '') + '</span>'
-                    + '</button>';
-            }
-            daysEl.innerHTML = h;
-            daysEl.scrollLeft = prevScroll;
-            if (hadFocus) {
-                const again = daysEl.querySelector('.lx-ch-j-cell[data-date="' + hadFocus + '"]');
-                if (again && !again.disabled) again.focus({ preventScroll: true });
-            }
-            if (center) centerCell();
-        }
-        function centerCell() {
-            const daysEl = $('lx-ch-j-days');
-            const cell = daysEl.querySelector('.lx-ch-j-cell.is-selected') || daysEl.querySelector('.lx-ch-j-cell.is-today');
-            if (!cell) { daysEl.scrollLeft = 0; return; }
-            const left = cell.offsetLeft - (daysEl.clientWidth - cell.offsetWidth) / 2;
-            try { daysEl.scrollTo({ left: Math.max(0, left), behavior: reduced() ? 'auto' : 'smooth' }); }
-            catch (e) { daysEl.scrollLeft = Math.max(0, left); }
-        }
-        function shiftMonth(delta) {
-            viewMonth += delta;
-            if (viewMonth < 1) { viewMonth = 12; viewYear--; }
-            if (viewMonth > 12) { viewMonth = 1; viewYear++; }
-            monthEntries = {};
-            renderStrip(false);
-            $('lx-ch-j-days').scrollLeft = 0;
-            loadMonth();
-        }
-        $('lx-ch-j-prev').addEventListener('click', () => shiftMonth(-1));
-        $('lx-ch-j-next').addEventListener('click', () => shiftMonth(1));
-        $('lx-ch-j-today').addEventListener('click', () => selectDay(todayStr()));
-        $('lx-ch-j-days').addEventListener('click', e => {
-            const b = e.target.closest ? e.target.closest('.lx-ch-j-cell') : null;
-            if (b && !b.disabled) selectDay(b.getAttribute('data-date'));
-        });
-        $('lx-ch-j-days').addEventListener('keydown', e => {
-            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(e.key) < 0) return;
-            const cells = Array.prototype.slice.call($('lx-ch-j-days').querySelectorAll('.lx-ch-j-cell:not(:disabled)'));
-            const i = cells.indexOf(document.activeElement);
-            if (i < 0 || !cells.length) return;
-            e.preventDefault();
-            const next = e.key === 'Home' ? 0 : e.key === 'End' ? cells.length - 1 : Math.max(0, Math.min(cells.length - 1, i + (e.key === 'ArrowRight' ? 1 : -1)));
-            cells.forEach(c => c.tabIndex = -1);
-            cells[next].tabIndex = 0;
-            cells[next].focus();
-        });
-
-        // ── Index (entries list + search) ─────────────────────────────
+        // ── Timeline (entries list + search) ──────────────────────────
         function trackSnapshot(pts) {
             let minLa = 90, maxLa = -90, minLo = 180, maxLo = -180;
             pts.forEach(p => { minLa = Math.min(minLa, p[0]); maxLa = Math.max(maxLa, p[0]); minLo = Math.min(minLo, p[1]); maxLo = Math.max(maxLo, p[1]); });
@@ -774,76 +1092,104 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
         }
 
         function itemHtml(e) {
+            const ghost = !!e._ghost;
             const quick = (e.quick_note || '').trim().split('\n')[0];
             const foot = [];
             if (e.word_count) foot.push(e.word_count.toLocaleString() + (e.word_count === 1 ? ' word' : ' words'));
             if (e.photo_count) foot.push(e.photo_count + (e.photo_count === 1 ? ' photo' : ' photos'));
             if (e.location_name) foot.push(e.location_name);
-            const title = e.title
-                ? '<span class="lx-ch-j-item-t">' + esc(e.title) + '</span>'
-                : '<span class="lx-ch-j-item-t is-pending">' + ((quick || e.snippet) ? 'Untitled' : 'Empty day') + '</span>';
+            let title;
+            if (e.title) title = '<span class="lx-ch-j-item-t">' + esc(e.title) + '</span>';
+            else if (ghost) title = '<span class="lx-ch-j-item-t is-pending">' + (e.date === todayStr() ? 'Today, not written yet' : 'Not written yet') + '</span>';
+            else title = '<span class="lx-ch-j-item-t is-pending">' + ((quick || e.snippet) ? 'Untitled' : 'Empty day') + '</span>';
             let thumb = '';
             if (e.cover) thumb = '<span class="lx-ch-j-thumb" style="background-image:url(\'' + esc(encodeURI(e.cover).replace(/'/g, '%27')) + '\')"></span>';
             else if (Array.isArray(e.track) && e.track.length > 1) thumb = '<span class="lx-ch-j-thumb">' + trackSnapshot(e.track) + '</span>';
             const sel = e.date === currentDate;
-            return '<li><a class="lx-ch-j-item' + (sel ? ' is-selected' : '') + '" href="/journals/?date=' + e.date + '" data-date="' + e.date + '"'
-                + (sel ? ' aria-current="true"' : '') + '>'
-                + '<span class="lx-ch-j-item-day"><span class="lx-ch-j-item-n">' + (+e.date.slice(8)) + '</span>'
-                + '<span class="lx-ch-j-item-w">' + esc(fmt(e.date, { weekday: 'short' })) + '</span>'
-                + (e.mood ? '<span class="lx-ch-j-item-mood">' + esc(e.mood) + '</span>' : '') + '</span>'
-                + '<span class="lx-ch-j-item-main">' + title
+            return '<li class="lx-ch-j-li"><a class="lx-ch-j-item' + (sel ? ' is-selected' : '') + (e.is_favorite ? ' is-starred' : '') + (ghost ? ' is-ghost' : '')
+                + '" href="/journals/?date=' + e.date + '" data-date="' + e.date + '"' + (sel ? ' aria-current="true"' : '') + '>'
+                + '<span class="lx-ch-j-when"><span class="lx-ch-j-when-n">' + (+e.date.slice(8)) + '</span>'
+                + '<span class="lx-ch-j-when-w">' + esc(fmt(e.date, { weekday: 'short' })) + '</span>'
+                + (e.mood ? '<span class="lx-ch-j-when-m">' + esc(e.mood) + '</span>' : '') + '</span>'
+                + '<span class="lx-ch-j-rail" aria-hidden="true"><span class="lx-ch-j-node"></span></span>'
+                + '<span class="lx-ch-j-main">' + title
                 + (quick ? '<span class="lx-ch-j-item-q">' + ic('pen', 12) + '<span>' + esc(quick) + '</span></span>' : '')
                 + (e.snippet && e.snippet !== quick ? '<span class="lx-ch-j-item-s">' + esc(e.snippet) + '</span>' : '')
                 + (foot.length ? '<span class="lx-ch-j-item-f">' + esc(foot.join(' · ')) + '</span>' : '')
                 + '</span>'
-                + '<span class="lx-ch-j-item-side">' + (e.is_favorite ? '<span class="lx-ch-j-item-star" title="Starred">' + ic('star', 14) + '</span>' : '') + thumb + '</span>'
+                + '<span class="lx-ch-j-side">' + (e.is_favorite ? '<span class="lx-ch-j-star" title="Starred">' + ic('star', 14) + '</span>' : '') + thumb + '</span>'
                 + '</a></li>';
+        }
+
+        // The open day always has a row, even before anything is written, so it
+        // shows on the spine; today does too, so a new entry is one tap away.
+        function withGhosts(entries) {
+            const have = {};
+            entries.forEach(e => { have[e.date] = true; });
+            const out = entries.slice();
+            [todayStr(), currentDate].forEach(d => {
+                if (d && !have[d]) { have[d] = true; out.push({ date: d, _ghost: true }); }
+            });
+            out.sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
+            return out;
+        }
+
+        function emptyHtml(title, text, btn) {
+            return '<div class="lx-ch-empty"><div class="lx-ch-empty-title">' + title + '</div><p>' + text + '</p>' + (btn || '') + '</div>';
         }
 
         function renderIndex() {
             listEl.removeAttribute('aria-busy');
+            listEl.classList.remove('has-rows');
             if (searchState) {
                 listHead.hidden = false;
                 listHead.textContent = searchState.error ? '' : searchState.count + (searchState.count === 1 ? ' result' : ' results');
                 if (searchState.error) {
-                    listEl.innerHTML = '<div class="lx-ch-empty"><div class="lx-ch-empty-title">Search didn’t run</div><p>Check your connection and try again.</p><button type="button" class="lx-ch-btn" data-act="retry-search">Try again</button></div>';
+                    listEl.innerHTML = emptyHtml('Search didn’t run', 'Check your connection and try again.', '<button type="button" class="lx-ch-btn" data-act="retry-search">Try again</button>');
                 } else if (!searchState.entries.length) {
-                    listEl.innerHTML = '<div class="lx-ch-empty"><div class="lx-ch-empty-title">No matches</div><p>Nothing in your journal matches “' + esc(searchState.q) + '”. Try a word from the title, the place or the weather.</p></div>';
+                    listEl.innerHTML = emptyHtml('No matches', 'Nothing in your journal matches “' + esc(searchState.q) + '”. Try a word from the title, the place or the weather.');
                 } else {
                     listEl.innerHTML = '<ul class="lx-ch-j-ul">' + searchState.entries.map(itemHtml).join('') + '</ul>';
+                    listEl.classList.add('has-rows');
                 }
                 return;
             }
             listHead.hidden = true;
             if (feedFailed) {
-                listEl.innerHTML = '<div class="lx-ch-empty"><div class="lx-ch-empty-title">Entries didn’t load</div><p>Roamly couldn’t reach your journal.</p><button type="button" class="lx-ch-btn" data-act="retry-feed">Try again</button></div>';
+                listEl.innerHTML = emptyHtml('Entries didn’t load', 'Roamly couldn’t reach your journal. Nothing was changed.', '<button type="button" class="lx-ch-btn" data-act="retry-feed">Try again</button>');
                 return;
             }
             if (!feedLoaded) return;
-            const all = onlyStarred ? feedEntries.filter(e => e.is_favorite) : feedEntries;
+            let all = onlyStarred ? feedEntries.filter(e => e.is_favorite) : withGhosts(feedEntries);
             if (!all.length) {
                 listEl.innerHTML = onlyStarred
-                    ? '<div class="lx-ch-empty"><div class="lx-ch-empty-title">No starred days</div><p>Star a day with the button above its title and it will collect here.</p></div>'
-                    : '<div class="lx-ch-empty"><div class="lx-ch-empty-title">Nothing written yet</div><p>Today’s page is open. Start with a line about the day and it is saved as you type.</p></div>';
+                    ? emptyHtml('No starred days', 'Star a day with the star above its title and it collects here.')
+                    : emptyHtml('Nothing written yet', 'Today’s page is open. Write a line about the day and it saves as you type.');
                 return;
             }
             const shown = all.slice(0, feedShown);
             const counts = {};
-            all.forEach(e => { const k = e.date.slice(0, 7); counts[k] = (counts[k] || 0) + 1; });
+            all.forEach(e => { if (!e._ghost) { const k = e.date.slice(0, 7); counts[k] = (counts[k] || 0) + 1; } });
             let html = '', month = null, open = false;
             shown.forEach(e => {
                 const k = e.date.slice(0, 7);
                 if (k !== month) {
                     if (open) html += '</ul></section>';
                     const y = +k.slice(0, 4), m = +k.slice(5);
-                    html += '<section><h3 class="lx-ch-j-month">' + esc(monthName(y, m) + ' ' + y) + '<small>' + counts[k] + (counts[k] === 1 ? ' entry' : ' entries') + '</small></h3><ul class="lx-ch-j-ul">';
+                    const c = counts[k] || 0;
+                    html += '<section><h3 class="lx-ch-j-month"><span class="lx-ch-j-month-ring" aria-hidden="true"></span><span class="lx-ch-j-month-name">'
+                        + esc(monthName(y, m) + ' ' + y) + '</span><small>' + (c ? c + (c === 1 ? ' entry' : ' entries') : '') + '</small></h3><ul class="lx-ch-j-ul">';
                     month = k; open = true;
                 }
                 html += itemHtml(e);
             });
             if (open) html += '</ul></section>';
-            if (all.length > feedShown) html += '<button type="button" class="lx-ch-btn lx-ch-j-more" data-act="more">Show older entries</button>';
+            if (all.length > feedShown) html += '<button type="button" class="lx-ch-btn lx-ch-j-olderbtn" data-act="more">Show older entries</button>';
+            if (!onlyStarred && !feedEntries.length) {
+                html += emptyHtml('Your journal starts here', 'Write a line about today. Every day you write on becomes a stop on this timeline.');
+            }
             listEl.innerHTML = html;
+            listEl.classList.add('has-rows');
         }
 
         function markSelected(scroll) {
@@ -853,7 +1199,14 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
                 a.classList.toggle('is-selected', on);
                 if (on) { a.setAttribute('aria-current', 'true'); target = a; } else a.removeAttribute('aria-current');
             });
-            if (scroll && target && splitLayout()) { try { target.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
+            if (scroll && target) {
+                // Keep it clear of the sticky month heading without moving the page itself.
+                const sr = scrollEl.getBoundingClientRect(), tr = target.getBoundingClientRect();
+                if (tr.height && sr.height) {
+                    if (tr.top < sr.top + 52) scrollEl.scrollTop -= (sr.top + 52 - tr.top);
+                    else if (tr.bottom > sr.bottom) scrollEl.scrollTop += (tr.bottom - sr.bottom + 8);
+                }
+            }
         }
 
         listEl.addEventListener('click', e => {
@@ -878,11 +1231,11 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
             fetch('/api/journals/?tz=' + TZ).then(r => { if (!r.ok) throw new Error('recent'); return r.json(); }).then(data => {
                 feedEntries = data.entries || [];
                 feedLoaded = true;
-                renderIndex();
+                if (!searchState) renderIndex();
                 backfillTitles();
             }).catch(() => {
                 feedFailed = true;
-                renderIndex();
+                if (!searchState) renderIndex();
             });
         }
 
@@ -890,13 +1243,10 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
             const b = e.target.closest ? e.target.closest('[data-filter]') : null;
             if (!b) return;
             onlyStarred = b.getAttribute('data-filter') === 'starred';
-            $('lx-ch-j-filters').querySelectorAll('[data-filter]').forEach(x => {
-                const on = x === b;
-                x.classList.toggle('is-active', on);
-                x.setAttribute('aria-pressed', on ? 'true' : 'false');
-            });
+            $('lx-ch-j-filters').querySelectorAll('[data-filter]').forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
             feedShown = FEED_STEP;
             renderIndex();
+            scrollEl.scrollTop = 0;
         });
 
         // Untitled days with something written get an AI title, a few at a time,
@@ -913,10 +1263,9 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
                     dates.forEach(ds => {
                         const e = feedEntries.find(x => x.date === ds);
                         if (e) e.title = d.titled[ds];
-                        if (monthEntries[ds]) monthEntries[ds].title = d.titled[ds];
                         if (ds === currentDate && loaded && !dirty && !titleEl.value) titleEl.value = d.titled[ds];
                     });
-                    if (dates.length) { renderIndex(); renderStrip(false); }
+                    if (dates.length && !searchState) { renderIndex(); }
                     if (dates.length && d.remaining > 0) round();
                 }).catch(() => {});
             round();
@@ -924,10 +1273,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
 
         // Search ──
         const searchInput = $('lx-ch-j-search'), searchClear = $('lx-ch-j-searchclear');
-        function setSearchChrome(on) {
-            $('lx-ch-j-filters').hidden = on;
-            $('lx-ch-j-recaptoggle').hidden = on;
-        }
+        function setSearchChrome(on) { $('lx-ch-j-filters').hidden = on; }
         function runSearch(q) {
             if (!q.trim()) { clearSearch(false); return; }
             const seq = ++searchSeq;
@@ -961,18 +1307,12 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
         });
         searchClear.addEventListener('click', () => clearSearch(true));
 
-        // ── Settings popover ──────────────────────────────────────────
-        const cogBtn = $('lx-ch-j-cogbtn'), cogPop = $('lx-ch-j-pop');
-        function setCog(open) {
-            cogPop.hidden = !open;
-            cogBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-        }
-        cogBtn.addEventListener('click', e => { e.stopPropagation(); setCog(cogPop.hidden); });
-        document.addEventListener('click', e => { if (!cogPop.hidden && !$('lx-ch-j-cog').contains(e.target)) setCog(false); });
+        // ── Journal settings (inside the list's More menu) ────────────
+        const morePopEl = $('lx-ch-j-morepop');
         function renderJournalSettings() {
             const s = journalSettings;
             if (!s) return;
-            cogPop.querySelectorAll('input[data-setting]').forEach(box => {
+            morePopEl.querySelectorAll('input[data-setting]').forEach(box => {
                 const ai = box.dataset.setting !== 'auto_weather';
                 box.checked = !!s[box.dataset.setting];
                 box.disabled = ai && !s.ai_available;
@@ -982,7 +1322,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
             note.hidden = !!s.ai_available;
             note.textContent = s.ai_available ? '' : 'The AI options use the provider from your AI Ask settings. Set one up in Settings to turn them on.';
         }
-        cogPop.querySelectorAll('input[data-setting]').forEach(box => box.addEventListener('change', () => {
+        morePopEl.querySelectorAll('input[data-setting]').forEach(box => box.addEventListener('change', () => {
             fetch('/api/journals/settings/', {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
                 body: JSON.stringify({ [box.dataset.setting]: box.checked }),
@@ -996,6 +1336,13 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
         fetch('/api/journals/settings/').then(r => r.ok ? r.json() : null).then(s => {
             if (s) { journalSettings = s; renderJournalSettings(); backfillTitles(); }
         }).catch(() => {});
+        $('lx-ch-j-goto').addEventListener('change', e => {
+            const v = e.target.value;
+            if (!v || !parse(v)) return;
+            morePop.set(false);
+            selectDay(v, { reveal: true });
+            e.target.value = '';
+        });
 
         // ── AI recap ──────────────────────────────────────────────────
         // The panel is the whole opt-in: opening it is what asks the provider,
@@ -1064,7 +1411,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
             recapToggle.setAttribute('aria-expanded', 'false');
             recapBody.innerHTML = '';
             recapSpan.textContent = '';
-            if (!recapToggle.hidden) recapToggle.focus({ preventScroll: true });
+            recapToggle.focus({ preventScroll: true });
         }
         recapToggle.addEventListener('click', () => { if (recapPanel.classList.contains('open')) closeRecap(); else openRecap(); });
         $('lx-ch-j-recapclose').addEventListener('click', closeRecap);
@@ -1079,6 +1426,10 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
             const w = bodyEl.value.trim().split(/\s+/).filter(Boolean).length;
             $('lx-ch-j-wordcount').textContent = w ? w.toLocaleString() + (w === 1 ? ' word' : ' words') : '';
         }
+        function updateFresh() {
+            const blank = loaded && !titleEl.value.trim() && !bodyEl.value.trim() && !quickEl.value.trim() && !currentMood && !weatherEl.value.trim() && !currentPhotos;
+            $('lx-ch-j-fresh').hidden = !blank;
+        }
         function renderMoods() {
             $('lx-ch-j-moods').innerHTML = MOODS.map(m =>
                 '<button type="button" class="lx-ch-j-mood" data-mood="' + m[0] + '" aria-pressed="' + (m[0] === currentMood ? 'true' : 'false') + '" aria-label="' + m[1] + '" title="' + m[1] + '">' + m[0] + '</button>').join('');
@@ -1088,14 +1439,15 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
             if (!b || !loaded) return;
             const m = b.getAttribute('data-mood');
             currentMood = currentMood === m ? '' : m;
-            renderMoods();
+            renderMoods(); updateFresh();
             scheduleSave();
         });
         function setFav(v) {
             currentFav = !!v;
             const b = $('lx-ch-j-fav');
             b.setAttribute('aria-pressed', currentFav ? 'true' : 'false');
-            $('lx-ch-j-favtxt').textContent = currentFav ? 'Starred' : 'Star';
+            b.setAttribute('aria-label', currentFav ? 'Remove the star' : 'Star this day');
+            b.title = currentFav ? 'Remove the star' : 'Star this day';
         }
         $('lx-ch-j-fav').addEventListener('click', () => { if (!loaded) return; setFav(!currentFav); scheduleSave(); });
 
@@ -1153,13 +1505,13 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
                 inflight = null;
                 dirty = true;
                 if (date === currentDate) setPill('failed');
-                toast('Could not save this entry. Your text is still here. Use “Try again” beside the date.', 'error');
+                toast('Could not save this entry. Your text is still here. Use “Try again” beside the star.', 'error');
                 return false;
             });
             return inflight;
         }
 
-        // Keep the strip and index in step with what was just saved, without a refetch.
+        // Keep the timeline in step with what was just saved, without a refetch.
         function syncLocal(date, p) {
             const body = p.body || '';
             const snippet = body.trim().split('\n')[0].slice(0, 140);
@@ -1168,17 +1520,13 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
                 is_favorite: p.is_favorite, word_count: body.split(/\s+/).filter(Boolean).length,
             };
             const blank = !p.title && !body.trim() && !p.quick_note && !p.mood && !p.is_favorite && !p.weather;
-            const inMonth = date.slice(0, 7) === viewYear + '-' + pad(viewMonth);
-            if (monthEntries[date]) Object.assign(monthEntries[date], patch);
-            else if (inMonth && !blank) monthEntries[date] = Object.assign({ date: date, photo_count: currentDate === date ? currentPhotos : 0 }, patch);
             let item = feedEntries.find(x => x.date === date);
             if (item) Object.assign(item, patch);
             else if (!blank) {
-                item = Object.assign({ date: date, photo_count: currentPhotos, cover: null, location_name: '', track: null }, patch);
+                item = Object.assign({ date: date, photo_count: currentDate === date ? currentPhotos : 0, cover: null, location_name: '', track: null }, patch);
                 feedEntries.push(item);
                 feedEntries.sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
             }
-            renderStrip(false);
             if (!searchState) { renderIndex(); markSelected(false); }
         }
 
@@ -1216,12 +1564,12 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
                     if (!res.ok) { toast(res.d.error || 'The AI title could not be generated.', 'error'); return; }
                     const d = res.d;
                     if (!d.title && !d.mood) return;
-                    [monthEntries[date], feedEntries.find(x => x.date === date)].forEach(e => {
-                        if (!e) return;
+                    const e = feedEntries.find(x => x.date === date);
+                    if (e) {
                         if (d.title && !e.title) e.title = d.title;
                         if (d.mood && !e.mood) e.mood = d.mood;
-                    });
-                    renderStrip(false); if (!searchState) { renderIndex(); markSelected(false); }
+                    }
+                    if (!searchState) { renderIndex(); markSelected(false); }
                     if (currentDate === date && loaded && !dirty) {
                         if (d.title && !titleEl.value) titleEl.value = d.title;
                         if (d.mood && !currentMood) { currentMood = d.mood; renderMoods(); }
@@ -1254,6 +1602,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
             $('lx-ch-j-dateinput').value = date;
             $('lx-ch-j-dateinput').max = todayStr();
             $('lx-ch-j-maplink').href = '/map/?start=' + date + '&end=' + date;
+            root.querySelectorAll('[data-sheet-tab="entry"]').forEach(b => { b.textContent = fmt(date, { weekday: 'short', day: 'numeric', month: 'short' }) || 'This day'; });
         }
         function syncChrome(date) {
             try {
@@ -1269,28 +1618,37 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
             if (!parse(date)) return;
             if (date > todayStr()) date = todayStr();
             if (date === currentDate && !o.force) {
-                if (o.reveal && !splitLayout()) editorEl.scrollIntoView({ block: 'start', behavior: reduced() ? 'auto' : 'smooth' });
+                if (o.reveal) revealEntry();
                 return;
             }
             if (currentDate && !(await leaveDay())) return;
+            pops.forEach(p => p.set(false));
             currentDate = date;
-            const y = +date.slice(0, 4), m = +date.slice(5, 7);
-            const monthChanged = y !== viewYear || m !== viewMonth;
-            if (monthChanged) { viewYear = y; viewMonth = m; monthEntries = {}; }
-            renderStrip(true);
-            if (monthChanged) loadMonth();
+            if (!searchState) { renderIndex(); }
             markSelected(true);
             syncChrome(date);
-            if (o.reveal && !splitLayout()) editorEl.scrollIntoView({ block: 'start', behavior: reduced() ? 'auto' : 'smooth' });
-            else if (splitLayout()) editorEl.scrollTop = 0;
+            if (o.reveal) revealEntry();
+            iscroll.scrollTop = 0;
             await loadDay(date);
         }
+        // Choosing a day in the list shows its entry: the column opens (unless
+        // the user closed it themselves) or the sheet flips to the entry.
+        function revealEntry() {
+            if (isSheet()) {
+                setSheetView('entry');
+                if (snap === 'peek') { snap = 'half'; applySnap(); }
+            } else if (!infoOpen && infoPref() !== '0') {
+                setInfo(true, false);
+            }
+        }
+        const iscroll = $('lx-ch-j-iscroll');
 
         function resetForm() {
             titleEl.value = ''; bodyEl.value = ''; quickEl.value = ''; weatherEl.value = '';
             currentMood = ''; renderMoods(); setFav(false);
             $('lx-ch-j-photos').innerHTML = '';
             $('lx-ch-j-wordcount').textContent = '';
+            $('lx-ch-j-fresh').hidden = true;
             setPill('');
             sizeText(bodyEl); sizeText(quickEl);
         }
@@ -1320,6 +1678,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
                 renderPhotos(en.photos || []);
                 updateWordCount();
                 loaded = true;
+                updateFresh();
                 fieldsEl.disabled = false;
                 dayEl.classList.remove('is-loading');
                 dayEl.removeAttribute('aria-busy');
@@ -1332,29 +1691,22 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
                 dayEl.removeAttribute('aria-busy');
                 formEl.hidden = true;
                 $('lx-ch-j-dayerr').hidden = false;
+                setWhere(null, false, true);
             });
         }
         $('lx-ch-j-dayretry').addEventListener('click', () => { if (currentDate) loadDay(currentDate); });
 
-        titleEl.addEventListener('input', scheduleSave);
-        weatherEl.addEventListener('input', scheduleSave);
-        quickEl.addEventListener('input', () => { sizeText(quickEl); scheduleSave(); });
-        bodyEl.addEventListener('input', () => { sizeText(bodyEl); updateWordCount(); scheduleSave(); });
-        let rzT = 0;
-        window.addEventListener('resize', () => {
-            cancelAnimationFrame(rzT);
-            rzT = requestAnimationFrame(() => { sizeText(bodyEl); sizeText(quickEl); });
-        });
+        titleEl.addEventListener('input', () => { updateFresh(); scheduleSave(); });
+        weatherEl.addEventListener('input', () => { updateFresh(); scheduleSave(); });
+        quickEl.addEventListener('input', () => { sizeText(quickEl); updateFresh(); scheduleSave(); });
+        bodyEl.addEventListener('input', () => { sizeText(bodyEl); updateWordCount(); updateFresh(); scheduleSave(); });
 
         // ── Move to another day ───────────────────────────────────────
         const dateInput = $('lx-ch-j-dateinput');
-        $('lx-ch-j-move').addEventListener('click', () => {
-            if (!loaded) return;
-            try { dateInput.showPicker(); } catch (e) { dateInput.focus(); dateInput.click(); }
-        });
-        dateInput.addEventListener('change', () => moveEntry(dateInput.value));
+        dateInput.addEventListener('change', () => { entryPop.set(false); moveEntry(dateInput.value); });
         async function moveEntry(target) {
             const from = currentDate;
+            if (!loaded || !from) { dateInput.value = from || ''; return; }
             if (!target || target === from || !parse(target)) { dateInput.value = from; return; }
             if (target > todayStr()) { dateInput.value = from; toast('An entry can’t be moved to a day that hasn’t happened yet.', 'error'); return; }
             await flushSave();
@@ -1382,6 +1734,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
 
         // ── Delete ────────────────────────────────────────────────────
         $('lx-ch-j-delete').addEventListener('click', async () => {
+            entryPop.set(false);
             if (!loaded) return;
             const ok = window.roamlyConfirm ? await window.roamlyConfirm('Delete this journal entry? This cannot be undone.', { danger: true }) : window.confirm('Delete this journal entry?');
             if (!ok) return;
@@ -1431,7 +1784,7 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
         }
         function reloadPhotos(date) {
             return fetch('/api/journals/' + date + '/?tz=' + TZ).then(r => r.ok ? r.json() : null).then(data => {
-                if (data && currentDate === date) renderPhotos((data.entry && data.entry.photos) || []);
+                if (data && currentDate === date) { renderPhotos((data.entry && data.entry.photos) || []); updateFresh(); }
             }).catch(() => {});
         }
         photoInput.addEventListener('change', () => {
@@ -1462,8 +1815,69 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
                 .catch(() => toast('Could not remove that photo.', 'error'));
         }
 
-        // ── Where you were (the day's map) ────────────────────────────
-        let jmap = null, mapReady = false, pendingTrack = null, drawSeq = 0, mapFailed = false;
+        // ══ The map ═══════════════════════════════════════════════════
+        // Basemaps: the catalog the map page uses when the page carries it
+        // (#roamly-basemaps), otherwise the three built-ins. The saved choice
+        // (roamly_map_tile_style) is shared with the main map.
+        const mapEl = $('lx-ch-j-map'), mapState = $('lx-ch-j-mapstate'), msgEl = $('lx-ch-j-msg');
+        const tileQs = root.getAttribute('data-tile-qs') || '';
+        const GLYPHS = 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf';
+        function builtinBases() {
+            return [
+                { id: 'Streets', name: 'Streets', group: 'built-in', style: { version: 8, glyphs: GLYPHS, sources: { osm: { type: 'raster', tiles: ['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png' + tileQs], tileSize: 256, attribution: '© OpenStreetMap contributors © CARTO' } }, layers: [{ id: 'osm', type: 'raster', source: 'osm' }] } },
+                { id: 'Dark', name: 'Dark', group: 'built-in', style: { version: 8, glyphs: GLYPHS, sources: { carto: { type: 'raster', tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png' + tileQs], tileSize: 256, attribution: '© OpenStreetMap contributors © CARTO' } }, layers: [{ id: 'carto', type: 'raster', source: 'carto' }] } },
+                { id: 'Satellite', name: 'Satellite', group: 'built-in', style: { version: 8, glyphs: GLYPHS, sources: { esri: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 19, attribution: 'Imagery © Esri' } }, layers: [{ id: 'esri', type: 'raster', source: 'esri' }] } },
+            ];
+        }
+        function loadBases() {
+            try {
+                const el = document.getElementById('roamly-basemaps');
+                const list = el ? JSON.parse(el.textContent) : null;
+                if (Array.isArray(list) && list.length) return list.filter(b => b && b.id && b.style);
+            } catch (e) {}
+            return builtinBases();
+        }
+        const BASES = loadBases();
+        if (!BASES.length) BASES.push.apply(BASES, builtinBases());
+        const baseById = {};
+        BASES.forEach(b => { baseById[b.id] = b; });
+        let baseId = lsGet('roamly_map_tile_style') || '';
+        if (!baseById[baseId]) {
+            baseId = document.documentElement.getAttribute('data-theme') === 'light' ? 'Streets' : 'Dark';
+            if (!baseById[baseId]) baseId = BASES[0].id;
+        }
+        let globeOn = lsGet('roamly_globe') === 'on';
+
+        function renderBases() {
+            const wrap = $('lx-ch-j-bases');
+            let html = '', lastGroup = null;
+            BASES.forEach(b => {
+                const g = b.group || 'built-in';
+                if (g !== lastGroup) {
+                    if (lastGroup !== null && g !== 'built-in') html += '<div class="lx-ch-j-base-grp">' + esc(g.charAt(0).toUpperCase() + g.slice(1)) + '</div>';
+                    lastGroup = g;
+                }
+                const label = b.name || b.label || b.id;
+                html += '<button type="button" class="lx-ch-j-base" role="radio" aria-checked="' + (b.id === baseId ? 'true' : 'false') + '" data-base="' + esc(b.id) + '"><span>' + esc(label) + '</span>' + ic('check', 16) + '</button>';
+            });
+            wrap.innerHTML = html;
+        }
+        $('lx-ch-j-bases').addEventListener('click', e => {
+            const b = e.target.closest ? e.target.closest('[data-base]') : null;
+            if (!b) return;
+            setBase(b.getAttribute('data-base'));
+        });
+        const globeBox = $('lx-ch-j-globe');
+        globeBox.checked = globeOn;
+        globeBox.addEventListener('change', () => {
+            globeOn = globeBox.checked;
+            lsSet('roamly_globe', globeOn ? 'on' : 'off');
+            applyProjection();
+        });
+
+        let jmap = null, mapReady = false, mapFailed = false, drawSeq = 0;
+        let trackNow = null;               // the open day's track, kept so it can be redrawn
+        let tileErrors = 0, tileBarTimer = 0;
         const probe = document.createElement('canvas');
         probe.width = probe.height = 1;
         const pctx = probe.getContext ? probe.getContext('2d', { willReadFrequently: true }) : null;
@@ -1479,40 +1893,130 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
             } catch (e) { return fb; }
         }
         const EMPTY = { type: 'FeatureCollection', features: [] };
+
+        function showState(kind, title, text, btn) {
+            mapState.hidden = false;
+            mapState.classList.toggle('is-loading', kind === 'loading');
+            msgEl.hidden = kind === 'loading';
+            if (kind === 'loading') { msgEl.innerHTML = ''; return; }
+            msgEl.innerHTML = '<div class="lx-ch-j-msg-t">' + esc(title) + '</div><p>' + esc(text) + '</p>' + (btn ? '<button type="button" class="lx-ch-btn" id="lx-ch-j-msgbtn">' + esc(btn) + '</button>' : '');
+        }
+        function hideState() { mapState.hidden = true; }
+        function setBusy(on) { const b = $('lx-ch-j-busy'); b.hidden = !on; }
+
+        function addLayers() {
+            if (!jmap) return;
+            const C = { primary: token('--primary', '#e8763d'), bg: token('--bg', '#14160f'), start: token('--clay-sky', '#7ba3b8') };
+            try {
+                if (!jmap.getSource('day')) jmap.addSource('day', { type: 'geojson', data: EMPTY });
+                if (!jmap.getSource('ends')) jmap.addSource('ends', { type: 'geojson', data: EMPTY });
+                if (!jmap.getLayer('day-casing')) jmap.addLayer({ id: 'day-casing', type: 'line', source: 'day', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': C.bg, 'line-width': 7, 'line-opacity': 0.85 } });
+                if (!jmap.getLayer('day-line')) jmap.addLayer({ id: 'day-line', type: 'line', source: 'day', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': C.primary, 'line-width': 4 } });
+                if (!jmap.getLayer('ends-start')) jmap.addLayer({ id: 'ends-start', type: 'circle', source: 'ends', filter: ['==', ['get', 'kind'], 'start'], paint: { 'circle-radius': 7, 'circle-color': C.start, 'circle-stroke-width': 2.5, 'circle-stroke-color': C.bg } });
+                if (!jmap.getLayer('ends-end')) jmap.addLayer({ id: 'ends-end', type: 'circle', source: 'ends', filter: ['==', ['get', 'kind'], 'end'], paint: { 'circle-radius': 7, 'circle-color': C.primary, 'circle-stroke-width': 2.5, 'circle-stroke-color': C.bg } });
+            } catch (e) {}
+        }
+        function applyProjection() {
+            if (!jmap) return;
+            try { jmap.setProjection({ type: globeOn ? 'globe' : 'mercator' }); } catch (e) {}
+        }
+        // setStyle may diff in place (styledata only) or reload (style.load too); run fn once the new style is usable.
+        function afterStyle(fn) {
+            let done = false, timer = 0;
+            const m = jmap;
+            const run = force => {
+                if (done) return;
+                let ok = false;
+                try { ok = m.isStyleLoaded(); } catch (e) { ok = false; }
+                if (!ok && force !== true) return;
+                done = true; clearTimeout(timer);
+                try { m.off('styledata', run); m.off('style.load', run); } catch (e) {}
+                if (m === jmap) { try { fn(); } catch (e) {} }
+            };
+            m.on('styledata', run); m.on('style.load', run);
+            timer = setTimeout(() => run(true), 1500);
+        }
+        function setBase(id) {
+            if (!baseById[id]) return;
+            baseId = id;
+            lsSet('roamly_map_tile_style', id);
+            renderBases();
+            restyle();
+        }
+        function restyle() {
+            if (!jmap) return;
+            tileErrors = 0; $('lx-ch-j-tilebar').hidden = true;
+            try {
+                afterStyle(() => { addLayers(); applyProjection(); if (trackNow) drawTrack(trackNow, true); });
+                jmap.setStyle(baseById[baseId].style, { diff: false });
+            } catch (e) {}
+        }
+        function tileFailed() {
+            tileErrors++;
+            clearTimeout(tileBarTimer);
+            tileBarTimer = setTimeout(() => { if (tileErrors >= 3) $('lx-ch-j-tilebar').hidden = false; }, 1200);
+        }
+        $('lx-ch-j-tileretry').addEventListener('click', restyle);
+
         function ensureMap() {
             if (jmap || mapFailed) return !!jmap;
-            const holder = $('lx-ch-j-map');
             if (!window.maplibregl) { mapFailed = true; return false; }
-            const light = document.documentElement.getAttribute('data-theme') === 'light';
-            const tiles = 'https://basemaps.cartocdn.com/' + (light ? 'light_all' : 'dark_all') + '/{z}/{x}/{y}.png' + (root.getAttribute('data-tile-qs') || '');
             try {
                 jmap = new maplibregl.Map({
-                    container: holder,
-                    style: { version: 8, sources: { base: { type: 'raster', tiles: [tiles], tileSize: 256, maxzoom: 19, attribution: '© OpenStreetMap contributors © CARTO' } },
-                             layers: [{ id: 'base', type: 'raster', source: 'base' }] },
-                    center: [0, 20], zoom: 1, attributionControl: false, dragRotate: false, pitchWithRotate: false,
+                    container: mapEl, style: baseById[baseId].style, center: [0, 20], zoom: 1,
+                    attributionControl: false, dragRotate: false, pitchWithRotate: false,
                 });
-                jmap.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-                jmap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+                jmap.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
                 if (jmap.touchZoomRotate && jmap.touchZoomRotate.disableRotation) jmap.touchZoomRotate.disableRotation();
             } catch (e) { jmap = null; mapFailed = true; return false; }
-            const C = { primary: token('--primary', '#e8763d'), bg: token('--bg', '#14160f'), start: token('--clay-sky', '#7ba3b8') };
             jmap.on('load', () => {
-                jmap.addSource('day', { type: 'geojson', data: EMPTY });
-                jmap.addSource('ends', { type: 'geojson', data: EMPTY });
-                jmap.addLayer({ id: 'day-casing', type: 'line', source: 'day', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': C.bg, 'line-width': 6.5, 'line-opacity': 0.85 } });
-                jmap.addLayer({ id: 'day-line', type: 'line', source: 'day', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': C.primary, 'line-width': 3.5 } });
-                jmap.addLayer({ id: 'ends-start', type: 'circle', source: 'ends', filter: ['==', ['get', 'kind'], 'start'], paint: { 'circle-radius': 6, 'circle-color': C.start, 'circle-stroke-width': 2, 'circle-stroke-color': C.bg } });
-                jmap.addLayer({ id: 'ends-end', type: 'circle', source: 'ends', filter: ['==', ['get', 'kind'], 'end'], paint: { 'circle-radius': 6, 'circle-color': C.primary, 'circle-stroke-width': 2, 'circle-stroke-color': C.bg } });
                 mapReady = true;
-                if (pendingTrack) { const t = pendingTrack; pendingTrack = null; drawTrack(t); }
+                addLayers();
+                applyProjection();
+                if (trackNow) drawTrack(trackNow, false);
             });
-            jmap.on('error', () => {});   // a failed tile must not reach the page's error toast
+            jmap.on('sourcedata', e => {
+                if (e && e.tile && e.isSourceLoaded) { tileErrors = 0; $('lx-ch-j-tilebar').hidden = true; }
+            });
+            jmap.on('error', e => {
+                // A failed tile must not reach the page's error toast; three in a row show the retry bar.
+                const m = e && e.error && (e.error.message || '');
+                if (e && (e.tile || e.sourceId || /tile|fetch|Failed|404|403|401|network/i.test(m || ''))) tileFailed();
+            });
             return true;
         }
-        function drawTrack(track) {
-            if (!mapReady) { pendingTrack = track; return; }
-            const seq = ++drawSeq;
+        function mapPad() {
+            const w = stageEl.clientWidth || 600, h = stageEl.clientHeight || 400;
+            if (isSheet()) {
+                const vis = Math.min(h * 0.62, Math.max(0, sheetH() - curOff));
+                return { top: 64, left: 56, right: 28, bottom: Math.round(vis + 28) };
+            }
+            const right = infoOpen ? Math.min(w * 0.6, 408) + 32 : 40;
+            return { top: 56, left: 72, right: Math.round(right), bottom: 64 };
+        }
+        function trackBounds(track) {
+            if (!window.maplibregl) return null;
+            const b = new maplibregl.LngLatBounds();
+            (track.points || []).forEach(c => { if (Array.isArray(c) && isFinite(c[0]) && isFinite(c[1])) b.extend(c); });
+            return b.isEmpty() ? null : b;
+        }
+        function fitTrack(animate) {
+            if (!jmap || !mapReady || !trackNow) return;
+            const b = trackBounds(trackNow);
+            if (!b) return;
+            const o = { maxZoom: 15, duration: animate && !reduced() ? 400 : 0 };
+            try { jmap.resize(); } catch (e) {}
+            try { jmap.fitBounds(b, Object.assign({ padding: mapPad() }, o)); }
+            catch (e) { try { jmap.fitBounds(b, Object.assign({ padding: 24 }, o)); } catch (er) {} }
+        }
+        let refitT = 0;
+        function scheduleRefit(delay) {
+            clearTimeout(refitT);
+            refitT = setTimeout(() => { if (jmap) { try { jmap.resize(); } catch (e) {} } fitTrack(true); }, delay || 0);
+        }
+        function drawTrack(track, noFit) {
+            if (!jmap || !mapReady) return;
+            ++drawSeq;
             try { jmap.resize(); } catch (e) {}
             const segs = track.segments && track.segments.length ? track.segments : null;
             // Only chronological segments are drawn: a flat point list would join
@@ -1525,38 +2029,80 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
                 { type: 'Feature', properties: { kind: 'end' }, geometry: { type: 'Point', coordinates: endPt } },
             ] : [] };
             try {
+                if (!jmap.getSource('day')) addLayers();
                 jmap.getSource('day').setData(lines ? { type: 'FeatureCollection', features: [lines] } : EMPTY);
                 jmap.getSource('ends').setData(ends);
-                const b = new maplibregl.LngLatBounds();
-                (track.points || []).forEach(c => b.extend(c));
-                if (seq === drawSeq && !b.isEmpty()) jmap.fitBounds(b, { padding: 40, maxZoom: 14, duration: reduced() ? 0 : 300 });
+            } catch (e) {}
+            if (!noFit) fitTrack(true);
+        }
+        function clearTrack() {
+            if (!jmap || !mapReady) return;
+            try {
+                if (jmap.getSource('day')) jmap.getSource('day').setData(EMPTY);
+                if (jmap.getSource('ends')) jmap.getSource('ends').setData(EMPTY);
             } catch (e) {}
         }
-        function setWhere(track, loading) {
-            const none = $('lx-ch-j-wherenone'), data = $('lx-ch-j-wheredata');
-            if (loading) { none.hidden = false; none.textContent = 'Loading the day’s track…'; data.hidden = true; return; }
+        $('lx-ch-j-zin').addEventListener('click', () => { if (jmap) { try { jmap.zoomIn({ duration: reduced() ? 0 : 200 }); } catch (e) {} } });
+        $('lx-ch-j-zout').addEventListener('click', () => { if (jmap) { try { jmap.zoomOut({ duration: reduced() ? 0 : 200 }); } catch (e) {} } });
+        $('lx-ch-j-fit').addEventListener('click', () => fitTrack(true));
+        if (window.ResizeObserver) {
+            let roT = 0;
+            new ResizeObserver(() => {
+                cancelAnimationFrame(roT);
+                roT = requestAnimationFrame(() => { if (jmap) { try { jmap.resize(); } catch (e) {} } });
+            }).observe(stageEl);
+        }
+
+        // The map and the "Where you were" block follow the open day.
+        function setWhere(track, loading, failed) {
+            const none = $('lx-ch-j-wherenone'), data = $('lx-ch-j-wheredata'), cap = $('lx-ch-j-cap');
+            const fitBtn = $('lx-ch-j-fit');
+            cap.hidden = true;
+            if (loading) {
+                none.hidden = false; none.textContent = 'Loading the day’s track…'; data.hidden = true;
+                fitBtn.disabled = true;
+                trackNow = null;
+                if (mapReady) { clearTrack(); setBusy(true); } else if (!mapFailed) showState('loading');
+                return;
+            }
+            setBusy(false);
+            if (failed) {
+                none.hidden = false; none.textContent = 'The track didn’t load.'; data.hidden = true;
+                fitBtn.disabled = true; trackNow = null;
+                showState('error', 'This day’s track didn’t load', 'The entry and its map come from the same request. Try opening the day again.', 'Try again');
+                const b = $('lx-ch-j-msgbtn'); if (b) b.addEventListener('click', () => { if (currentDate) loadDay(currentDate); });
+                return;
+            }
             if (!track || !(track.point_count > 0)) {
                 none.hidden = false; none.textContent = 'No tracked location for this day.';
-                data.hidden = true;
+                data.hidden = true; fitBtn.disabled = true; trackNow = null;
+                clearTrack();
+                if (mapFailed) showState('nomap', 'The map couldn’t start', 'Your entry works without it. Reload the page to try the map again.');
+                else showState('empty', 'No tracked location for this day', 'Nothing was recorded here, so there is no track to draw. You can still write about the day.');
                 return;
             }
             none.hidden = true; data.hidden = false;
             const places = Array.isArray(track.places) ? track.places : [];
+            const dist = fmtDist(track.distance_km || 0);
             $('lx-ch-j-mapstats').innerHTML =
-                '<div class="lx-ch-stat"><span class="lx-ch-stat-value">' + esc(fmtDist(track.distance_km || 0)) + '</span><span class="lx-ch-stat-label">distance</span></div>'
+                '<div class="lx-ch-stat"><span class="lx-ch-stat-value">' + esc(dist) + '</span><span class="lx-ch-stat-label">distance</span></div>'
                 + '<div class="lx-ch-stat"><span class="lx-ch-stat-value">' + places.length + '</span><span class="lx-ch-stat-label">' + (places.length === 1 ? 'place' : 'places') + '</span></div>'
                 + '<div class="lx-ch-stat"><span class="lx-ch-stat-value">' + (track.point_count || 0).toLocaleString() + '</span><span class="lx-ch-stat-label">points</span></div>';
             $('lx-ch-j-places').innerHTML = places.slice(0, 8).map(p => '<span class="lx-ch-chip">' + esc(p.name) + '</span>').join('');
+            cap.hidden = false;
+            cap.innerHTML = '<span><b>' + esc(dist) + '</b></span><span><b>' + places.length + '</b> ' + (places.length === 1 ? 'place' : 'places') + '</span><span><b>' + (track.point_count || 0).toLocaleString() + '</b> points</span>';
+            fitBtn.disabled = false;
+            trackNow = track;
             if (ensureMap()) {
-                $('lx-ch-j-map').style.display = '';
-                drawTrack(track);
+                hideState();
+                if (mapReady) drawTrack(track, false);   // else 'load' draws trackNow
             } else {
-                $('lx-ch-j-map').style.display = 'none';
+                showState('nomap', 'The map couldn’t start', 'Your entry and its stats are still here. Reload the page to try the map again.');
             }
         }
 
         // ── Lists, shortcuts, leaving the page ────────────────────────
-        function refreshLists() { loadMonth(); loadRecent(); loadStats(); }
+        function refreshLists() { loadRecent(); loadStats(); }
 
         document.addEventListener('keydown', e => {
             if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S') && currentDate && loaded) {
@@ -1565,7 +2111,8 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
                 return;
             }
             if (e.key !== 'Escape') return;
-            if (!cogPop.hidden) { setCog(false); cogBtn.focus(); return; }
+            const open = pops.find(p => p.isOpen());
+            if (open) { open.set(false); try { open.btn.focus(); } catch (er) {} return; }
             if (recapPanel.classList.contains('open')) { closeRecap(); return; }
             if (document.activeElement === searchInput && searchInput.value) clearSearch(false);
         });
@@ -1588,10 +2135,12 @@ html[data-layout="chronicle"][data-motion="calm"] .lx-ch-j * { transition: none 
         // context is only written to (syncChrome), never read: the timeline sets
         // it as you scroll, so reading it would open some past day.
         if (!first || first > todayStr()) first = todayStr();
-        viewYear = +first.slice(0, 4); viewMonth = +first.slice(5, 7);
-        renderStrip(true);
-        loadMonth();
+        renderBases();
         renderMoods();
+        infoOpen = initialInfo();
+        applyMode();
+        setInfo(infoOpen, false);
+        if (isSheet()) { setSheetView('list'); snap = 'half'; applySnap(false); }
         loadStats();
         loadRecent();
         selectDay(first, { force: true });
