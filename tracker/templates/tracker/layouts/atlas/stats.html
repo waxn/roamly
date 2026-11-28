@@ -1,0 +1,1536 @@
+{% extends "tracker/base.html" %}
+{% comment %}
+Atlas · Statistics. Instrument-panel port of tracker/stats.html: same endpoints
+(/api/stats/, /api/distance/, /api/transport/breakdown/, /api/stats/yearly/,
+snapshot recompute via base.html's #snapshot-bar), same ?start=&end= deep link,
+same range semantics. Everything lives in one IIFE so nothing here can clash
+with a global from base.html or the shell.
+{% endcomment %}
+{% block title %}Stats - Roamly{% endblock %}
+{# No map on this page — skip MapLibre (~1MB JS + 70KB CSS). #}
+{% block map_css %}{% endblock %}
+{% block map_js %}{% endblock %}
+
+{% block extra_css %}
+/* ── Header + controls ─────────────────────────────────────────────────── */
+html[data-layout="atlas"] .lx-at-st-snap { display: flex; align-items: center; gap: 12px; }
+html[data-layout="atlas"] #snapshot-updated {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+html[data-layout="atlas"] #snapshot-recalc { gap: 6px; }
+html[data-layout="atlas"] #snapshot-recalc .spinner { flex: none; }
+
+html[data-layout="atlas"] .lx-at-st-controls { margin-bottom: 16px; }
+html[data-layout="atlas"] .lx-at-st-dates { display: flex; align-items: center; gap: 6px; }
+html[data-layout="atlas"] .lx-at-st-dash { color: var(--text-dim); font-family: var(--font-mono); font-size: 0.75rem; }
+html[data-layout="atlas"] .lx-at-st-date {
+    box-sizing: border-box;
+    height: 32px;
+    width: 9.5rem;
+    min-width: 0;
+    padding: 0 8px;
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--r-2);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 500;
+    transition: border-color 120ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-st-date:hover { border-color: var(--border-strong); }
+html[data-layout="atlas"] .lx-at-st-date:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; border-color: var(--primary); }
+html[data-layout="atlas"][data-theme="dark"] .lx-at-st-date { color-scheme: dark; }
+html[data-layout="atlas"][data-theme="light"] .lx-at-st-date { color-scheme: light; }
+html[data-layout="atlas"] .lx-at-st-date.is-set { border-color: color-mix(in srgb, var(--primary) 55%, transparent); }
+
+/* ── KPI strip ─────────────────────────────────────────────────────────── */
+html[data-layout="atlas"] .lx-at-stats.lx-at-st-kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+html[data-layout="atlas"] .lx-at-st-kpis .lx-at-stat-value { min-height: 1.65rem; display: flex; align-items: baseline; }
+html[data-layout="atlas"] .lx-at-st-kpis .lx-at-stat-value .skeleton { width: 3.2em; height: 0.8em; align-self: center; }
+html[data-layout="atlas"] .lx-at-st-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 24px;
+    margin: 12px 2px 0;
+    min-height: 1.1rem;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+html[data-layout="atlas"] .lx-at-st-meta .k { margin-right: 6px; color: var(--text-dim); letter-spacing: 0.08em; text-transform: uppercase; }
+html[data-layout="atlas"] .lx-at-st-meta .v { color: var(--text); font-variant-numeric: tabular-nums; }
+html[data-layout="atlas"] .lx-at-st-meta .is-error { color: var(--danger); }
+html[data-layout="atlas"] .lx-at-st-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--link);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+html[data-layout="atlas"] .lx-at-st-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ── Section heads carrying a mono note ────────────────────────────────── */
+html[data-layout="atlas"] .lx-at-st-note-head {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Canvas plots ──────────────────────────────────────────────────────── */
+html[data-layout="atlas"] .lx-at-st-plot { position: relative; padding: 12px 12px 6px; }
+html[data-layout="atlas"] .lx-at-st-chart { position: relative; width: 100%; height: 232px; }
+html[data-layout="atlas"] .lx-at-st-chart--sm { height: 148px; }
+html[data-layout="atlas"] .lx-at-st-chart canvas { display: block; width: 100%; height: 100%; touch-action: pan-y; }
+html[data-layout="atlas"] .lx-at-st-chart-skel { position: absolute; inset: 8px 4px 28px 40px; }
+html[data-layout="atlas"] .lx-at-st-chart-skel[hidden] { display: none; }
+html[data-layout="atlas"] .lx-at-tip {
+    position: absolute;
+    z-index: 10;
+    padding: 5px 8px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-1);
+    box-shadow: var(--lx-at-pop-shadow);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1.45;
+    color: var(--text);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-tip-k { display: block; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-tip-v { display: block; font-weight: 600; }
+html[data-layout="atlas"] .lx-at-st-hline {
+    position: absolute;
+    width: 1px;
+    background: var(--border-strong);
+    opacity: 0;
+    pointer-events: none;
+}
+html[data-layout="atlas"] .lx-at-st-hdot {
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    box-sizing: border-box;
+    border-radius: var(--r-pill);
+    background: var(--primary);
+    border: 2px solid var(--bg-card);
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* ── Daily-distance heatmap ────────────────────────────────────────────── */
+html[data-layout="atlas"] .lx-at-hm-card { --hm-cell: 12px; --hm-gap: 3px; position: relative; padding: 12px 16px 12px; }
+html[data-layout="atlas"] .lx-at-hm[hidden] { display: none; }
+html[data-layout="atlas"] .lx-at-hm-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 8px; }
+html[data-layout="atlas"] .lx-at-hm-summary { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-hm-years { display: inline-flex; align-items: center; gap: 2px; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text); }
+html[data-layout="atlas"] .lx-at-hm-year { min-width: 3.2em; text-align: center; font-variant-numeric: tabular-nums; }
+html[data-layout="atlas"] .lx-at-hm-yearbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--r-2);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color 120ms ease-out, border-color 120ms ease-out;
+}
+html[data-layout="atlas"] .lx-at-hm-yearbtn:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+html[data-layout="atlas"] .lx-at-hm-yearbtn:disabled { opacity: 0.35; cursor: default; }
+html[data-layout="atlas"] .lx-at-hm-yearbtn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+html[data-layout="atlas"] .lx-at-hm-scroll { position: relative; overflow-x: auto; overflow-y: hidden; padding: 2px 0 6px; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+html[data-layout="atlas"] .lx-at-hm {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 8px;
+    row-gap: 6px;
+    width: max-content;
+}
+html[data-layout="atlas"] .lx-at-hm-months, html[data-layout="atlas"] .lx-at-hm-grid { grid-column: 2; }
+html[data-layout="atlas"] .lx-at-hm-dows { grid-column: 1; grid-row: 2; }
+html[data-layout="atlas"] .lx-at-hm-months { grid-row: 1; display: grid; grid-auto-rows: 11px; column-gap: var(--hm-gap); }
+html[data-layout="atlas"] .lx-at-hm-month { font-family: var(--font-mono); font-size: 0.625rem; line-height: 11px; color: var(--text-muted); white-space: nowrap; }
+html[data-layout="atlas"] .lx-at-hm-dows { display: grid; grid-template-rows: repeat(7, var(--hm-cell)); gap: var(--hm-gap); }
+html[data-layout="atlas"] .lx-at-hm-dow { font-family: var(--font-mono); font-size: 0.625rem; line-height: var(--hm-cell); text-align: right; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-hm-grid { grid-row: 2; display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, var(--hm-cell)); grid-auto-columns: var(--hm-cell); gap: var(--hm-gap); }
+html[data-layout="atlas"] .lx-at-hm-cell {
+    box-sizing: border-box;
+    width: var(--hm-cell);
+    height: var(--hm-cell);
+    border-radius: var(--r-1);
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+}
+html[data-layout="atlas"] .lx-at-hm-cell.is-future { background: transparent; opacity: 0.5; }
+html[data-layout="atlas"] .lx-at-hm-cell.is-void { visibility: hidden; }
+/* Ramp: the accent at four strengths. Quartile bucketing happens in JS. */
+html[data-layout="atlas"] .lx-at-hm-cell[data-l="1"] { background: color-mix(in srgb, var(--primary) 22%, transparent); border-color: color-mix(in srgb, var(--primary) 37%, transparent); }
+html[data-layout="atlas"] .lx-at-hm-cell[data-l="2"] { background: color-mix(in srgb, var(--primary) 45%, transparent); border-color: color-mix(in srgb, var(--primary) 60%, transparent); }
+html[data-layout="atlas"] .lx-at-hm-cell[data-l="3"] { background: color-mix(in srgb, var(--primary) 70%, transparent); border-color: color-mix(in srgb, var(--primary) 85%, transparent); }
+html[data-layout="atlas"] .lx-at-hm-cell[data-l="4"] { background: var(--primary); border-color: var(--primary); }
+html[data-layout="atlas"] .lx-at-hm-cell[data-day] { cursor: pointer; }
+html[data-layout="atlas"] .lx-at-hm-cell[data-day]:hover { outline: 1px solid var(--text-muted); outline-offset: 1px; }
+html[data-layout="atlas"] .lx-at-hm-skel { height: 104px; }
+html[data-layout="atlas"] .lx-at-hm-skel[hidden] { display: none; }
+html[data-layout="atlas"] .lx-at-hm-legend {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 5px;
+    margin-top: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-muted);
+}
+html[data-layout="atlas"] .lx-at-hm-legend .lx-at-hm-cell { cursor: default; }
+@media (min-width: 1360px) {
+    html[data-layout="atlas"] .lx-at-hm-card { --hm-cell: 14px; }
+}
+
+/* ── Two-up row ────────────────────────────────────────────────────────── */
+html[data-layout="atlas"] .lx-at-st-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px 24px; align-items: start; }
+html[data-layout="atlas"] .lx-at-st-cols > div { min-width: 0; }
+html[data-layout="atlas"] .lx-at-st-cols .lx-at-section-head { align-items: center; min-height: 32px; }
+html[data-layout="atlas"] .lx-at-st-card { padding: 4px 16px; min-height: 120px; }
+html[data-layout="atlas"] .lx-at-st-empty { margin: 0; padding: 20px 0; font-size: 0.8125rem; line-height: 1.5; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-st-empty a { color: var(--link); }
+
+/* Transport mode rows */
+html[data-layout="atlas"] .lx-at-st-tm { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 40px; }
+html[data-layout="atlas"] .lx-at-st-tm + .lx-at-st-tm { border-top: 1px solid var(--border); }
+html[data-layout="atlas"] .lx-at-st-tm-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 0.8125rem; color: var(--text); }
+html[data-layout="atlas"] .lx-at-st-tm-dot { flex: none; width: 8px; height: 8px; border-radius: var(--r-pill); background: var(--c, var(--primary)); }
+html[data-layout="atlas"] .lx-at-st-track { height: 6px; background: var(--bg-input); border-radius: var(--r-1); overflow: hidden; }
+html[data-layout="atlas"] .lx-at-st-fill { display: block; height: 100%; border-radius: var(--r-1); background: var(--c, var(--primary)); transition: width 300ms ease-out; }
+html[data-layout="atlas"] .lx-at-st-tm-val { font-family: var(--font-mono); font-size: 0.75rem; font-variant-numeric: tabular-nums; color: var(--text-muted); white-space: nowrap; }
+html[data-layout="atlas"] .lx-at-st-tm .skeleton { height: 0.8rem; }
+
+/* Most visited */
+html[data-layout="atlas"] .lx-at-st-mv { list-style: none; margin: 0; padding: 0; }
+html[data-layout="atlas"] .lx-at-st-mv-row { padding: 9px 0 10px; }
+html[data-layout="atlas"] .lx-at-st-mv-row + .lx-at-st-mv-row { border-top: 1px solid var(--border); }
+html[data-layout="atlas"] .lx-at-st-mv-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+html[data-layout="atlas"] .lx-at-st-mv-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 0.8125rem; color: var(--text); }
+html[data-layout="atlas"] .lx-at-st-mv-name > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-layout="atlas"] .lx-at-st-mv-val { flex: none; font-family: var(--font-mono); font-size: 0.6875rem; font-variant-numeric: tabular-nums; color: var(--text-muted); white-space: nowrap; }
+html[data-layout="atlas"] .lx-at-st-mv-bar { height: 3px; background: var(--bg-input); border-radius: var(--r-1); }
+html[data-layout="atlas"] .lx-at-st-mv-bar > span { display: block; height: 100%; border-radius: var(--r-1); background: var(--primary); }
+html[data-layout="atlas"] .lx-at-st-mv-bar.is-custom > span { background: var(--accent); }
+html[data-layout="atlas"] .lx-at-st-mv-dot { flex: none; width: 7px; height: 7px; border-radius: var(--r-pill); background: var(--accent); }
+
+/* ── Yearly overview ───────────────────────────────────────────────────── */
+html[data-layout="atlas"] .lx-at-stats.lx-at-st-periods { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+html[data-layout="atlas"] .lx-at-st-periods .lx-at-stat { gap: 4px; }
+html[data-layout="atlas"] .lx-at-st-periods .lx-at-stat-value { min-height: 1.65rem; display: flex; align-items: baseline; }
+html[data-layout="atlas"] .lx-at-st-periods .lx-at-stat-value .skeleton { width: 3.2em; height: 0.8em; align-self: center; }
+html[data-layout="atlas"] .lx-at-st-delta { min-height: 1.1rem; font-family: var(--font-mono); font-size: 0.6875rem; color: var(--text-muted); }
+html[data-layout="atlas"] .lx-at-st-delta b { font-weight: 600; }
+html[data-layout="atlas"] .lx-at-st-delta b.is-up { color: var(--primary); }
+html[data-layout="atlas"] .lx-at-st-delta b.is-down { color: var(--danger); }
+html[data-layout="atlas"] .lx-at-st-places { min-height: 1.1rem; font-size: 0.75rem; color: var(--text-muted); }
+
+/* ── Tablet / phone ────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+    html[data-layout="atlas"] .lx-at-st-cols { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+    html[data-layout="atlas"] .lx-at-stats.lx-at-st-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    html[data-layout="atlas"] .lx-at-st-kpis > .lx-at-stat:first-child { grid-column: 1 / -1; }
+    html[data-layout="atlas"] .lx-at-stats.lx-at-st-periods { grid-template-columns: minmax(0, 1fr); }
+    html[data-layout="atlas"] .lx-at-st-controls .lx-at-seg { width: 100%; }
+    html[data-layout="atlas"] .lx-at-st-controls .lx-at-seg > button { flex: 1 1 0; min-width: 0; padding: 0 2px; }
+    html[data-layout="atlas"] .lx-at-st-controls .lx-at-toolbar-spacer { display: none; }
+    html[data-layout="atlas"] .lx-at-st-dates { width: 100%; }
+    html[data-layout="atlas"] .lx-at-st-date { flex: 1 1 0; width: auto; height: 44px; font-size: 0.8125rem; }
+    html[data-layout="atlas"] .lx-at-st-chart { height: 200px; }
+    html[data-layout="atlas"] .lx-at-st-tm { grid-template-columns: 5.2rem minmax(0, 1fr) auto; gap: 8px; }
+    html[data-layout="atlas"] .lx-at-hm-yearbtn { width: 44px; height: 44px; }
+    html[data-layout="atlas"] .lx-at-st-mv-row { padding: 12px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+    html[data-layout="atlas"] :is(.lx-at-tip, .lx-at-st-fill) { transition: none; }
+}
+html[data-layout="atlas"][data-motion="calm"] :is(.lx-at-tip, .lx-at-st-fill) { transition: none; }
+{% endblock %}
+
+{% block content %}
+<div class="lx-at-page lx-at-st">
+    <header class="lx-at-pagehead">
+        <div class="lx-at-pagehead-title">
+            <span class="lx-at-kicker" id="st-scope">Last week</span>
+            <h1 class="lx-at-title lx-at-title--page">Statistics</h1>
+        </div>
+        <div class="lx-at-st-snap" id="snapshot-bar">
+            <span id="snapshot-updated">updated …</span>
+            <button type="button" id="snapshot-recalc" class="lx-at-btn" title="Recompute now">↻ recalculate</button>
+        </div>
+    </header>
+
+    <div class="lx-at-toolbar lx-at-st-controls">
+        <div class="lx-at-seg" id="stats-range" role="group" aria-label="Time range">
+            <button type="button" data-range="24" aria-pressed="false" title="Last 24 hours">24h</button>
+            <button type="button" data-range="72" aria-pressed="false" title="Last 3 days">3d</button>
+            <button type="button" data-range="168" aria-pressed="true" title="Last week">7d</button>
+            <button type="button" data-range="720" aria-pressed="false" title="Last 30 days">30d</button>
+            <button type="button" data-range="2160" aria-pressed="false" title="Last 90 days">90d</button>
+            <button type="button" data-range="8760" aria-pressed="false" title="Last year">1y</button>
+            <button type="button" data-range="all" aria-pressed="false" title="All time">All</button>
+        </div>
+        <div class="lx-at-toolbar-spacer"></div>
+        <div class="lx-at-st-dates" role="group" aria-label="Custom date range">
+            <label class="lx-at-sr" for="stats-start">Start date</label>
+            <input type="date" id="stats-start" class="lx-at-st-date" title="Start date">
+            <span class="lx-at-st-dash" aria-hidden="true">–</span>
+            <label class="lx-at-sr" for="stats-end">End date</label>
+            <input type="date" id="stats-end" class="lx-at-st-date" title="End date">
+        </div>
+    </div>
+
+    <section class="lx-at-stats lx-at-st-kpis" id="stats-grid" aria-label="Totals for the selected range">
+        <div class="lx-at-stat">
+            <span class="lx-at-stat-label" id="stat-distance-label">Distance</span>
+            <span class="lx-at-stat-value" id="stat-distance"><span class="skeleton"></span></span>
+        </div>
+        <div class="lx-at-stat">
+            <span class="lx-at-stat-label">Points</span>
+            <span class="lx-at-stat-value" id="stat-points"><span class="skeleton"></span></span>
+        </div>
+        <div class="lx-at-stat">
+            <span class="lx-at-stat-label">Countries</span>
+            <span class="lx-at-stat-value" id="stat-countries"><span class="skeleton"></span></span>
+        </div>
+        <div class="lx-at-stat">
+            <span class="lx-at-stat-label">Cities</span>
+            <span class="lx-at-stat-value" id="stat-cities"><span class="skeleton"></span></span>
+        </div>
+        <div class="lx-at-stat">
+            <span class="lx-at-stat-label">States / regions</span>
+            <span class="lx-at-stat-value" id="stat-states"><span class="skeleton"></span></span>
+        </div>
+    </section>
+    <div class="lx-at-st-meta" id="timeline-info" aria-live="polite"></div>
+
+    <section class="lx-at-section" aria-labelledby="st-dist-h">
+        <div class="lx-at-section-head">
+            <h2 class="lx-at-section-title" id="st-dist-h">Distance travelled</h2>
+            <span class="lx-at-st-note-head" id="st-dist-note"></span>
+        </div>
+        <div class="lx-at-surface lx-at-st-plot">
+            <div class="lx-at-st-chart" id="st-dist-wrap">
+                <canvas id="distance-chart" role="img" aria-label="Distance travelled over the selected range"></canvas>
+                <div class="skeleton lx-at-st-chart-skel" id="st-dist-skel"></div>
+                <div class="lx-at-st-hline" id="chart-hline"></div>
+                <div class="lx-at-st-hdot" id="chart-hdot"></div>
+                <div class="lx-at-tip" id="chart-tooltip" role="presentation"></div>
+            </div>
+        </div>
+    </section>
+
+    <section class="lx-at-section" aria-labelledby="st-heat-h">
+        <div class="lx-at-section-head">
+            <h2 class="lx-at-section-title" id="st-heat-h">Daily distance</h2>
+            <span class="lx-at-st-note-head">whole year, independent of range</span>
+        </div>
+        <div class="lx-at-surface lx-at-hm-card">
+            <div class="lx-at-hm-head">
+                <span class="lx-at-hm-summary" id="heat-summary" aria-live="polite"></span>
+                <span class="lx-at-hm-years">
+                    <button type="button" class="lx-at-hm-yearbtn" id="heat-prev" aria-label="Previous year">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg>
+                    </button>
+                    <span class="lx-at-hm-year" id="heat-year"></span>
+                    <button type="button" class="lx-at-hm-yearbtn" id="heat-next" aria-label="Next year">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg>
+                    </button>
+                </span>
+            </div>
+            <div class="lx-at-hm-scroll" id="heat-scroll">
+                <div class="skeleton lx-at-hm-skel" id="heat-skel"></div>
+                <div class="lx-at-hm" id="heat-wrap" role="img" aria-label="Distance travelled per day, one square per day" hidden>
+                    <div class="lx-at-hm-months" id="heat-months"></div>
+                    <div class="lx-at-hm-dows" id="heat-dows"></div>
+                    <div class="lx-at-hm-grid" id="heat-grid"></div>
+                </div>
+            </div>
+            <div class="lx-at-hm-legend" id="heat-legend"></div>
+            <div class="lx-at-tip" id="heat-tooltip" role="presentation"></div>
+        </div>
+    </section>
+
+    <div class="lx-at-section lx-at-st-cols">
+        <div>
+            <div class="lx-at-section-head">
+                <h2 class="lx-at-section-title">How you travelled</h2>
+                <span class="lx-at-st-note-head" id="transport-summary"></span>
+            </div>
+            <div class="lx-at-surface lx-at-st-card" id="transport-body" aria-live="polite"></div>
+        </div>
+        <div>
+            <div class="lx-at-section-head">
+                <h2 class="lx-at-section-title">Most visited</h2>
+                <div class="lx-at-seg" id="mv-seg" role="group" aria-label="Most visited by">
+                    <button type="button" id="mv-cities-btn" data-mv="cities" aria-pressed="true">Cities</button>
+                    <button type="button" id="mv-countries-btn" data-mv="countries" aria-pressed="false">Countries</button>
+                    <button type="button" id="mv-places-btn" data-mv="places" aria-pressed="false">Places</button>
+                </div>
+            </div>
+            <div class="lx-at-surface lx-at-st-card" id="most-visited-list" aria-live="polite">
+                <p class="lx-at-st-empty"><span class="skeleton skel-line" style="display:block;width:60%;margin-bottom:12px;"></span><span class="skeleton skel-line" style="display:block;width:45%;margin-bottom:12px;"></span><span class="skeleton skel-line" style="display:block;width:55%;"></span></p>
+            </div>
+        </div>
+    </div>
+
+    <section class="lx-at-section" aria-labelledby="yearly-heading">
+        <div class="lx-at-section-head">
+            <h2 class="lx-at-section-title" id="yearly-heading">Yearly overview</h2>
+            <span class="lx-at-st-note-head">independent of range</span>
+        </div>
+        <div class="lx-at-stats lx-at-st-periods" id="yearly-compare-grid">
+            <div class="lx-at-stat">
+                <span class="lx-at-stat-label">This week</span>
+                <span class="lx-at-stat-value" id="week-pts"><span class="skeleton"></span></span>
+                <span class="lx-at-st-delta" id="week-delta"></span>
+                <span class="lx-at-st-places" id="week-places"></span>
+            </div>
+            <div class="lx-at-stat">
+                <span class="lx-at-stat-label">This month</span>
+                <span class="lx-at-stat-value" id="month-pts"><span class="skeleton"></span></span>
+                <span class="lx-at-st-delta" id="month-delta"></span>
+                <span class="lx-at-st-places" id="month-places"></span>
+            </div>
+            <div class="lx-at-stat">
+                <span class="lx-at-stat-label" id="year-label">This year</span>
+                <span class="lx-at-stat-value" id="year-pts"><span class="skeleton"></span></span>
+                <span class="lx-at-st-delta" id="year-delta"></span>
+                <span class="lx-at-st-places" id="year-places"></span>
+            </div>
+        </div>
+
+        <div class="lx-at-section-head" style="margin-top:24px;">
+            <h3 class="lx-at-section-title" id="monthly-chart-title">Monthly activity</h3>
+            <span class="lx-at-st-note-head">points per month</span>
+        </div>
+        <div class="lx-at-surface lx-at-st-plot">
+            <div class="lx-at-st-chart lx-at-st-chart--sm" id="yearly-chart-wrap">
+                <canvas id="yearly-chart" role="img" aria-label="Points recorded per month this year"></canvas>
+                <div class="skeleton lx-at-st-chart-skel" id="st-year-skel" style="inset:8px 4px 24px 4px;"></div>
+                <div class="lx-at-st-hline" id="yearly-hline"></div>
+                <div class="lx-at-st-hdot" id="yearly-hdot"></div>
+                <div class="lx-at-tip" id="yearly-tooltip" role="presentation"></div>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+'use strict';
+
+const $ = id => document.getElementById(id);
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const RANGE_LABELS = {
+    '24': 'Last 24 hours', '72': 'Last 3 days', '168': 'Last week', '720': 'Last 30 days',
+    '2160': 'Last 90 days', '8760': 'Last year', 'all': 'All time',
+};
+const KM_TO_MI = 0.621371;
+
+// ── Small helpers ───────────────────────────────────────────────────────────
+function isImperial() {
+    try { return (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph'; } catch (e) { return false; }
+}
+function formatDistance(km) {
+    return isImperial() ? (km * KM_TO_MI).toFixed(1) + ' mi' : km.toFixed(1) + ' km';
+}
+function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+}
+function toast(msg, type) {
+    if (window.roamlyToast) window.roamlyToast(msg, { type: type || 'error' });
+}
+function plural(n, one, many) { return n === 1 ? one : many; }
+
+// Local 'YYYY-MM-DD' / 'YYYY-MM-DD HH' keys: the API buckets by the user's own
+// day and hour, so UTC keys would add a phantom empty day every evening.
+function localDateStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function localHourKey(d) { return `${localDateStr(d)} ${String(d.getHours()).padStart(2, '0')}`; }
+function addDays(dateStr, n) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+function addHours(key, n) {
+    const dateStr = key.slice(0, 10);
+    const hour = parseInt(key.slice(11), 10) + n;
+    const days = Math.floor(hour / 24);
+    const h = hour % 24;
+    return (days > 0 ? addDays(dateStr, days) : dateStr) + ' ' + String(h).padStart(2, '0');
+}
+// Monday-first row index (0=Mon .. 6=Sun); parsed as UTC to match the API's day keys.
+function dowIndex(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
+}
+
+// Any CSS colour -> rgba(): the canvas normalises whatever it is given to
+// #rrggbb or rgba(...), so palette tokens need not be hex.
+const _cc = (function () { try { return document.createElement('canvas').getContext('2d'); } catch (e) { return null; } })();
+function rgba(css, a) {
+    if (!_cc || !css) return css || 'rgba(128,128,128,' + a + ')';
+    _cc.fillStyle = '#808080';
+    _cc.fillStyle = css;
+    const v = String(_cc.fillStyle);
+    let m = /^#([0-9a-f]{6})$/i.exec(v);
+    if (m) { const n = parseInt(m[1], 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; }
+    m = /^rgba?\(([^)]+)\)/i.exec(v);
+    if (m) { const p = m[1].split(',').map(parseFloat); return `rgba(${p[0]},${p[1]},${p[2]},${a})`; }
+    return css;
+}
+function theme() {
+    const cs = getComputedStyle(document.documentElement);
+    const g = (n, f) => (cs.getPropertyValue(n) || f).trim() || f;
+    return {
+        accent: g('--primary', '#e8763d'), grid: g('--border', '#30352a'), strong: g('--border-strong', '#474d3b'),
+        text: g('--text-muted', '#a9a794'), dim: g('--text-dim', '#706e5d'),
+        mono: g('--font-mono', 'ui-monospace, monospace'),
+    };
+}
+function setupCanvas(canvas) {
+    const wrap = canvas.parentElement;
+    const W = wrap.clientWidth, H = wrap.clientHeight;
+    if (!W || !H) return null;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    return { ctx, W, H };
+}
+
+// Monotone cubic (Fritsch–Carlson) bezier control points: the curve passes
+// through every point and never overshoots, so the line always meets the dots.
+function monotoneSpline(pts) {
+    const nseg = pts.length - 1;
+    const segs = [];
+    if (nseg < 1) return segs;
+    const dx = [], dy = [], m = [];
+    for (let i = 0; i < nseg; i++) {
+        dx[i] = pts[i + 1].x - pts[i].x;
+        dy[i] = pts[i + 1].y - pts[i].y;
+        m[i] = dx[i] === 0 ? 0 : dy[i] / dx[i];
+    }
+    const t = new Array(nseg + 1);
+    t[0] = m[0];
+    t[nseg] = m[nseg - 1];
+    for (let i = 1; i < nseg; i++) t[i] = (m[i - 1] * m[i] <= 0) ? 0 : (m[i - 1] + m[i]) / 2;
+    for (let i = 0; i < nseg; i++) {
+        if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
+        const a = t[i] / m[i], b = t[i + 1] / m[i];
+        const s = a * a + b * b;
+        if (s > 9) {
+            const tau = 3 / Math.sqrt(s);
+            t[i] = tau * a * m[i];
+            t[i + 1] = tau * b * m[i];
+        }
+    }
+    for (let i = 0; i < nseg; i++) {
+        segs.push({
+            cp1x: pts[i].x + dx[i] / 3, cp1y: pts[i].y + t[i] * dx[i] / 3,
+            cp2x: pts[i + 1].x - dx[i] / 3, cp2y: pts[i + 1].y - t[i + 1] * dx[i] / 3,
+        });
+    }
+    return segs;
+}
+function tracePath(ctx, pts, segs) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 0; i < segs.length; i++) {
+        ctx.bezierCurveTo(segs[i].cp1x, segs[i].cp1y, segs[i].cp2x, segs[i].cp2y, pts[i + 1].x, pts[i + 1].y);
+    }
+}
+function emptyText(ctx, W, H, T, text) {
+    ctx.fillStyle = T.text;
+    ctx.font = `12px ${T.mono}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, W / 2, H / 2);
+}
+
+// Last pointer type seen anywhere: a tap on touch should show the tooltip
+// first and only navigate on the second tap, a mouse click navigates at once.
+let lastPtr = 'mouse';
+document.addEventListener('pointerdown', e => { lastPtr = e.pointerType || 'mouse'; }, true);
+
+function setTip(tipEl, lines) {
+    tipEl.textContent = '';
+    tipEl.appendChild(el('span', 'lx-at-tip-k', lines[0] || ''));
+    if (lines[1]) tipEl.appendChild(el('span', 'lx-at-tip-v', lines[1]));
+}
+
+// Nearest-point hover (guide line + dot + tooltip, click-through) for a canvas
+// line chart. getState() -> { points:[{x,y,tip:[..],mapUrl}], geom:{top,height} }.
+function attachChartHover(canvas, els, getState) {
+    if (!canvas) return;
+    let armed = null;
+    function nearest(mx, points) {
+        let best = null, bestD = Infinity;
+        for (const p of points) {
+            const d = Math.abs(p.x - mx);
+            if (d < bestD) { bestD = d; best = p; }
+        }
+        return best;
+    }
+    function hide() {
+        els.tooltip.style.opacity = '0';
+        els.hline.style.opacity = '0';
+        els.hdot.style.opacity = '0';
+        canvas.style.cursor = '';
+    }
+    function show(hit, rect, geom) {
+        setTip(els.tooltip, hit.tip);
+        els.tooltip.style.opacity = '1';
+        const tw = els.tooltip.offsetWidth || 120;
+        const tx = Math.max(tw / 2 + 2, Math.min(rect.width - tw / 2 - 2, hit.x));
+        els.tooltip.style.left = tx + 'px';
+        els.tooltip.style.transform = 'translateX(-50%)';
+        els.tooltip.style.top = '';
+        els.tooltip.style.bottom = Math.max(0, rect.height - hit.y + 12) + 'px';
+        els.hline.style.left = hit.x + 'px';
+        els.hline.style.top = geom.top + 'px';
+        els.hline.style.height = geom.height + 'px';
+        els.hline.style.opacity = '1';
+        els.hdot.style.left = hit.x + 'px';
+        els.hdot.style.top = hit.y + 'px';
+        els.hdot.style.opacity = '1';
+        canvas.style.cursor = hit.mapUrl ? 'pointer' : 'default';
+    }
+    function pick(e) {
+        const st = getState();
+        if (!st || !st.points || !st.points.length || !st.geom) return null;
+        const rect = canvas.getBoundingClientRect();
+        const hit = nearest(e.clientX - rect.left, st.points);
+        return hit ? { hit, rect, geom: st.geom } : null;
+    }
+    function move(e) {
+        const p = pick(e);
+        if (!p) { hide(); return; }
+        show(p.hit, p.rect, p.geom);
+    }
+    canvas.addEventListener('pointermove', move);
+    canvas.addEventListener('pointerdown', move);
+    canvas.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') hide(); });
+    document.addEventListener('pointerdown', e => { if (e.target !== canvas) { hide(); armed = null; } });
+    canvas.addEventListener('click', e => {
+        const p = pick(e);
+        if (!p || !p.hit.mapUrl) return;
+        if (lastPtr === 'touch' && armed !== p.hit.mapUrl) { armed = p.hit.mapUrl; show(p.hit, p.rect, p.geom); return; }
+        window.location.href = p.hit.mapUrl;
+    });
+}
+
+// ── Range state ─────────────────────────────────────────────────────────────
+let preset = '168';     // which preset button is selected
+let custom = false;     // a start+end pair overrides the preset
+let loadToken = 0;      // drops a slow response for a range that has been replaced
+
+function getRange() { return custom ? 'all' : preset; }
+function getFilterParams() {
+    const s = $('stats-start').value, e = $('stats-end').value;
+    const range = getRange();
+    const params = new URLSearchParams();
+    if (s && e) {
+        params.set('start_date', s);
+        params.set('end_date', e);
+    } else if (range === 'all') {
+        params.set('all', '1');
+    } else {
+        params.set('hours', range);
+    }
+    return params;
+}
+function syncRangeUi() {
+    document.querySelectorAll('#stats-range > button').forEach(b => {
+        b.setAttribute('aria-pressed', (!custom && b.dataset.range === preset) ? 'true' : 'false');
+    });
+    ['stats-start', 'stats-end'].forEach(id => $(id).classList.toggle('is-set', custom));
+    $('st-scope').textContent = custom
+        ? `${$('stats-start').value} – ${$('stats-end').value}`
+        : (RANGE_LABELS[preset] || 'All time');
+}
+
+// ── KPI strip ───────────────────────────────────────────────────────────────
+function skeletonValue(node) {
+    node.textContent = '';
+    node.appendChild(el('span', 'skeleton'));
+}
+function setValue(id, text, unit) {
+    const node = $(id);
+    if (!node) return;
+    node.textContent = text;
+    if (unit) node.appendChild(el('span', 'lx-at-stat-unit', unit));
+}
+function setDistanceKpi(km) {
+    const v = isImperial() ? km * KM_TO_MI : km;
+    setValue('stat-distance', v.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+             isImperial() ? 'mi' : 'km');
+    $('stat-distance-label').textContent = isImperial() ? 'Total miles' : 'Total kilometres';
+}
+function metaItem(k, v) {
+    const s = el('span');
+    s.appendChild(el('span', 'k', k));
+    s.appendChild(el('span', 'v', v));
+    return s;
+}
+
+// ── How you travelled ───────────────────────────────────────────────────────
+// Populated by the "Detect Transport Modes" job in Settings → Background Jobs.
+const TM_LABELS = { still: 'Still', walk: 'Walking', cycle: 'Cycling', vehicle: 'Vehicle', plane: 'Flying' };
+const TM_COLORS = {
+    still: 'var(--text-dim)', walk: 'var(--clay-mint)', cycle: 'var(--clay-amber)',
+    vehicle: 'var(--clay-sky)', plane: 'var(--clay-lavender)',
+};
+function emptyNote(html) {
+    const p = el('p', 'lx-at-st-empty');
+    p.innerHTML = html;      // static copy only, never data
+    return p;
+}
+function loadTransport(token) {
+    const body = $('transport-body');
+    const summary = $('transport-summary');
+    body.textContent = '';
+    [70, 45, 30].forEach(w => {
+        const row = el('div', 'lx-at-st-tm');
+        const a = el('span', 'skeleton'); a.style.width = '70%';
+        const b = el('span', 'lx-at-st-track'); const bs = el('span', 'skeleton'); bs.style.display = 'block'; bs.style.width = w + '%'; bs.style.height = '100%'; b.appendChild(bs);
+        const c = el('span', 'skeleton'); c.style.width = '3.5rem';
+        row.append(a, b, c);
+        body.appendChild(row);
+    });
+    summary.textContent = '';
+
+    fetch(`/api/transport/breakdown/?${getFilterParams()}`)
+        .then(r => { if (!r.ok) throw new Error('transport failed'); return r.json(); })
+        .then(data => {
+            if (token !== loadToken) return;
+            body.textContent = '';
+            // 'still' is left out of the bars: it is most of the points and would
+            // dwarf every real mode, and standing still isn't travelling.
+            const moving = (data.modes || []).filter(m => m.mode !== 'still' && m.km > 0);
+            if (!moving.length) {
+                body.appendChild(emptyNote(data.unclassified
+                    ? 'No modes detected in this range. Run <strong>Detect Transport Modes</strong> in <a href="/settings/">Settings → Background Jobs</a>.'
+                    : 'No travel in this range.'));
+                return;
+            }
+            const total = moving.reduce((s, m) => s + m.km, 0);
+            moving.forEach(m => {
+                const pct = total > 0 ? (m.km / total * 100) : 0;
+                const row = el('div', 'lx-at-st-tm');
+                row.style.setProperty('--c', TM_COLORS[m.mode] || 'var(--primary)');
+                const name = el('span', 'lx-at-st-tm-name');
+                name.appendChild(el('span', 'lx-at-st-tm-dot'));
+                name.appendChild(el('span', '', TM_LABELS[m.mode] || m.mode));
+                const track = el('span', 'lx-at-st-track');
+                const fill = el('span', 'lx-at-st-fill');
+                fill.style.width = pct.toFixed(1) + '%';
+                track.appendChild(fill);
+                row.append(name, track, el('span', 'lx-at-st-tm-val', `${formatDistance(m.km)} · ${pct.toFixed(0)}%`));
+                body.appendChild(row);
+            });
+            summary.textContent = data.unclassified
+                ? `${data.unclassified.toLocaleString()} points unclassified`
+                : `${formatDistance(total)} total`;
+        })
+        .catch(() => {
+            if (token !== loadToken) return;
+            body.textContent = '';
+            body.appendChild(emptyNote('Could not load the transport breakdown.'));
+        });
+}
+
+// ── Totals + distance chart ─────────────────────────────────────────────────
+let distData = null;      // {days, distances, range}
+let chartPoints = [];
+let chartGeom = null;
+
+function loadStats() {
+    const token = ++loadToken;
+    const params = getFilterParams();
+    const range = getRange();
+    syncRangeUi();
+
+    ['stat-points', 'stat-countries', 'stat-cities', 'stat-states', 'stat-distance'].forEach(id => skeletonValue($(id)));
+    $('timeline-info').textContent = '';
+    $('st-dist-skel').hidden = false;
+    $('st-dist-note').textContent = '';
+
+    loadTransport(token);
+
+    fetch(`/api/stats/?${params}`)
+        .then(r => { if (!r.ok) throw new Error('stats request failed'); return r.json(); })
+        .then(data => {
+            if (token !== loadToken) return;
+            setValue('stat-points', (data.total_points || 0).toLocaleString());
+            setValue('stat-countries', String(data.countries ?? 0));
+            setValue('stat-cities', String(data.cities ?? 0));
+            setValue('stat-states', String(data.states ?? 0));
+
+            const tl = $('timeline-info');
+            tl.textContent = '';
+            if (data.first_location) {
+                const first = new Date(data.first_location);
+                const last = new Date(data.last_location);
+                const days = Math.ceil((last - first) / 86400000);
+                tl.append(
+                    metaItem('First', first.toLocaleDateString()),
+                    metaItem('Last', last.toLocaleDateString()),
+                    metaItem('Span', `${days} ${plural(days, 'day', 'days')}`));
+            } else {
+                tl.appendChild(el('span', '', 'No data in this range'));
+            }
+        })
+        .catch(() => {
+            if (token !== loadToken) return;
+            ['stat-points', 'stat-countries', 'stat-cities', 'stat-states'].forEach(id => setValue(id, '—'));
+            const tl = $('timeline-info');
+            tl.textContent = '';
+            const msg = el('span', 'is-error', 'Failed to load stats. ');
+            const retry = el('button', 'lx-at-st-link', 'Retry');
+            retry.type = 'button';
+            retry.addEventListener('click', loadStats);
+            msg.appendChild(retry);
+            tl.appendChild(msg);
+        });
+
+    const distParams = new URLSearchParams(params.toString());
+    if (range === '24' || range === '72') distParams.set('granularity', 'hourly');
+    fetch(`/api/distance/?${distParams}`)
+        .then(r => { if (!r.ok) throw new Error('distance request failed'); return r.json(); })
+        .then(data => {
+            if (token !== loadToken) return;
+            setDistanceKpi(data.total_km || 0);
+            distData = { days: data.days || [], distances: data.distances || [], range };
+            drawDistance();
+        })
+        .catch(() => {
+            if (token !== loadToken) return;
+            setValue('stat-distance', '—');
+            distData = null;
+            chartPoints = [];
+            chartGeom = null;
+            $('st-dist-skel').hidden = true;
+            const S = setupCanvas($('distance-chart'));
+            if (S) emptyText(S.ctx, S.W, S.H, theme(), 'Could not load the distance chart');
+            toast('Failed to load distance chart.');
+        });
+}
+
+function groupDays(days, distancesKm, range) {
+    // 24h = hourly, 72h = 3-hour blocks, 168h/720h = daily, 2160h = 3-day
+    // groups, 8760h/all = monthly.
+    let mode;
+    if (range === '24') mode = 'hourly';
+    else if (range === '72') mode = '3hourly';
+    else if (range === '168' || range === '720') mode = 'daily';
+    else if (range === '2160') mode = '3day';
+    else mode = 'monthly';
+
+    const now = new Date();
+    const hours = (!isNaN(parseInt(range, 10))) ? parseInt(range, 10) : null;
+    const rangeStartTs = hours ? new Date(now - hours * 3600000) : null;
+    const todayStr = localDateStr(now);
+    const nowHourKey = localHourKey(now);
+    const rangeStartDate = rangeStartTs ? localDateStr(rangeStartTs) : null;
+    const rangeStartHour = rangeStartTs ? localHourKey(rangeStartTs) : null;
+
+    if (mode === 'daily') {
+        const map = new Map(days.map((d, i) => [d, distancesKm[i]]));
+        const labels = [], values = [];
+        const fillStart = rangeStartDate || (days.length ? days[0] : todayStr);
+        for (let d = fillStart; d <= todayStr; d = addDays(d, 1)) {
+            labels.push(d);
+            values.push(map.get(d) || 0);
+        }
+        return { labels, values, sublabels: null, mode };
+    }
+    if (mode === 'hourly') {
+        const map = new Map(days.map((d, i) => [d, distancesKm[i]]));
+        const labels = [], values = [];
+        const fillStart = rangeStartHour || (days.length ? days[0] : nowHourKey);
+        for (let k = fillStart; k <= nowHourKey; k = addHours(k, 1)) {
+            labels.push(k);
+            values.push(map.get(k) || 0);
+        }
+        return { labels, values, sublabels: null, mode };
+    }
+
+    // Grouped modes: build buckets from the data.
+    const buckets = new Map();
+    for (let i = 0; i < days.length; i++) {
+        let key;
+        if (mode === 'monthly') {
+            key = days[i].slice(0, 7);
+        } else if (mode === '3day') {
+            const [y, m, d] = days[i].split('-').map(Number);
+            key = String(Math.floor(Math.floor(Date.UTC(y, m - 1, d) / 86400000) / 3));
+        } else { // 3hourly — days[i] like '2026-02-18 14'
+            const hour = parseInt(days[i].slice(11), 10);
+            key = days[i].slice(0, 10) + ' ' + String(Math.floor(hour / 3) * 3).padStart(2, '0');
+        }
+        if (!buckets.has(key)) buckets.set(key, { total: 0, count: 0, first: days[i], last: days[i] });
+        const b = buckets.get(key);
+        b.total += distancesKm[i];
+        b.count++;
+        b.last = days[i];
+    }
+    const dataKeys = () => Array.from(buckets.keys()).sort();
+
+    if (mode === 'monthly') {
+        const nowMonthKey = todayStr.slice(0, 7);
+        const firstKey = rangeStartDate ? rangeStartDate.slice(0, 7) : (dataKeys()[0] || nowMonthKey);
+        let [cy, cm] = firstKey.split('-').map(Number);
+        const [ly, lm] = nowMonthKey.split('-').map(Number);
+        while (cy < ly || (cy === ly && cm <= lm)) {
+            const k = `${cy}-${String(cm).padStart(2, '0')}`;
+            if (!buckets.has(k)) buckets.set(k, { total: 0, count: 0, first: k, last: k });
+            if (++cm > 12) { cm = 1; cy++; }
+        }
+    } else if (mode === '3day') {
+        const nowBucket = Math.floor(Math.floor(now.getTime() / 86400000) / 3);
+        let firstBucket;
+        if (rangeStartDate) {
+            const [ry, rm, rd] = rangeStartDate.split('-').map(Number);
+            firstBucket = Math.floor(Math.floor(Date.UTC(ry, rm - 1, rd) / 86400000) / 3);
+        } else {
+            firstBucket = dataKeys().length ? parseInt(dataKeys()[0], 10) : nowBucket;
+        }
+        for (let k = firstBucket; k <= nowBucket; k++) {
+            const sk = String(k);
+            if (!buckets.has(sk)) {
+                const ds = new Date(k * 3 * 86400000).toISOString().slice(0, 10);
+                buckets.set(sk, { total: 0, count: 0, first: ds, last: ds });
+            }
+        }
+    } else { // 3hourly. Keys are local hours, so the current block is local too.
+        const nowBlock = nowHourKey.slice(0, 10) + ' ' + String(Math.floor(now.getHours() / 3) * 3).padStart(2, '0');
+        let firstKey;
+        if (rangeStartHour) {
+            const rh = parseInt(rangeStartHour.slice(11), 10);
+            firstKey = rangeStartHour.slice(0, 10) + ' ' + String(Math.floor(rh / 3) * 3).padStart(2, '0');
+        } else {
+            firstKey = dataKeys()[0] || nowBlock;
+        }
+        for (let k = firstKey; k <= nowBlock; k = addHours(k, 3)) {
+            if (!buckets.has(k)) buckets.set(k, { total: 0, count: 0, first: k, last: k });
+        }
+    }
+
+    const labels = [], values = [], sublabels = [];
+    for (const [key, b] of Array.from(buckets.entries()).sort()) {
+        labels.push(key);
+        values.push(b.total);
+        if (mode === 'monthly') {
+            const [y, m] = key.split('-');
+            sublabels.push({ label: `${MONTH_NAMES[parseInt(m, 10) - 1]} '${y.slice(2)}`, range: b.count > 0 ? `${b.first} – ${b.last}` : key, days: b.count, unit: 'day' });
+        } else if (mode === '3day') {
+            const p = b.first.split('-');
+            sublabels.push({ label: `${p[1]}/${p[2]}`, range: b.count > 0 ? `${b.first} – ${b.last}` : b.first, days: b.count, unit: 'day' });
+        } else {
+            const s = parseInt(key.slice(11), 10);
+            const pp = n => String(n).padStart(2, '0');
+            sublabels.push({ label: `${pp(s)}:00`, range: `${key.slice(0, 10)} ${pp(s)}:00–${pp(s + 2)}:59`, days: b.count, unit: 'hr' });
+        }
+    }
+    return { labels, values, sublabels, mode };
+}
+
+const MODE_NOTE = { hourly: 'per hour', '3hourly': 'per 3 hours', daily: 'per day', '3day': 'per 3 days', monthly: 'per month' };
+
+function drawDistance() {
+    const canvas = $('distance-chart');
+    if (!canvas || !distData) return;
+    const S = setupCanvas(canvas);
+    if (!S) return;
+    const { ctx, W, H } = S;
+    const T = theme();
+    $('st-dist-skel').hidden = true;
+    chartPoints = [];
+    chartGeom = null;
+
+    const { days, distances, range } = distData;
+    if (!days.length) {
+        emptyText(ctx, W, H, T, 'No distance data in this range');
+        $('st-dist-note').textContent = '';
+        return;
+    }
+
+    const imperial = isImperial();
+    const grouped = groupDays(days, distances, range || '168');
+    const isGrouped = grouped.sublabels !== null;
+    const rawValues = grouped.values;
+    const values = rawValues.map(d => imperial ? d * KM_TO_MI : d);
+    const n = values.length;
+    $('st-dist-note').textContent = `${imperial ? 'mi' : 'km'} ${MODE_NOTE[grouped.mode] || ''}`.trim();
+
+    const pad = { top: 12, right: 12, bottom: 26, left: 40 };
+    const cW = W - pad.left - pad.right;
+    const cH = H - pad.top - pad.bottom;
+    chartGeom = { top: pad.top, height: cH };
+
+    const maxVal = Math.max(...values, 0.1);
+    const q = maxVal > 100 ? 50 : maxVal > 10 ? 5 : 1;
+    const niceMax = Math.ceil(maxVal / q) * q;
+
+    ctx.lineWidth = 1;
+    ctx.font = `10px ${T.mono}`;
+    ctx.textBaseline = 'middle';
+    const GRID = 4;
+    for (let i = 0; i <= GRID; i++) {
+        const y = Math.round(pad.top + cH - (cH * i / GRID)) + 0.5;
+        ctx.strokeStyle = i === 0 ? T.strong : rgba(T.grid, 0.9);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(W - pad.right, y);
+        ctx.stroke();
+        const val = niceMax * i / GRID;
+        ctx.fillStyle = T.text;
+        ctx.textAlign = 'right';
+        ctx.fillText(val % 1 === 0 ? String(val) : val.toFixed(1), pad.left - 8, y);
+    }
+
+    const xOf = i => n === 1 ? pad.left + cW / 2 : pad.left + (i / (n - 1)) * cW;
+    const yOf = v => pad.top + cH - (v / niceMax) * cH;
+    const pts = values.map((v, i) => ({ x: xOf(i), y: yOf(v) }));
+
+    if (pts.length >= 2) {
+        const segs = monotoneSpline(pts);
+        const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + cH);
+        grad.addColorStop(0, rgba(T.accent, 0.24));
+        grad.addColorStop(1, rgba(T.accent, 0.02));
+        tracePath(ctx, pts, segs);
+        ctx.lineTo(pts[pts.length - 1].x, pad.top + cH);
+        ctx.lineTo(pts[0].x, pad.top + cH);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+        tracePath(ctx, pts, segs);
+        ctx.strokeStyle = T.accent;
+        ctx.lineWidth = 1.75;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.stroke();
+    }
+
+    const showDots = n <= 31;
+    for (let i = 0; i < n; i++) {
+        if (pts.length === 1 || showDots) {
+            ctx.beginPath();
+            ctx.arc(pts[i].x, pts[i].y, pts.length === 1 ? 3.5 : 2.5, 0, Math.PI * 2);
+            ctx.fillStyle = T.accent;
+            ctx.fill();
+        }
+        const dist = formatDistance(rawValues[i]);
+        let tip, mapStart, mapEnd;
+        if (isGrouped) {
+            const s = grouped.sublabels[i];
+            tip = [s.range, `${dist} (${s.days} ${s.unit}${s.days !== 1 ? 's' : ''})`];
+            const parts = (s.range || '').split(' – ');
+            mapStart = parts[0].slice(0, 10);
+            mapEnd = parts[parts.length - 1].slice(0, 10);
+        } else if (grouped.mode === 'hourly') {
+            const hour = grouped.labels[i].slice(11);
+            tip = [`${grouped.labels[i].slice(0, 10)} ${hour}:00–${hour}:59`, dist];
+            mapStart = mapEnd = grouped.labels[i].slice(0, 10);
+        } else {
+            tip = [grouped.labels[i], dist];
+            mapStart = mapEnd = grouped.labels[i];
+        }
+        chartPoints.push({ x: pts[i].x, y: pts[i].y, tip, mapUrl: `/map/?start=${mapStart}&end=${mapEnd}` });
+    }
+
+    ctx.fillStyle = T.text;
+    ctx.font = `10px ${T.mono}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    const maxLabels = Math.max(1, Math.floor(cW / 64));
+    const step = Math.max(1, Math.ceil(n / maxLabels));
+    for (let i = 0; i < n; i += step) {
+        let text;
+        if (isGrouped) text = grouped.sublabels[i].label;
+        else if (grouped.mode === 'hourly') text = `${grouped.labels[i].slice(11)}:00`;
+        else { const p = grouped.labels[i].split('-'); text = `${p[1]}/${p[2]}`; }
+        // Keep the first and last labels inside the canvas.
+        const half = ctx.measureText(text).width / 2;
+        ctx.fillText(text, Math.max(half + 2, Math.min(W - half - 2, pts[i].x)), H - 8);
+    }
+}
+
+// ── Daily distance heatmap (one calendar year) ──────────────────────────────
+// Independent of the range filter. Fetched once with all=1&granularity=daily
+// (the one distance request served straight from the snapshot); stepping
+// between years redraws from that.
+const DOW_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
+let heatData = { days: [], distances: [] };
+let heatYear = new Date().getFullYear();
+let heatReady = false;
+
+// Quartiles of the *active* days: daily distance is skewed (commutes plus a
+// few travel days), so a linear ramp would flatten nearly everything to level 1.
+function makeHeatLevel(values) {
+    const nz = values.filter(v => v > 0).sort((a, b) => a - b);
+    if (!nz.length) return null;
+    const q = p => nz[Math.min(nz.length - 1, Math.floor(p * nz.length))];
+    let t = [q(0.25), q(0.5), q(0.75)];
+    if (!(t[0] < t[1] && t[1] < t[2])) {
+        const lo = nz[0], hi = nz[nz.length - 1];
+        if (hi <= lo) return v => (v > 0 ? 4 : 0);
+        t = [1, 2, 3].map(i => lo + (hi - lo) * i / 4);
+    }
+    return v => {
+        if (!(v > 0)) return 0;
+        if (v <= t[0]) return 1;
+        if (v <= t[1]) return 2;
+        if (v <= t[2]) return 3;
+        return 4;
+    };
+}
+function heatFirstYear() {
+    const first = heatData.days.find((d, i) => heatData.distances[i] > 0);
+    const thisYear = new Date().getFullYear();
+    return first ? Math.min(thisYear, parseInt(first.slice(0, 4), 10)) : thisYear;
+}
+function loadHeatmap() {
+    fetch('/api/distance/?all=1&granularity=daily')
+        .then(r => { if (!r.ok) throw new Error('heatmap failed'); return r.json(); })
+        .then(data => {
+            heatData = { days: data.days || [], distances: data.distances || [] };
+            heatReady = true;
+            drawHeatmap();
+        })
+        .catch(() => {
+            $('heat-skel').hidden = true;
+            $('heat-summary').textContent = 'Could not load daily distance';
+        });
+}
+function legendCell(level) {
+    const c = el('div', 'lx-at-hm-cell');
+    if (level) c.dataset.l = String(level);
+    return c;
+}
+function drawHeatmap() {
+    if (!heatReady) return;
+    const grid = $('heat-grid'), monthsEl = $('heat-months'), dowsEl = $('heat-dows');
+    const legendEl = $('heat-legend'), summaryEl = $('heat-summary');
+
+    const thisYear = new Date().getFullYear();
+    heatYear = Math.max(heatFirstYear(), Math.min(thisYear, heatYear));
+    $('heat-year').textContent = String(heatYear);
+    $('heat-prev').disabled = heatYear <= heatFirstYear();
+    $('heat-next').disabled = heatYear >= thisYear;
+    $('heat-skel').hidden = true;
+    $('heat-wrap').hidden = false;
+
+    const byDay = new Map(heatData.days.map((d, i) => [d, heatData.distances[i]]));
+    // Whole Mon–Sun columns from the week holding Jan 1 to the week holding
+    // Dec 31. Local "today": the API's day keys are the user's local days.
+    const yearStart = `${heatYear}-01-01`;
+    const yearEnd = `${heatYear}-12-31`;
+    const today = localDateStr(new Date());
+    const gridStart = addDays(yearStart, -dowIndex(yearStart));
+    const daysInYear = (Date.UTC(heatYear + 1, 0, 1) - Date.UTC(heatYear, 0, 1)) / 86400000;
+    const weeks = Math.ceil((dowIndex(yearStart) + daysInYear) / 7);
+
+    const cells = [], windowVals = [];
+    for (let c = 0; c < weeks; c++) {
+        for (let r = 0; r < 7; r++) {
+            const day = addDays(gridStart, c * 7 + r);
+            if (day < yearStart || day > yearEnd) { cells.push(null); continue; }
+            if (day > today) { cells.push({ day, future: true }); continue; }
+            const km = byDay.get(day) || 0;
+            cells.push({ day, km });
+            windowVals.push(km);
+        }
+    }
+    const levelOf = makeHeatLevel(windowVals);
+    const activeDays = windowVals.filter(v => v > 0).length;
+    const totalKm = windowVals.reduce((a, b) => a + b, 0);
+
+    dowsEl.textContent = '';
+    DOW_LABELS.forEach(l => dowsEl.appendChild(el('div', 'lx-at-hm-dow', l)));
+
+    const frag = document.createDocumentFragment();
+    cells.forEach(c => {
+        const d = el('div', 'lx-at-hm-cell');
+        if (!c) d.classList.add('is-void');
+        else if (c.future) d.classList.add('is-future');
+        else {
+            const level = levelOf ? levelOf(c.km) : 0;
+            if (level) d.dataset.l = String(level);
+            d.dataset.day = c.day;
+            d.dataset.km = String(c.km);
+        }
+        frag.appendChild(d);
+    });
+    grid.textContent = '';
+    grid.appendChild(frag);
+
+    // Month labels sit above the column holding each month's 1st; skipped when
+    // too close to the previous label to fit.
+    let lastCol = -3;
+    monthsEl.textContent = '';
+    for (let m = 1; m <= 12; m++) {
+        const first = `${heatYear}-${String(m).padStart(2, '0')}-01`;
+        const col = Math.floor((Date.parse(first) - Date.parse(gridStart)) / (7 * 86400000));
+        if (col - lastCol >= 3) {
+            const lab = el('div', 'lx-at-hm-month', MONTH_NAMES[m - 1]);
+            lab.style.gridColumn = `${col + 1} / span 3`;
+            monthsEl.appendChild(lab);
+            lastCol = col;
+        }
+    }
+    monthsEl.style.gridTemplateColumns = `repeat(${weeks}, var(--hm-cell))`;
+
+    summaryEl.textContent = activeDays
+        ? `${formatDistance(totalKm)} over ${activeDays} active ${plural(activeDays, 'day', 'days')}`
+        : `No distance data in ${heatYear}`;
+
+    legendEl.textContent = '';
+    legendEl.appendChild(document.createTextNode('less'));
+    [0, 1, 2, 3, 4].forEach(l => legendEl.appendChild(legendCell(l)));
+    legendEl.appendChild(document.createTextNode('more'));
+
+    // The current year opens scrolled to today; other years start at January.
+    const sc = $('heat-scroll');
+    if (heatYear === thisYear) {
+        const col = Math.floor((Date.parse(today) - Date.parse(gridStart)) / (7 * 86400000));
+        const cell = parseFloat(getComputedStyle($('heat-wrap')).getPropertyValue('--hm-cell')) || 12;
+        sc.scrollLeft = Math.max(0, (col + 1) * (cell + 3) - sc.clientWidth + 48);
+    } else {
+        sc.scrollLeft = 0;
+    }
+}
+
+$('heat-prev').addEventListener('click', () => { heatYear--; drawHeatmap(); });
+$('heat-next').addEventListener('click', () => { heatYear++; drawHeatmap(); });
+
+// Hover / click on the cells (delegated: the grid is rebuilt on every draw).
+(function attachHeatmapHover() {
+    const card = document.querySelector('.lx-at-hm-card');
+    const grid = $('heat-grid');
+    const tooltip = $('heat-tooltip');
+    let armed = null;
+    function show(cell) {
+        const km = parseFloat(cell.dataset.km) || 0;
+        setTip(tooltip, [cell.dataset.day, km > 0 ? formatDistance(km) : 'no distance']);
+        tooltip.style.opacity = '1';
+        const cr = card.getBoundingClientRect();
+        const r = cell.getBoundingClientRect();
+        const tw = tooltip.offsetWidth || 100;
+        const x = Math.max(tw / 2 + 4, Math.min(cr.width - tw / 2 - 4, r.left - cr.left + r.width / 2));
+        tooltip.style.left = x + 'px';
+        tooltip.style.top = (r.top - cr.top - tooltip.offsetHeight - 6) + 'px';
+        tooltip.style.transform = 'translateX(-50%)';
+    }
+    grid.addEventListener('mouseover', e => {
+        const cell = e.target.closest('.lx-at-hm-cell[data-day]');
+        if (cell) show(cell);
+    });
+    grid.addEventListener('mouseleave', () => { tooltip.style.opacity = '0'; });
+    grid.addEventListener('click', e => {
+        const cell = e.target.closest('.lx-at-hm-cell[data-day]');
+        if (!cell) return;
+        if (lastPtr === 'touch' && armed !== cell.dataset.day) { armed = cell.dataset.day; show(cell); return; }
+        window.location.href = `/map/?start=${cell.dataset.day}&end=${cell.dataset.day}`;
+    });
+    document.addEventListener('pointerdown', e => {
+        if (!grid.contains(e.target)) { tooltip.style.opacity = '0'; armed = null; }
+    });
+})();
+
+// ── Yearly overview ─────────────────────────────────────────────────────────
+let yearlyData = null;
+let mvMode = 'cities';
+let yearlyPoints = [];
+let yearlyGeom = null;
+
+function pct(a, b) { return b ? Math.round(((a - b) / b) * 100) : null; }
+function setDelta(id, curr, prev, vs) {
+    const node = $(id);
+    node.textContent = '';
+    const p = pct(curr, prev);
+    if (p === null) return;
+    node.appendChild(el('b', p >= 0 ? 'is-up' : 'is-down', `${p >= 0 ? '+' : ''}${p}%`));
+    node.appendChild(document.createTextNode(` vs ${vs}`));
+}
+function placesText(o) {
+    return `${o.countries} ${plural(o.countries, 'country', 'countries')} · ${o.cities} ${plural(o.cities, 'city', 'cities')}`;
+}
+function getJSON(url, errorMessage) {
+    if (window.roamlyFetch) return window.roamlyFetch(url, { errorMessage });
+    return fetch(url).then(r => { if (!r.ok) throw new Error('request failed'); return r.json(); });
+}
+
+async function loadYearlyOverview() {
+    let data;
+    try {
+        data = await getJSON('/api/stats/yearly/', "Couldn't load the yearly overview");
+    } catch (e) {
+        // Clear every skeleton so a failure never leaves the tiles shimmering.
+        ['week', 'month', 'year'].forEach(k => {
+            setValue(`${k}-pts`, '—');
+            $(`${k}-delta`).textContent = '';
+            $(`${k}-places`).textContent = '';
+        });
+        $('yearly-heading').textContent = 'Overview unavailable';
+        $('st-year-skel').hidden = true;
+        $('most-visited-list').textContent = '';
+        $('most-visited-list').appendChild(emptyNote('Could not load this section.'));
+        return;
+    }
+    yearlyData = data;
+    if (window.setSnapshotUpdated) window.setSnapshotUpdated(data.computed_at);
+    $('yearly-heading').textContent = `${data.year} overview`;
+    $('year-label').textContent = String(data.year);
+    $('monthly-chart-title').textContent = `${data.year} monthly activity`;
+
+    [['week', data.this_week, data.last_week, 'last week'],
+     ['month', data.this_month, data.last_month, 'last month'],
+     ['year', data.this_year, data.last_year, 'last year']].forEach(([k, cur, prev, vs]) => {
+        cur = cur || {}; prev = prev || {};
+        setValue(`${k}-pts`, (cur.points || 0).toLocaleString(), 'pts');
+        setDelta(`${k}-delta`, cur.points || 0, prev.points || 0, vs);
+        $(`${k}-places`).textContent = placesText({ countries: cur.countries || 0, cities: cur.cities || 0 });
+    });
+
+    drawYearly();
+    renderMostVisited(data);
+}
+
+function drawYearly() {
+    const canvas = $('yearly-chart');
+    if (!canvas || !yearlyData) return;
+    const monthly = yearlyData.monthly_breakdown || [];
+    const year = yearlyData.year;
+    const S = setupCanvas(canvas);
+    if (!S) return;
+    const { ctx, W, H } = S;
+    const T = theme();
+    $('st-year-skel').hidden = true;
+    yearlyPoints = [];
+    yearlyGeom = null;
+    if (!monthly.length) { emptyText(ctx, W, H, T, 'No activity this year'); return; }
+
+    const PAD = { top: 14, right: 14, bottom: 22, left: 14 };
+    const cw = W - PAD.left - PAD.right;
+    const ch = H - PAD.top - PAD.bottom;
+    yearlyGeom = { top: PAD.top, height: ch };
+    const maxPts = Math.max(...monthly.map(m => m.points), 1);
+    const n = monthly.length;
+    const xOf = i => n === 1 ? PAD.left + cw / 2 : PAD.left + (i / (n - 1)) * cw;
+    const yOf = v => PAD.top + ch - (v / maxPts) * ch;
+    const pts = monthly.map((m, i) => ({ x: xOf(i), y: yOf(m.points) }));
+
+    ctx.strokeStyle = T.strong;
+    ctx.lineWidth = 1;
+    const by = Math.round(PAD.top + ch) + 0.5;
+    ctx.beginPath(); ctx.moveTo(PAD.left, by); ctx.lineTo(W - PAD.right, by); ctx.stroke();
+
+    if (pts.length >= 2) {
+        const segs = monotoneSpline(pts);
+        const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + ch);
+        grad.addColorStop(0, rgba(T.accent, 0.24));
+        grad.addColorStop(1, rgba(T.accent, 0.02));
+        tracePath(ctx, pts, segs);
+        ctx.lineTo(pts[pts.length - 1].x, PAD.top + ch);
+        ctx.lineTo(pts[0].x, PAD.top + ch);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+        tracePath(ctx, pts, segs);
+        ctx.strokeStyle = T.accent;
+        ctx.lineWidth = 1.75;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.stroke();
+    }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = `10px ${T.mono}`;
+    monthly.forEach((m, i) => {
+        ctx.beginPath();
+        ctx.arc(pts[i].x, pts[i].y, pts.length === 1 ? 3.5 : 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = T.accent;
+        ctx.fill();
+        ctx.fillStyle = T.text;
+        ctx.font = `10px ${T.mono}`;
+        ctx.fillText(MONTH_NAMES[m.month - 1], pts[i].x, H - 6);
+        const mm = String(m.month).padStart(2, '0');
+        const lastDay = new Date(year, m.month, 0).getDate();
+        yearlyPoints.push({
+            x: pts[i].x, y: pts[i].y,
+            tip: [`${MONTH_NAMES[m.month - 1]} ${year}`, `${m.points.toLocaleString()} points`],
+            mapUrl: `/map/?start=${year}-${mm}-01&end=${year}-${mm}-${lastDay}`,
+        });
+    });
+}
+
+function fmtDuration(secs) {
+    if (secs < 3600) return `${Math.round(secs / 60)}m`;
+    const h = Math.floor(secs / 3600), m = Math.round((secs % 3600) / 60);
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function renderMostVisited(data) {
+    const list = $('most-visited-list');
+    list.textContent = '';
+    let items;
+    if (mvMode === 'cities') {
+        items = (data.top_cities || []).map(c => ({ label: `${c.city}, ${c.country}`, count: c.count }));
+    } else if (mvMode === 'countries') {
+        items = (data.top_countries || []).map(c => ({ label: c.country, count: c.count }));
+    } else {
+        items = (data.top_places || []).map(p => ({ label: p.name, count: p.count, sub: fmtDuration(p.total_time || 0), custom: !!p.is_custom }));
+    }
+    if (!items.length) {
+        list.appendChild(emptyNote(mvMode === 'places'
+            ? 'No place visits yet. Add your own on the <a href="/places/">Places</a> page, or download places on the <a href="/search/">search</a> page and let location data accumulate.'
+            : 'No data yet.'));
+        return;
+    }
+    const max = items[0].count || 1;
+    const ul = el('ul', 'lx-at-st-mv');
+    items.slice(0, 8).forEach(item => {
+        const li = el('li', 'lx-at-st-mv-row');
+        const top = el('div', 'lx-at-st-mv-top');
+        const name = el('span', 'lx-at-st-mv-name');
+        if (item.custom) name.appendChild(el('span', 'lx-at-st-mv-dot'));
+        name.appendChild(el('span', '', item.label));
+        name.title = item.label;
+        top.append(name, el('span', 'lx-at-st-mv-val',
+            `${item.sub ? item.sub + ' · ' : ''}${item.count.toLocaleString()} ${plural(item.count, 'visit', 'visits')}`));
+        const bar = el('div', 'lx-at-st-mv-bar' + (item.custom ? ' is-custom' : ''));
+        const fill = el('span');
+        fill.style.width = Math.round((item.count / max) * 100) + '%';
+        bar.appendChild(fill);
+        li.append(top, bar);
+        ul.appendChild(li);
+    });
+    list.appendChild(ul);
+}
+
+function switchMV(mode) {
+    mvMode = mode;
+    document.querySelectorAll('#mv-seg > button').forEach(b => {
+        b.setAttribute('aria-pressed', b.dataset.mv === mode ? 'true' : 'false');
+    });
+    if (yearlyData) renderMostVisited(yearlyData);
+}
+document.querySelectorAll('#mv-seg > button').forEach(b => b.addEventListener('click', () => switchMV(b.dataset.mv)));
+
+// ── Wiring ──────────────────────────────────────────────────────────────────
+document.querySelectorAll('#stats-range > button').forEach(b => {
+    b.addEventListener('click', () => {
+        preset = b.dataset.range;
+        custom = false;
+        $('stats-start').value = '';
+        $('stats-end').value = '';
+        loadStats();
+    });
+});
+['stats-start', 'stats-end'].forEach(id => {
+    $(id).addEventListener('change', () => {
+        const s = $('stats-start').value, e = $('stats-end').value;
+        if (s && e) {
+            custom = true;
+            loadStats();
+        } else if (custom) {
+            // One end was cleared: fall back to the preset instead of leaving a half range.
+            custom = false;
+            $('stats-start').value = '';
+            $('stats-end').value = '';
+            loadStats();
+        }
+    });
+});
+
+attachChartHover($('distance-chart'),
+    { tooltip: $('chart-tooltip'), hline: $('chart-hline'), hdot: $('chart-hdot') },
+    () => ({ points: chartPoints, geom: chartGeom }));
+attachChartHover($('yearly-chart'),
+    { tooltip: $('yearly-tooltip'), hline: $('yearly-hline'), hdot: $('yearly-hdot') },
+    () => ({ points: yearlyPoints, geom: yearlyGeom }));
+
+// Redraw from cached data when a plot changes width (window resize, rail or
+// panel toggles) or the palette flips: no refetch needed.
+function redrawPlots() { drawDistance(); drawYearly(); }
+(function watchSizes() {
+    let raf = 0;
+    const widths = new Map();
+    function schedule() { if (raf) cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { raf = 0; redrawPlots(); }); }
+    if (window.ResizeObserver) {
+        const ro = new ResizeObserver(entries => {
+            let changed = false;
+            entries.forEach(en => {
+                const w = Math.round(en.contentRect.width);
+                if (widths.get(en.target) !== w) { widths.set(en.target, w); changed = true; }
+            });
+            if (changed) schedule();
+        });
+        ro.observe($('st-dist-wrap'));
+        ro.observe($('yearly-chart-wrap'));
+    } else {
+        window.addEventListener('resize', schedule);
+    }
+    if (window.MutationObserver) {
+        new MutationObserver(schedule).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-palette'] });
+    }
+})();
+
+// ?start=YYYY-MM-DD&end=YYYY-MM-DD (e.g. a summary email's "View in stats"
+// link) seeds the range before the first load.
+(function seedFromUrl() {
+    try {
+        const p = new URLSearchParams(window.location.search);
+        if (p.get('start') && p.get('end')) {
+            $('stats-start').value = p.get('start');
+            $('stats-end').value = p.get('end');
+            custom = true;
+        }
+    } catch (e) { /* malformed query string: keep the default range */ }
+})();
+
+window.onSnapshotReady = function () { loadStats(); loadYearlyOverview(); loadHeatmap(); };
+
+loadStats();
+loadYearlyOverview();
+loadHeatmap();
+})();
+</script>
+{% endblock %}
